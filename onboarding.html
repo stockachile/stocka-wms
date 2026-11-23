@@ -1095,6 +1095,16 @@
             <button type="button" id="btn-finish-go-wms" class="btn btn-primary" style="padding: 0.75rem 2rem; font-weight: 600; font-size: 1rem; border-radius: var(--radius-md); box-shadow: var(--shadow-glow);">
               Ir al Portal WMS
             </button>
+
+            <div id="onboarding-resend-email-box" style="max-width: 520px; margin: 1.75rem auto 0 auto; padding: 1rem 1.25rem; border-radius: var(--radius-md); background: var(--color-bg); border: 1px solid var(--color-border); text-align: center;">
+              <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                ¿No recibiste el correo de confirmación? Revisa tu carpeta de <strong>Spam o Correo no deseado</strong>, o solicita un nuevo envío:
+              </p>
+              <button type="button" id="btn-resend-onboarding-email" class="btn btn-outline" style="padding: 0.5rem 1.15rem; font-size: 0.85rem; font-weight: 600; border-color: var(--color-border); color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-mail-send-line"></i> Reenviar correo de confirmación
+              </button>
+              <div id="onboarding-resend-feedback" style="margin-top: 0.6rem; font-size: 0.82rem; font-weight: 600; min-height: 1.2em;"></div>
+            </div>
           </div>
 
           <!-- Botones de Navegación -->
@@ -1166,6 +1176,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- App Scripts -->
   <script type="module" src="./js/supabase.js"></script>
-  <script type="module" src="./js/onboarding.js?v=1.1.0"></script>
+  <script type="module" src="./js/onboarding.js?v=1.2.0"></script>
 </body>
 </html>

@@ -252,7 +252,9 @@ export async function loadRadarMetadata(force = false) {
     const [comRes, intRes, incRes, cfgRes] = await Promise.all([
       supabase.from('v_comercios_config').select('nombre, sigla').order('nombre', { ascending: true }),
       supabase.from('merchant_integrations').select('id, platform, comercio, is_active, last_sync_at, last_sync_error, username'),
-      supabase.from('incidencias').select('id, comercio, title, type, severity, status, created_at').eq('status', 'pendiente'),
+      window.STOCKA_INCIDENCIAS_MODULE_ENABLED
+        ? supabase.from('incidencias').select('id, comercio, title, type, severity, status, created_at').eq('status', 'pendiente')
+        : Promise.resolve({ data: [] }),
       supabase.from('comercios_adicional_config').select('*')
     ]);
 
@@ -349,15 +351,17 @@ function initRadarRealtimeSubscriptions() {
             window.renderMerchantsRadar();
           }
         });
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidencias' }, () => {
+      });
+    if (window.STOCKA_INCIDENCIAS_MODULE_ENABLED) {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'incidencias' }, () => {
         loadRadarMetadata(true).then(() => {
           if (window.wmsOrdersActiveSubView === 'merchants_radar') {
             window.renderMerchantsRadar();
           }
         });
-      })
-      .subscribe();
+      });
+    }
+    channel.subscribe();
     window._wmsRadarRealtimeChannel = channel;
   } catch (e) {
     console.warn('[MerchantsRadar] No se pudo suscribir canal realtime secundario:', e);
@@ -493,7 +497,7 @@ function aggregateOrdersSubset(ordersSubset, configuredPlatformsMap, openTickets
   if (b.courierAlerta > 0) {
     incidentsList.push({ label: `${b.courierAlerta} Alerta courier`, count: b.courierAlerta, severity: 'warning', actionType: 'tag', actionValue: 'ALERTA' });
   }
-  if (!filterPlatformKey && openTickets.length > 0) {
+  if (window.STOCKA_INCIDENCIAS_MODULE_ENABLED && !filterPlatformKey && openTickets.length > 0) {
     incidentsList.push({ label: `${openTickets.length} Ticket${openTickets.length === 1 ? '' : 's'}`, count: openTickets.length, severity: 'warning', actionType: 'incidencias_module', actionValue: '' });
   }
 
@@ -1375,7 +1379,7 @@ window.openMerchantFromRadarCard = function(merchantKey, merchantName) {
     : null;
 
   // Si seleccionó un ticket del módulo de incidencias
-  if (cf.incident && cf.incident.actionType === 'incidencias_module') {
+  if (window.STOCKA_INCIDENCIAS_MODULE_ENABLED && cf.incident && cf.incident.actionType === 'incidencias_module') {
     const navLink = document.querySelector('[data-view="incidencias_admin"]');
     if (navLink) navLink.click();
     return;

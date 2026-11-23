@@ -22,6 +22,10 @@ https://stocka-wms.netlify.app/* https://wms.stocka.cl/:splat 301!
 /rastreo /seguimiento.html 200
 /seguimiento.html /seguimiento.html 200
 /tracking.html /seguimiento.html 200
+/cambios /cambios.html 200
+/devoluciones /cambios.html 200
+/reversa /cambios.html 200
+/cambios.html /cambios.html 200
 
 # Rutas limpias del WMS (Admin y Portal Cliente / Seller)
 /admin /admin.html 200

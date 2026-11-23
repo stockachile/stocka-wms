@@ -2305,28 +2305,34 @@ export function resolveInvoiceEmailCandidates(comercioName, dataset = null, extr
       });
   };
 
-  // 1. Contactos activos de facturación (prioridad oficial de Brevo)
+  // 1. Contactos activos de facturación (prioridad oficial de Brevo, respetando email_preferences.billing)
   const allContacts = (ds.contacts || []).filter(c => c?.email && aliases.has(norm(c.comercio)));
   const activeContacts = allContacts.filter(c => c.activo !== false);
-  const hasActiveContacts = activeContacts.length > 0;
+  const billingEnabledContacts = activeContacts.filter(c => !c.email_preferences || c.email_preferences.billing !== false);
+  const billingMutedContacts = activeContacts.filter(c => c.email_preferences && c.email_preferences.billing === false);
+  const billingMutedSet = new Set(billingMutedContacts.map(c => norm(c.email)));
+  const hasActiveContacts = billingEnabledContacts.length > 0;
 
-  activeContacts.forEach(c => {
+  billingEnabledContacts.forEach(c => {
     pushCandidate(c.email, c.nombre || 'Finanzas', c.rol || 'Cobranza', true);
   });
 
   // 2. Correos adicionales provistos en el modal (ej. Correo Receptor DTE)
   (extraEmails || []).forEach(em => {
-    pushCandidate(em, 'Receptor DTE', 'Factura SII', !hasActiveContacts);
+    const clean = norm(em);
+    pushCandidate(em, 'Receptor DTE', 'Factura SII', !hasActiveContacts && !billingMutedSet.has(clean));
   });
 
   // 3. Configuración legal / tributaria del comercio
   if (typeof window.getBillingCommerceLegalInfo === 'function') {
     const leg = window.getBillingCommerceLegalInfo(comercioName, ds);
     if (leg.email_facturacion) {
-      pushCandidate(leg.email_facturacion, 'Facturación SII', 'Ficha SII', !hasActiveContacts && candidates.filter(c => c.defaultSelected).length === 0);
+      const clean = norm(leg.email_facturacion);
+      pushCandidate(leg.email_facturacion, 'Facturación SII', 'Ficha SII', !hasActiveContacts && !billingMutedSet.has(clean) && candidates.filter(c => c.defaultSelected).length === 0);
     }
     if (leg.rep_legal_email) {
-      pushCandidate(leg.rep_legal_email, leg.rep_legal_nombre || 'Rep. Legal', 'Legal', !hasActiveContacts && candidates.filter(c => c.defaultSelected).length === 0);
+      const clean = norm(leg.rep_legal_email);
+      pushCandidate(leg.rep_legal_email, leg.rep_legal_nombre || 'Rep. Legal', 'Legal', !hasActiveContacts && !billingMutedSet.has(clean) && candidates.filter(c => c.defaultSelected).length === 0);
     }
   }
 
@@ -2342,12 +2348,16 @@ export function resolveInvoiceEmailCandidates(comercioName, dataset = null, extr
     if (!p?.email || p.role === 'admin' || !p.comercio) return;
     const assigned = String(p.comercio).split(',').map(s => norm(s));
     if (assigned.some(a => aliases.has(a))) {
-      const shouldSelectFallback = !hasActiveContacts && candidates.filter(c => c.defaultSelected).length === 0;
+      const clean = norm(p.email);
+      const shouldSelectFallback = !hasActiveContacts && !billingMutedSet.has(clean) && candidates.filter(c => c.defaultSelected).length === 0;
       pushCandidate(p.email, p.full_name || 'Usuario Portal', 'Portal WMS', shouldSelectFallback);
     }
   });
 
-  // 5. Contactos inactivos (disponibles para marcar manualmente si se desea)
+  // 5. Contactos con facturación desactivada o inactivos (disponibles para marcar manualmente si se desea)
+  billingMutedContacts.forEach(c => {
+    pushCandidate(c.email, c.nombre || 'Contacto', 'Sin Facturación', false);
+  });
   allContacts
     .filter(c => c.activo === false)
     .forEach(c => pushCandidate(c.email, c.nombre || 'Contacto', 'Inactivo', false));

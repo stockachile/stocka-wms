@@ -1979,10 +1979,10 @@ window.openEnviameProcessPreviewModal = async function(periodId) {
   try {
     const { data: contactsData, error: contactsErr } = await supabase
       .from('billing_contacts')
-      .select('comercio, nombre, email, rol, activo')
+      .select('comercio, nombre, email, rol, activo, email_preferences')
       .eq('activo', true);
     if (!contactsErr && contactsData) {
-      allContacts = contactsData;
+      allContacts = contactsData.filter(c => !c.email_preferences || c.email_preferences.billing !== false);
     }
   } catch (err) {
     console.warn('Error al cargar billing_contacts:', err);
@@ -2541,11 +2541,13 @@ window.executeConfirmedEnviameProcessing = async function(periodId) {
       if (notifyClient && recordId) {
         const { data: contacts } = await supabase
           .from('billing_contacts')
-          .select('email')
+          .select('email, activo, email_preferences')
           .eq('comercio', billingGroupName)
           .eq('activo', true);
           
-        const emails = (contacts || []).map(c => c.email);
+        const emails = (contacts || [])
+          .filter(c => !c.email_preferences || c.email_preferences.billing !== false)
+          .map(c => c.email);
         if (emails.length > 0) {
           const { data: { session } } = await supabase.auth.getSession();
           if (session) {

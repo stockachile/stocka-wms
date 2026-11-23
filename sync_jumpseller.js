@@ -233,10 +233,20 @@ async function syncProducts(integration, headers) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter(e => e.platform === 'Jumpseller').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -456,10 +466,20 @@ async function syncOrders(integration, headers, warehouseId) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter(e => e.platform === 'Jumpseller').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -544,7 +564,7 @@ async function syncOrders(integration, headers, warehouseId) {
           const prodIdRef = op.product_id || op.id;
           let sku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
           sku = sku.trim().replace(/\s+/g, '');
-          let mappedSku = skuMap[sku] || sku;
+          let mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
 
           itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(op.qty || op.quantity || 1);
           if (op.name && !itemNames.includes(op.name)) {
@@ -782,18 +802,29 @@ async function syncOrders(integration, headers, warehouseId) {
             const prodIdRef = op.product_id || op.id;
             let opSku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
             let cleanItemSku = opSku.trim().replace(/\s+/g, '');
-            let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+            let mappedItemSku = skuMap[cleanItemSku] || skuMap[cleanItemSku.toUpperCase()] || cleanItemSku;
             return mappedItemSku === sku;
           });
           const itemImageUrl = (typeof itemDetail?.image === 'string' ? itemDetail.image : itemDetail?.image?.url) || null;
 
-          // Buscar producto en la base de datos
+          // Buscar producto en la base de datos (exacto o case-insensitive)
           let { data: product } = await supabase
             .from('products')
             .select('id, is_pack, image_url')
             .eq('sku', sku)
             .eq('comercio', integration.comercio)
             .maybeSingle();
+
+          if (!product && sku) {
+            const { data: ilikeProd } = await supabase
+              .from('products')
+              .select('id, is_pack, image_url')
+              .ilike('sku', sku)
+              .eq('comercio', integration.comercio)
+              .limit(1)
+              .maybeSingle();
+            if (ilikeProd) product = ilikeProd;
+          }
 
           if (product && !product.image_url && itemImageUrl) {
             await supabase.from('products').update({ image_url: itemImageUrl }).eq('id', product.id);

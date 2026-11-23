@@ -1,0 +1,687 @@
+/* ==========================================================================
+   STOCKA WMS — PWA Onboarding Modal & Push Device Management Styles
+   Fiel a la estética premium de configuración de dispositivo (Dark & Light)
+   ========================================================================== */
+
+.stocka-pwa-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100500;
+  background: rgba(5, 8, 18, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.22s ease, visibility 0.22s ease;
+}
+
+.stocka-pwa-backdrop.is-open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.stocka-pwa-modal {
+  width: 100%;
+  max-width: 488px;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  background: #111827;
+  color: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 20px;
+  padding: 1.5rem 1.5rem 1.35rem;
+  box-shadow: 0 28px 65px -12px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  position: relative;
+  transform: translateY(14px) scale(0.98);
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: var(--font-family, 'Inter', -apple-system, BlinkMacSystemFont, sans-serif);
+}
+
+.stocka-pwa-backdrop.is-open .stocka-pwa-modal {
+  transform: translateY(0) scale(1);
+}
+
+/* Soporte nativo para tema claro manteniendo contraste premium */
+html:not([data-theme="dark"]) .stocka-pwa-modal {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #e2e8f0;
+  box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.28);
+}
+
+.stocka-pwa-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.stocka-pwa-close:hover {
+  background: rgba(148, 163, 184, 0.14);
+  color: #f8fafc;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-close:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+/* Header */
+.stocka-pwa-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.95rem;
+  margin-bottom: 1.25rem;
+  padding-right: 1.75rem;
+}
+
+.stocka-pwa-app-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 13px;
+  flex-shrink: 0;
+  object-fit: cover;
+  box-shadow: 0 8px 20px -4px rgba(24, 0, 173, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.stocka-pwa-title {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  color: inherit;
+}
+
+.stocka-pwa-subtitle {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #94a3b8;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-subtitle {
+  color: #475569;
+}
+
+/* Step Cards */
+.stocka-pwa-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+}
+
+.stocka-pwa-step-card {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 15px;
+  padding: 1rem 1.05rem;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.stocka-pwa-step-card.is-done {
+  border-color: rgba(16, 185, 129, 0.38);
+}
+
+.stocka-pwa-step-card.is-blocked {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-step-card {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-step-card.is-done {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.stocka-pwa-step-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.stocka-pwa-step-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.stocka-pwa-step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+
+.stocka-pwa-step-card.is-done .stocka-pwa-step-num {
+  background: #10b981;
+}
+
+.stocka-pwa-step-card.is-blocked .stocka-pwa-step-num {
+  background: #ef4444;
+}
+
+.stocka-pwa-step-title {
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: inherit;
+}
+
+.stocka-pwa-pill {
+  font-size: 0.73rem;
+  font-weight: 700;
+  padding: 0.22rem 0.68rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.stocka-pwa-pill--pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.stocka-pwa-pill--done {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-pill--done {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.stocka-pwa-pill--blocked {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-pill--blocked {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.stocka-pwa-pill--info {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-pill--info {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+/* Mini Browser Install Mockup (Step 1) */
+.stocka-pwa-browser-mock {
+  max-width: 318px;
+  margin: 0 auto 0.85rem;
+  background: #1e293b;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 12px;
+  padding: 0.55rem 0.6rem 0.75rem;
+  position: relative;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-browser-mock {
+  background: #1e293b;
+  border-color: #cbd5e1;
+}
+
+.stocka-pwa-urlbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.stocka-pwa-urlpill {
+  flex: 1;
+  background: #0f172a;
+  color: #cbd5e1;
+  font-size: 0.73rem;
+  font-weight: 500;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stocka-pwa-url-install-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.16);
+  border: 1.5px solid #10b981;
+  color: #e2e8f0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.stocka-pwa-native-dialog {
+  margin-left: auto;
+  width: 78%;
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+}
+
+.stocka-pwa-native-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+}
+
+.stocka-pwa-native-dialog-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.stocka-pwa-native-dialog-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.stocka-pwa-native-dialog-sub {
+  font-size: 0.69rem;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.stocka-pwa-native-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.stocka-pwa-native-install-chip {
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.28rem 0.78rem;
+  border-radius: 7px;
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px rgba(16, 185, 129, 0.65);
+}
+
+/* iOS Safari Guide Mockup */
+.stocka-pwa-ios-guide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 11px;
+  padding: 0.75rem 0.85rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.8rem;
+  color: #e2e8f0;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-ios-guide {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e293b;
+}
+
+.stocka-pwa-ios-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: rgba(37, 99, 235, 0.18);
+  color: #60a5fa;
+  padding: 0.22rem 0.55rem;
+  border-radius: 7px;
+  font-weight: 700;
+  font-size: 0.77rem;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-ios-chip {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+/* Notification Preview Mockup (Step 2) */
+.stocka-pwa-notif-mock {
+  max-width: 318px;
+  margin: 0 auto 0.85rem;
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 12px;
+  padding: 0.72rem 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.72rem;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.stocka-pwa-notif-mock-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.stocka-pwa-notif-mock-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.25;
+  margin-bottom: 0.12rem;
+}
+
+.stocka-pwa-notif-mock-body {
+  font-size: 0.73rem;
+  color: #475569;
+  line-height: 1.3;
+}
+
+.stocka-pwa-step-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.48;
+  color: #cbd5e1;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-step-desc {
+  color: #475569;
+}
+
+.stocka-pwa-step-inline-action {
+  margin-top: 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.stocka-pwa-link-btn {
+  background: transparent;
+  border: none;
+  color: #60a5fa;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.stocka-pwa-link-btn:hover {
+  background: rgba(59, 130, 246, 0.14);
+  color: #93c5fd;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-link-btn {
+  color: #2563eb;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-link-btn:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+/* Status feedback banner inside modal */
+.stocka-pwa-feedback {
+  margin-top: 0.85rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  display: none;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.stocka-pwa-feedback.is-visible {
+  display: flex;
+}
+
+.stocka-pwa-feedback--success {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.32);
+  color: #6ee7b7;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-feedback--success {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+.stocka-pwa-feedback--info {
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.32);
+  color: #93c5fd;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-feedback--info {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e40af;
+}
+
+.stocka-pwa-feedback--error {
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.32);
+  color: #fca5a5;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-feedback--error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+/* Footer */
+.stocka-pwa-footer {
+  margin-top: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.stocka-pwa-primary-btn {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 11px;
+  padding: 0.78rem 1.25rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  box-shadow: 0 8px 20px -6px rgba(37, 99, 235, 0.65);
+  transition: background 0.18s ease, transform 0.15s ease, box-shadow 0.18s ease;
+}
+
+.stocka-pwa-primary-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+.stocka-pwa-primary-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.stocka-pwa-primary-btn--success {
+  background: #059669;
+  box-shadow: 0 8px 20px -6px rgba(5, 150, 105, 0.55);
+}
+
+.stocka-pwa-primary-btn--success:hover:not(:disabled) {
+  background: #047857;
+}
+
+.stocka-pwa-later-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+
+.stocka-pwa-later-btn:hover {
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-later-btn {
+  color: #64748b;
+}
+
+html:not([data-theme="dark"]) .stocka-pwa-later-btn:hover {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+/* Header Dock Button Pending Dot */
+.pwa-header-btn {
+  position: relative;
+}
+
+.pwa-header-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #f59e0b;
+  border: 1.5px solid var(--color-surface, #ffffff);
+  pointer-events: none;
+}
+
+.pwa-header-dot.is-ready {
+  background: #10b981;
+}
+
+/* Profile Device Push Management Card */
+.pwa-profile-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 14px);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.pwa-profile-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.pwa-profile-stat-box {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 10px);
+  padding: 0.85rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pwa-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.pwa-devices-list {
+  margin-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pwa-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 540px) {
+  .stocka-pwa-modal {
+    padding: 1.2rem 1.05rem 1.1rem;
+    border-radius: 16px;
+  }
+  .stocka-pwa-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .stocka-pwa-later-btn {
+    text-align: center;
+  }
+  .stocka-pwa-native-dialog {
+    width: 88%;
+  }
+}

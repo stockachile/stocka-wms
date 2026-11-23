@@ -8,6 +8,9 @@ if (window.location.hostname === 'stocka-wms.netlify.app') {
   window.location.replace('https://wms.stocka.cl' + window.location.pathname + window.location.search + window.location.hash);
 }
 
+// Módulo de Incidencias oculto temporalmente (cambiar a true para volver a habilitarlo)
+window.STOCKA_INCIDENCIAS_MODULE_ENABLED = false;
+
 // =========================================================================
 // 0.1 Enrutador Limpio por URL (StockaRouter - History API + Rutas Amigables)
 // =========================================================================
@@ -2442,7 +2445,7 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       const counts = {
-        incidencias: readBadge('badge-incidencias-admin'),
+        incidencias: window.STOCKA_INCIDENCIAS_MODULE_ENABLED ? readBadge('badge-incidencias-admin') : 0,
         declarations: readBadge('badge-declarations'),
         tickets: readBadge('badge-tickets-support') || readBadge('badge-tickets-sidebar') || readBadge('badge-tickets'),
         onboarding: readBadge('badge-onboarding'),
@@ -2979,7 +2982,7 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       const counts = {
-        incidencias: readBadge('badge-incidencias'),
+        incidencias: window.STOCKA_INCIDENCIAS_MODULE_ENABLED ? readBadge('badge-incidencias') : 0,
         inventory: readBadge('badge-inventory-client'),
         surveys: readBadge('badge-surveys-client')
       };

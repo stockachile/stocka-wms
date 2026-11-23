@@ -499,10 +499,20 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter(e => e.platform === 'WooCommerce').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -595,9 +605,9 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       
       for (const item of (order.line_items || [])) {
         let sku = item.sku || `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}`;
-        sku = sku.replace(/\s+/g, '');
-        // Aplicar equivalencia de SKU
-        let mappedSku = skuMap[sku] || sku;
+        sku = sku.trim().replace(/\s+/g, '');
+        // Aplicar equivalencia de SKU (case-insensitive)
+        let mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
         itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity);
         if (item.name && !itemNames.includes(item.name)) {
           itemNames.push(item.name);
@@ -806,19 +816,30 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           // Buscar detalle del item original usando mapeo inverso
           const itemDetail = (order.line_items || []).find(item => {
             let itemSku = item.sku || `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}`;
-            let cleanItemSku = itemSku.replace(/\s+/g, '');
-            let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+            let cleanItemSku = itemSku.trim().replace(/\s+/g, '');
+            let mappedItemSku = skuMap[cleanItemSku] || skuMap[cleanItemSku.toUpperCase()] || cleanItemSku;
             return mappedItemSku === sku;
           });
           const itemImageUrl = itemDetail?.image?.src || (typeof itemDetail?.image === 'string' ? itemDetail.image : null);
 
-          // Buscar producto en la base de datos
+          // Buscar producto en la base de datos (exacto o case-insensitive)
           let { data: product } = await supabase
             .from('products')
             .select('id, is_pack, image_url')
             .eq('sku', sku)
             .eq('comercio', integration.comercio)
             .maybeSingle();
+
+          if (!product && sku) {
+            const { data: ilikeProd } = await supabase
+              .from('products')
+              .select('id, is_pack, image_url')
+              .ilike('sku', sku)
+              .eq('comercio', integration.comercio)
+              .limit(1)
+              .maybeSingle();
+            if (ilikeProd) product = ilikeProd;
+          }
 
           if (product && !product.image_url && itemImageUrl) {
             await supabase.from('products').update({ image_url: itemImageUrl }).eq('id', product.id);

@@ -61,20 +61,135 @@ export async function renderNotifications(targetContainer) {
     report_weekly_sales: false,
     report_monthly_activity: false,
     notify_order_no_stock: false,
-    order_no_stock_timing: 'instant'
+    order_no_stock_timing: 'instant',
+    push_enabled: true,
+    push_billing: true,
+    push_tickets: true,
+    push_inbounds: true,
+    push_incidents: true,
+    push_stock_alerts: true,
+    push_announcements: true
   };
 
-  const currentSettings = settings || defaultSettings;
+  const currentSettings = { ...defaultSettings, ...(settings || {}) };
 
   // Generar HTML de la interfaz de usuario para insertar en la pestaña de perfil
   container.innerHTML = `
     <div class="notifications-container">
-      <div style="margin-bottom: 1rem; padding: 0.25rem 0.5rem;">
+      <!-- Bloque PWA y Notificaciones Push en este dispositivo -->
+      <div id="pwa-profile-device-card-mount"></div>
+
+      <div style="margin-bottom: 0.5rem; padding: 0.25rem 0.5rem;">
         <h4 style="margin: 0 0 0.25rem 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main);">Preferencias de Alertas y Reportes</h4>
-        <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">Configura los correos automáticos que deseas recibir. Todos los envíos se realizan desde <strong>info@stocka.cl</strong>.</p>
+        <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">Configura tus avisos Push en dispositivo y los correos automáticos desde <strong>info@stocka.cl</strong>.</p>
       </div>
 
       <form id="notifications-form" class="notifications-form">
+
+        <!-- Categorías de Avisos Push Instantáneos -->
+        <div class="section-card">
+          <div class="section-card-header">
+            <i class="ri-notification-badge-line"></i>
+            <div>
+              <h3>Avisos Push Instantáneos (App y Navegador)</h3>
+              <p>Elige qué notificaciones en tiempo real deseas recibir en tus dispositivos vinculados</p>
+            </div>
+          </div>
+          <div class="section-card-body">
+            <div class="setting-row">
+              <div class="setting-info">
+                <label class="setting-title">Habilitar avisos Push en mis dispositivos</label>
+                <span class="setting-desc">Interruptor maestro para pausar o reanudar todos los avisos Push de tu cuenta.</span>
+              </div>
+              <div class="setting-control">
+                <label class="switch">
+                  <input type="checkbox" id="push_enabled" ${currentSettings.push_enabled !== false ? 'checked' : ''}>
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div id="push-categories-options" class="conditional-fields" style="display: ${currentSettings.push_enabled !== false ? 'flex' : 'none'};">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label class="setting-title" style="font-size: 0.92rem;">Facturación y pagos</label>
+                  <span class="setting-desc">Nuevas facturas, estados de cuenta, vencimientos y confirmaciones de pago.</span>
+                </div>
+                <div class="setting-control">
+                  <label class="switch">
+                    <input type="checkbox" id="push_billing" ${currentSettings.push_billing !== false ? 'checked' : ''}>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-row" style="border-top: 1px solid var(--color-border); padding-top: 0.9rem;">
+                <div class="setting-info">
+                  <label class="setting-title" style="font-size: 0.92rem;">Respuestas en Tickets de Soporte</label>
+                  <span class="setting-desc">Aviso inmediato cuando el equipo Stocka responda o resuelva un ticket.</span>
+                </div>
+                <div class="setting-control">
+                  <label class="switch">
+                    <input type="checkbox" id="push_tickets" ${currentSettings.push_tickets !== false ? 'checked' : ''}>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-row" style="border-top: 1px solid var(--color-border); padding-top: 0.9rem;">
+                <div class="setting-info">
+                  <label class="setting-title" style="font-size: 0.92rem;">Ingresos de Stock a Bodega</label>
+                  <span class="setting-desc">Asignación de bodega, recepción y confirmación de tus ingresos declarados.</span>
+                </div>
+                <div class="setting-control">
+                  <label class="switch">
+                    <input type="checkbox" id="push_inbounds" ${currentSettings.push_inbounds !== false ? 'checked' : ''}>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-row" style="border-top: 1px solid var(--color-border); padding-top: 0.9rem;">
+                <div class="setting-info">
+                  <label class="setting-title" style="font-size: 0.92rem;">Incidencias operacionales</label>
+                  <span class="setting-desc">Alertas cuando se registre una incidencia que requiera tu atención.</span>
+                </div>
+                <div class="setting-control">
+                  <label class="switch">
+                    <input type="checkbox" id="push_incidents" ${currentSettings.push_incidents !== false ? 'checked' : ''}>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-row" style="border-top: 1px solid var(--color-border); padding-top: 0.9rem;">
+                <div class="setting-info">
+                  <label class="setting-title" style="font-size: 0.92rem;">Stock agotado y pedidos sin stock</label>
+                  <span class="setting-desc">Avisos cuando un SKU llegue a stock 0 o un pedido quede retenido por stock.</span>
+                </div>
+                <div class="setting-control">
+                  <label class="switch">
+                    <input type="checkbox" id="push_stock_alerts" ${currentSettings.push_stock_alerts !== false ? 'checked' : ''}>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-row" style="border-top: 1px solid var(--color-border); padding-top: 0.9rem;">
+                <div class="setting-info">
+                  <label class="setting-title" style="font-size: 0.92rem;">Comunicados y novedades de Stocka</label>
+                  <span class="setting-desc">Avisos de cortes de despacho, feriados, eventos Cyber y nuevas funciones.</span>
+                </div>
+                <div class="setting-control">
+                  <label class="switch">
+                    <input type="checkbox" id="push_announcements" ${currentSettings.push_announcements !== false ? 'checked' : ''}>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         
         <!-- Alertas de Stock e Inventario -->
         <div class="section-card">
@@ -293,6 +408,20 @@ export async function renderNotifications(targetContainer) {
 
   // --- LÓGICA DE INTERACCIONES Y EVENTOS ---
 
+  // 0. Renderizar tarjeta de App Instalada y Dispositivos Push
+  const pwaMount = document.getElementById('pwa-profile-device-card-mount');
+  if (pwaMount && window.StockaPWA && typeof window.StockaPWA.renderDevicePushCard === 'function') {
+    window.StockaPWA.renderDevicePushCard(pwaMount);
+  }
+
+  const pushEnabledCheck = document.getElementById('push_enabled');
+  const pushCategoriesOptions = document.getElementById('push-categories-options');
+  if (pushEnabledCheck && pushCategoriesOptions) {
+    pushEnabledCheck.addEventListener('change', (e) => {
+      pushCategoriesOptions.style.display = e.target.checked ? 'flex' : 'none';
+    });
+  }
+
   // 1. Mostrar/Ocultar secciones condicionales con animación suave
   const reportCriticalStockCheck = document.getElementById('report_critical_stock');
   const criticalStockOptions = document.getElementById('critical-stock-options');
@@ -343,6 +472,14 @@ export async function renderNotifications(targetContainer) {
     const orderNoStockTimingEl = document.querySelector('input[name="order_no_stock_timing"]:checked');
     const order_no_stock_timing = orderNoStockTimingEl ? orderNoStockTimingEl.value : 'instant';
 
+    const push_enabled = document.getElementById('push_enabled')?.checked !== false;
+    const push_billing = document.getElementById('push_billing')?.checked !== false;
+    const push_tickets = document.getElementById('push_tickets')?.checked !== false;
+    const push_inbounds = document.getElementById('push_inbounds')?.checked !== false;
+    const push_incidents = document.getElementById('push_incidents')?.checked !== false;
+    const push_stock_alerts = document.getElementById('push_stock_alerts')?.checked !== false;
+    const push_announcements = document.getElementById('push_announcements')?.checked !== false;
+
     try {
       const payload = {
         user_id: userId,
@@ -358,6 +495,13 @@ export async function renderNotifications(targetContainer) {
         report_monthly_activity,
         notify_order_no_stock,
         order_no_stock_timing,
+        push_enabled,
+        push_billing,
+        push_tickets,
+        push_inbounds,
+        push_incidents,
+        push_stock_alerts,
+        push_announcements,
         updated_at: new Date().toISOString()
       };
 

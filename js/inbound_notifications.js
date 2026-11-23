@@ -35,10 +35,13 @@
 
   /**
    * Obtiene la lista de correos de usuarios asociados a un comercio
+   * respetando las preferencias granulares (email_preferences.inbounds) de billing_contacts.
    */
   async function getCommerceNotificationEmails(comercio) {
     if (!comercio || comercio === 'no asignado') return [];
     const emails = new Set();
+    const optedOutEmails = new Set();
+    const explicitlyAllowedEmails = new Set();
     const targetComercioLower = comercio.trim().toLowerCase();
 
     try {
@@ -47,6 +50,21 @@
         console.warn('[Inbound Notifications] Supabase client no inicializado aún.');
         return [];
       }
+
+      // 0. Resolver alias / conglomerado desde billing_mappings (best-effort)
+      const aliasSet = new Set([targetComercioLower]);
+      try {
+        const { data: mappings } = await client
+          .from('billing_mappings')
+          .select('comercio_nombre, billing_name')
+          .or(`comercio_nombre.ilike."${comercio.trim()}",billing_name.ilike."${comercio.trim()}"`);
+        if (Array.isArray(mappings)) {
+          mappings.forEach(m => {
+            if (m.comercio_nombre) aliasSet.add(m.comercio_nombre.trim().toLowerCase());
+            if (m.billing_name) aliasSet.add(m.billing_name.trim().toLowerCase());
+          });
+        }
+      } catch (_) {}
 
       // 1. Obtener perfiles de usuarios de la base de datos
       const { data: profiles, error: profErr } = await client
@@ -87,21 +105,35 @@
         }
       }
 
-      // 3. Obtener contactos activos de facturación / notificaciones del comercio como respaldo
+      // 3. Obtener contactos del directorio (activos e inactivos) para incluir habilitados y aplicar exclusiones por preferencia
       const { data: billingContacts, error: bcErr } = await client
         .from('billing_contacts')
-        .select('email')
-        .ilike('comercio', targetComercioLower)
-        .eq('activo', true);
+        .select('comercio, email, activo, email_preferences');
 
       if (!bcErr && Array.isArray(billingContacts)) {
         billingContacts.forEach(c => {
-          const clean = (c?.email || '').trim().toLowerCase();
-          if (clean.includes('@') && clean.includes('.')) {
+          if (!c?.comercio || !c?.email) return;
+          const bcCom = c.comercio.trim().toLowerCase();
+          if (!aliasSet.has(bcCom)) return;
+          const clean = c.email.trim().toLowerCase();
+          if (!clean.includes('@') || !clean.includes('.')) return;
+
+          const allowsInbounds = c.activo !== false && (!c.email_preferences || c.email_preferences.inbounds !== false);
+          if (allowsInbounds) {
+            explicitlyAllowedEmails.add(clean);
             emails.add(clean);
+          } else {
+            optedOutEmails.add(clean);
           }
         });
       }
+
+      // Aplicar opt-out explícito: si un correo tiene desactivado 'inbounds' (o está inactivo) para este comercio, excluirlo aunque exista en profiles o email_colaborador
+      optedOutEmails.forEach(em => {
+        if (!explicitlyAllowedEmails.has(em)) {
+          emails.delete(em);
+        }
+      });
     } catch (err) {
       console.error('[Inbound Notifications] Error al obtener correos del comercio:', err);
     }
@@ -933,6 +965,32 @@
         inAppMsg = `Se ha asignado la sucursal "${warehouse.name}"${newAddrText ? ` (${newAddrText})` : ''} para tu ingreso "${title}" (${shortCode}).${stageComment ? ` Nota: "${stageComment}"` : ''}`;
       }
       await createInAppNotifications(comercio, inAppTitle, inAppMsg);
+
+      // 6. Enviar notificación Web Push (best-effort, no bloqueante)
+      try {
+        if (window.StockaPWA && typeof window.StockaPWA.sendPush === 'function') {
+          if (event === 'created') {
+            window.StockaPWA.sendPush({
+              client_event: 'inbound_created',
+              title: `📥 Nuevo ingreso ${shortCode} (${comercio})`,
+              body: title ? `"${title}" — Revisa y asigna bodega.` : `Se declaró un nuevo ingreso de stock de ${comercio}.`,
+              url: '/admin/ingresos',
+              tag: `inbound-new-${declarationId || shortCode}`
+            });
+          } else if (comercio && comercio !== 'no asignado') {
+            window.StockaPWA.sendPush({
+              comercio: comercio,
+              category: 'inbounds',
+              title: `📦 ${inAppTitle}`,
+              body: inAppMsg.slice(0, 200),
+              url: '/panel/ingresos',
+              tag: `inbound-${event}-${declarationId || shortCode}`
+            });
+          }
+        }
+      } catch (pushErr) {
+        console.warn('[Inbound Notifications] Error no bloqueante en Web Push:', pushErr);
+      }
 
       return { success: true, recipients: recipients };
     } catch (err) {

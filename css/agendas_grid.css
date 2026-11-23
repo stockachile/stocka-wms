@@ -1217,3 +1217,64 @@ body.resizing-columns * {
   color: var(--color-text-main);
 }
 
+/* ==========================================================================
+   10. Enlace Directo a Google Maps en Columna Dirección
+   ========================================================================== */
+.excel-address-cell {
+  width: 100%;
+}
+
+.excel-address-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+  width: 100%;
+  color: var(--color-text-main);
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+
+.excel-address-text {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.25;
+  text-decoration: underline;
+  text-decoration-color: rgba(37, 99, 235, 0.35);
+  text-underline-offset: 2px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.excel-address-map-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  font-size: 0.8rem;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.excel-address-link:hover .excel-address-text,
+.excel-address-link:focus-visible .excel-address-text {
+  color: #2563eb;
+  text-decoration-color: #2563eb;
+}
+
+.excel-address-link:hover .excel-address-map-icon,
+.excel-address-link:focus-visible .excel-address-map-icon {
+  background: #2563eb;
+  color: #ffffff;
+  transform: scale(1.06);
+}
+
+

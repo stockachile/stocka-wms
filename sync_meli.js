@@ -299,13 +299,24 @@ async function getValidAccessToken(integration) {
  */
 async function insertOrderItems(localOrderId, itemQuantities, itemsList, resolvedCommerce, integration, warehouseId, accessToken) {
   for (const [sku, qty] of Object.entries(itemQuantities)) {
-    // Buscar producto por SKU
+    // Buscar producto por SKU (exacto o case-insensitive)
     let { data: product } = await supabase
       .from('products')
       .select('id')
       .eq('sku', sku)
       .eq('comercio', resolvedCommerce)
       .maybeSingle();
+
+    if (!product && sku) {
+      const { data: ilikeProd } = await supabase
+        .from('products')
+        .select('id')
+        .ilike('sku', sku)
+        .eq('comercio', resolvedCommerce)
+        .limit(1)
+        .maybeSingle();
+      if (ilikeProd) product = ilikeProd;
+    }
 
     if (!product) {
       // Buscar información y barcode (GTIN) en la API de MercadoLibre
@@ -523,10 +534,20 @@ async function syncMerchantOrders(integration) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter(e => e.platform === 'MercadoLibre').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -762,8 +783,8 @@ async function syncMerchantOrders(integration) {
             sku = item.item.id || 'Sin SKU';
           }
           sku = sku.trim().replace(/\s+/g, '');
-          // Aplicar equivalencia de SKU
-          let mappedSku = skuMap[sku] || sku;
+          // Aplicar equivalencia de SKU (case-insensitive)
+          let mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
 
           itemsList.push({
             itemId: item.item.id,
@@ -1109,10 +1130,20 @@ async function syncMerchantProducts(integration) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter(e => e.platform === 'MercadoLibre').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -1211,7 +1242,7 @@ async function syncMerchantProducts(integration) {
               image_url: varImg
             };
 
-            await saveOrUpdateProduct(productDataToSave, skuMap[cleanSku] || cleanSku);
+            await saveOrUpdateProduct(productDataToSave, skuMap[cleanSku] || skuMap[cleanSku.toUpperCase()] || cleanSku);
           }
         } else {
           // Publicación sin variaciones
@@ -1226,7 +1257,7 @@ async function syncMerchantProducts(integration) {
             image_url: mainMeliImg
           };
 
-          await saveOrUpdateProduct(productDataToSave, skuMap[cleanSku] || cleanSku);
+          await saveOrUpdateProduct(productDataToSave, skuMap[cleanSku] || skuMap[cleanSku.toUpperCase()] || cleanSku);
         }
       }
     }

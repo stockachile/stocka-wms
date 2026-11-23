@@ -443,10 +443,20 @@ async function syncMerchantOrders(integration) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter(e => e.platform === 'Walmart').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -519,7 +529,7 @@ async function syncMerchantOrders(integration) {
 
       for (const line of linesArray) {
         const sku = String(line.item?.sku || '').trim().replace(/\s+/g, '');
-        const mappedSku = skuMap[sku] || sku;
+        const mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
         const title = line.item?.productName || 'Producto Walmart';
         const qty = Number(line.orderLineQuantity?.amount || 1);
         

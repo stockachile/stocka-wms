@@ -1,0 +1,2706 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Portal de Cambios y Devoluciones | Stocka Logistics & WMS</title>
+  <meta name="description" content="Portal autogestionado de cambios y devoluciones operado por Stocka WMS. Ingresa con tu correo y gestiona tus pedidos.">
+  <link rel="icon" type="image/png" href="assets/logo.png">
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Remixicon -->
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+
+  <style>
+    :root {
+      --primary: #5c24ff;
+      --primary-hover: #4b1cdb;
+      --primary-subtle: rgba(92, 36, 255, 0.09);
+      --primary-border: rgba(92, 36, 255, 0.25);
+      --success: #10b981;
+      --success-bg: #ecfdf5;
+      --success-border: #a7f3d0;
+      --warning: #f59e0b;
+      --warning-bg: #fffbeb;
+      --warning-border: #fde68a;
+      --danger: #ef4444;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --radius: 18px;
+      --radius-sm: 12px;
+      --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.04);
+      --shadow-md: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    body.is-embed {
+      background: transparent;
+    }
+    body.is-embed .portal-nav,
+    body.is-embed .portal-footer {
+      display: none !important;
+    }
+    body.is-embed .main-wrap {
+      padding: 0.75rem 0.5rem 2rem 0.5rem;
+      max-width: 100%;
+    }
+
+    .portal-nav {
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 0.8rem 1.25rem;
+    }
+    .nav-container {
+      max-width: 1020px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: var(--text-main);
+    }
+    .nav-brand img {
+      height: 32px;
+      width: auto;
+      max-width: 150px;
+      object-fit: contain;
+    }
+    .nav-brand-title {
+      font-size: 1.02rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+    }
+    .nav-brand-subtitle {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: var(--primary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .security-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: var(--primary-subtle);
+      border: 1px solid var(--primary-border);
+      color: var(--primary);
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.74rem;
+      font-weight: 700;
+    }
+
+    .main-wrap {
+      flex: 1;
+      max-width: 960px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 2rem 1.15rem 4rem 1.15rem;
+    }
+
+    .embed-seller-logo {
+      max-height: 52px;
+      max-width: 220px;
+      object-fit: contain;
+      margin: 0 auto 1rem auto;
+      display: block;
+    }
+
+    .hero-header {
+      text-align: center;
+      margin-bottom: 1.75rem;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--primary-subtle);
+      border: 1.5px solid var(--primary-border);
+      color: var(--primary);
+      font-size: 0.74rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.3rem 0.9rem;
+      border-radius: 999px;
+      margin-bottom: 0.7rem;
+    }
+    .hero-title {
+      font-size: 2rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+      margin-bottom: 0.5rem;
+    }
+    .hero-subtitle {
+      font-size: 0.94rem;
+      color: var(--text-muted);
+      max-width: 620px;
+      margin: 0 auto;
+      line-height: 1.55;
+    }
+
+    .policy-banner {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e3a8a;
+      border-radius: var(--radius-sm);
+      padding: 0.85rem 1.1rem;
+      font-size: 0.83rem;
+      line-height: 1.5;
+      margin-bottom: 1.5rem;
+      display: flex;
+      gap: 0.65rem;
+      align-items: flex-start;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      padding: 1.6rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #ffffff;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 0.8rem 1.35rem;
+      font-size: 0.92rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+    .btn-primary:hover:not(:disabled) {
+      filter: brightness(0.93);
+      transform: translateY(-1px);
+    }
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-outline {
+      background: #ffffff;
+      color: var(--text-main);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.7rem 1.15rem;
+      font-size: 0.86rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+    .btn-outline:hover:not(:disabled) {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+
+    .form-label {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #334155;
+      margin-bottom: 0.35rem;
+      display: block;
+    }
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      padding: 0.7rem 0.9rem;
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+      background: #f8fafc;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-main);
+      outline: none;
+      transition: all 0.2s ease;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      background: #ffffff;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-subtle);
+    }
+
+    .otp-input-box {
+      font-family: monospace;
+      font-size: 1.75rem;
+      font-weight: 900;
+      letter-spacing: 0.45em;
+      text-align: center;
+      height: 58px;
+      padding-left: 1.2rem;
+    }
+
+    .session-bar {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0.75rem 1.1rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .tabs-bar {
+      display: flex;
+      gap: 0.5rem;
+      background: #e2e8f0;
+      padding: 0.3rem;
+      border-radius: 12px;
+      margin-bottom: 1.35rem;
+    }
+    .tab-btn {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 0.65rem 1rem;
+      border-radius: 9px;
+      font-size: 0.88rem;
+      font-weight: 800;
+      color: #475569;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      transition: all 0.2s ease;
+    }
+    .tab-btn.active {
+      background: #ffffff;
+      color: var(--text-main);
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+    }
+    .tab-count {
+      background: var(--primary-subtle);
+      color: var(--primary);
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 0.74rem;
+    }
+
+    .order-item-row {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.7rem 0;
+      border-bottom: 1px dashed var(--border);
+    }
+    .order-item-row:last-child {
+      border-bottom: none;
+    }
+    .prod-thumb {
+      width: 54px;
+      height: 54px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #f1f5f9;
+      object-fit: cover;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #94a3b8;
+      font-size: 1.3rem;
+    }
+
+    /* Wizard Steps Header */
+    .wizard-steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.5rem;
+      margin-bottom: 1.4rem;
+    }
+    @media (max-width: 640px) {
+      .wizard-steps {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    .wiz-step {
+      padding: 0.6rem 0.75rem;
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+      background: #f8fafc;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .wiz-step.active {
+      border-color: var(--primary);
+      background: var(--primary-subtle);
+      color: var(--primary);
+    }
+    .wiz-step.done {
+      border-color: var(--success-border);
+      background: var(--success-bg);
+      color: #065f46;
+    }
+    .wiz-num {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #cbd5e1;
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .wiz-step.active .wiz-num { background: var(--primary); }
+    .wiz-step.done .wiz-num { background: var(--success); }
+
+    /* Resolution Cards */
+    .res-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 0.85rem;
+      margin-bottom: 1.35rem;
+    }
+    .res-card {
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem;
+      cursor: pointer;
+      background: #ffffff;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .res-card:hover {
+      border-color: #cbd5e1;
+    }
+    .res-card.selected {
+      border-color: var(--primary);
+      background: var(--primary-subtle);
+    }
+
+    /* Dynamic Form Builder Blocks */
+    .dyn-field-card {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-top: 0.75rem;
+    }
+    .guide-img-box {
+      background: #ffffff;
+      border: 1px dashed #94a3b8;
+      border-radius: 10px;
+      padding: 0.6rem;
+      margin: 0.5rem 0 0.75rem 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      max-width: 100%;
+    }
+    .guide-img-box img {
+      max-height: 90px;
+      max-width: 130px;
+      border-radius: 8px;
+      object-fit: cover;
+      cursor: zoom-in;
+    }
+    .media-thumbs-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-top: 0.65rem;
+    }
+    .media-thumb-item {
+      position: relative;
+      width: 78px;
+      height: 78px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      background: #0f172a;
+    }
+    .media-thumb-item img, .media-thumb-item video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .media-thumb-remove {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(239, 68, 68, 0.92);
+      color: #fff;
+      border: none;
+      font-size: 0.75rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Catalog Explorer */
+    .catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+      gap: 0.85rem;
+      max-height: 440px;
+      overflow-y: auto;
+      padding: 0.25rem;
+    }
+    .cat-card {
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      padding: 0.85rem;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 0.6rem;
+    }
+    .cat-card img {
+      width: 100%;
+      height: 135px;
+      object-fit: contain;
+      background: #f8fafc;
+      border-radius: 8px;
+    }
+
+    .sticky-balance-bar {
+      background: #0f172a;
+      color: #ffffff;
+      border-radius: 14px;
+      padding: 1rem 1.25rem;
+      margin-top: 1.25rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .logistics-option-card {
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem 1.15rem;
+      margin-bottom: 0.75rem;
+      cursor: pointer;
+      background: #ffffff;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      transition: all 0.2s ease;
+    }
+    .logistics-option-card.selected {
+      border-color: var(--primary);
+      background: var(--primary-subtle);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.22rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 800;
+    }
+    .badge-green { background: var(--success-bg); color: #065f46; border: 1px solid var(--success-border); }
+    .badge-amber { background: var(--warning-bg); color: #92400e; border: 1px solid var(--warning-border); }
+    .badge-red { background: var(--danger-bg); color: #991b1b; border: 1px solid var(--danger-border); }
+    .badge-blue { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+    .badge-gray { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+    .spinner {
+      display: inline-block;
+      width: 17px;
+      height: 17px;
+      border: 2.5px solid rgba(255, 255, 255, 0.35);
+      border-radius: 50%;
+      border-top-color: currentColor;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast {
+      position: fixed;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #0f172a;
+      color: #fff;
+      padding: 0.7rem 1.25rem;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      z-index: 99999;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.25s ease;
+      box-shadow: var(--shadow-md);
+    }
+    .toast.show {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .portal-footer {
+      border-top: 1px solid var(--border);
+      padding: 1.75rem 1.25rem;
+      background: var(--surface);
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navbar -->
+  <header class="portal-nav">
+    <div class="nav-container">
+      <a href="https://stocka.cl" target="_blank" class="nav-brand">
+        <img id="nav-logo" src="assets/logo.png" alt="Logo" onerror="this.src='img/newlogotransp.png';">
+        <div>
+          <div id="nav-brand-title" class="nav-brand-title">STOCKA</div>
+          <div id="nav-brand-sub" class="nav-brand-subtitle">Cambios y Devoluciones</div>
+        </div>
+      </a>
+      <div class="nav-right">
+        <span class="security-pill">
+          <i class="ri-shield-check-line"></i> Acceso Verificado
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-wrap">
+    <!-- Custom Logo in Embed Mode -->
+    <div id="embed-logo-wrap" style="display: none; text-align: center;"></div>
+
+    <!-- Hero -->
+    <section class="hero-header">
+      <div class="hero-badge">
+        <i class="ri-loop-left-line"></i> <span id="hero-badge-text">Postventa Autogestionada</span>
+      </div>
+      <h1 id="hero-title" class="hero-title">Cambios y Devoluciones</h1>
+      <p id="hero-subtitle" class="hero-subtitle">
+        Ingresa tu correo electrónico para ver tus compras y gestionar cambios o devoluciones en minutos.
+      </p>
+    </section>
+
+    <!-- Custom Seller Policy Summary -->
+    <div id="seller-policy-banner" class="policy-banner" style="display: none;">
+      <i class="ri-information-line" style="font-size: 1.2rem; flex-shrink: 0; margin-top: 1px;"></i>
+      <div id="seller-policy-text"></div>
+    </div>
+
+    <!-- Dynamic App Mount -->
+    <div id="portal-app">
+      <div class="card" style="text-align: center; padding: 3rem 1.5rem;">
+        <span class="spinner" style="color: var(--primary); width: 28px; height: 28px;"></span>
+        <p style="margin-top: 0.85rem; color: var(--text-muted); font-size: 0.9rem; font-weight: 600;">Cargando portal seguro...</p>
+      </div>
+    </div>
+
+    <!-- Seller Support Channels -->
+    <div id="seller-support-footer" style="display: none; margin-top: 1.75rem; text-align: center;"></div>
+  </main>
+
+  <footer class="portal-footer">
+    <div><strong>Stocka Logistics &amp; WMS</strong> · Plataforma de Logística Inversa &amp; Fulfillment 360°</div>
+    <div style="margin-top: 0.3rem; font-size: 0.72rem; color: #94a3b8;">Punto Stocka Ñuñoa: Av. Campo de Deportes 405, Ñuñoa, RM</div>
+  </footer>
+
+  <div id="portal-toast" class="toast"></div>
+
+  <script>
+  (function() {
+    const FUNCTIONS_BASE = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1';
+    const AUTH_URL = `${FUNCTIONS_BASE}/reverse-portal-auth`;
+    const API_URL = `${FUNCTIONS_BASE}/reverse-portal-api`;
+
+    const CHILE_BANKS = [
+      'BancoEstado', 'Banco de Chile / Edwards', 'Banco Santander', 'Banco BCI',
+      'Scotiabank', 'Banco Itaú', 'Banco Falabella', 'Banco BICE', 'Banco Security',
+      'Banco Consorcio', 'Banco Internacional', 'Banco Ripley', 'Mercado Pago', 'Tenpo', 'MACH'
+    ];
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const storeSlugParam = (urlParams.get('s') || urlParams.get('comercio') || urlParams.get('seller') || '').trim();
+    const prefillEmail = (urlParams.get('email') || urlParams.get('correo') || '').trim();
+    const prefillOrder = (urlParams.get('orden') || urlParams.get('pedido') || urlParams.get('order') || '').trim();
+    const isEmbed = urlParams.get('embed') === '1' || urlParams.get('embed') === 'true' || window.self !== window.top;
+
+    if (isEmbed) document.body.classList.add('is-embed');
+
+    const STORAGE_KEY = `stocka_rma_session_${storeSlugParam.toLowerCase() || 'global'}`;
+
+    const state = {
+      portalConfig: null,
+      communes: [],
+      sessionToken: sessionStorage.getItem(STORAGE_KEY) || '',
+      buyerEmail: '',
+      scopeComercio: null,
+      authStep: 'email', // 'email' | 'otp'
+      pendingEmail: prefillEmail,
+      activeTab: 'orders', // 'orders' | 'rmas'
+      orders: [],
+      rmas: [],
+      loadingData: false,
+
+      // Wizard State
+      wizardOrder: null,
+      wizardStep: 1, // 1: Items & Form, 2: Exchange Catalog, 3: Logistics, 4: Confirm
+      resolutionType: 'exchange', // 'exchange' | 'store_credit' | 'return'
+      selectedItems: {}, // key: idx -> { selected: bool, qty: number, reason_id: string, custom_fields_answers: {}, media_files: [] }
+      requestFormAnswers: {}, // field_id -> value or media array or bank object
+      catalogLoadedForOrder: null,
+      catalogItems: [],
+      catalogRules: { allow_even_variant_exchange: true, allow_catalog_exchange: true },
+      catalogSearch: '',
+      catalogFilterTalla: '',
+      catalogFilterColor: '',
+      exchangeCart: [], // [{ product, qty }]
+      shippingForm: {
+        customer_name: '',
+        customer_phone: '',
+        comuna: '',
+        address: '',
+        complement: '',
+        user_tracking_number: ''
+      },
+      logisticsOptions: [],
+      loadingLogistics: false,
+      selectedLogisticsId: 'sucursal_nunoa',
+      preferredCourier: '',
+      buyerComments: '',
+      submittingRma: false
+    };
+
+    function escapeHtml(s) {
+      if (s === null || s === undefined) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function formatCLP(val) {
+      return '$' + Math.round(Number(val) || 0).toLocaleString('es-CL');
+    }
+
+    function formatDate(iso) {
+      if (!iso) return '-';
+      try {
+        return new Date(iso).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' });
+      } catch {
+        return String(iso);
+      }
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('portal-toast');
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.remove('show'), 3200);
+    }
+
+    function notifyParentResize() {
+      if (window.parent && window.parent !== window) {
+        setTimeout(() => {
+          const h = document.documentElement.scrollHeight || document.body.scrollHeight;
+          window.parent.postMessage({ type: 'stocka-returns-resize', height: h }, '*');
+          window.parent.postMessage({ type: 'stocka-tracking-resize', height: h }, '*');
+        }, 70);
+      }
+    }
+    window.addEventListener('resize', notifyParentResize);
+
+    // Validación Módulo 11 RUT Chileno
+    function validateRutCL(rutRaw) {
+      const clean = String(rutRaw || '').replace(/[^0-9kK]/g, '').toUpperCase();
+      if (clean.length < 8) return false;
+      const body = clean.slice(0, -1);
+      const dv = clean.slice(-1);
+      let sum = 0;
+      let mul = 2;
+      for (let i = body.length - 1; i >= 0; i--) {
+        sum += parseInt(body.charAt(i), 10) * mul;
+        mul = mul === 7 ? 2 : mul + 1;
+      }
+      const res = 11 - (sum % 11);
+      const expected = res === 11 ? '0' : (res === 10 ? 'K' : String(res));
+      return dv === expected;
+    }
+
+    function applyBranding(cfg) {
+      if (!cfg) return;
+      const color = cfg.primary_color || urlParams.get('color') || '#5c24ff';
+      if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+        document.documentElement.style.setProperty('--primary', color);
+        document.documentElement.style.setProperty('--primary-subtle', color + '16');
+        document.documentElement.style.setProperty('--primary-border', color + '40');
+      }
+
+      const bg = cfg.background_color || urlParams.get('bg');
+      if (bg) {
+        if (bg === 'transparent') {
+          document.documentElement.style.setProperty('--bg', 'transparent');
+          document.body.style.backgroundColor = 'transparent';
+        } else if (/^#[0-9A-Fa-f]{6}$/.test(bg)) {
+          document.documentElement.style.setProperty('--bg', bg);
+          document.body.style.backgroundColor = bg;
+        }
+      }
+
+      const brand = cfg.brand_name || cfg.comercio || 'Stocka Logistics';
+      document.getElementById('hero-badge-text').textContent = cfg.mode === 'seller' ? brand : 'Red Multimarca Stocka';
+      document.getElementById('hero-title').textContent = cfg.hero_title || 'Cambios y Devoluciones';
+      if (cfg.hero_subtitle) {
+        document.getElementById('hero-subtitle').textContent = cfg.hero_subtitle;
+      }
+      document.getElementById('nav-brand-title').textContent = brand.toUpperCase();
+      document.title = `Cambios y Devoluciones · ${brand}`;
+
+      if (cfg.logo_url) {
+        document.getElementById('nav-logo').src = cfg.logo_url;
+        const emb = document.getElementById('embed-logo-wrap');
+        emb.innerHTML = `<img src="${escapeHtml(cfg.logo_url)}" alt="${escapeHtml(brand)}" class="embed-seller-logo" onerror="this.style.display='none';">`;
+        emb.style.display = 'block';
+      }
+
+      const polBanner = document.getElementById('seller-policy-banner');
+      if (cfg.policy_summary_text) {
+        document.getElementById('seller-policy-text').textContent = cfg.policy_summary_text;
+        polBanner.style.display = 'flex';
+      } else {
+        polBanner.style.display = 'none';
+      }
+
+      const supFooter = document.getElementById('seller-support-footer');
+      let supHtml = '';
+      if (cfg.support_wa) {
+        const cleanWa = String(cfg.support_wa).replace(/\D/g, '');
+        if (cleanWa.length >= 8) {
+          supHtml += `<a href="https://wa.me/${cleanWa.startsWith('56') ? cleanWa : '56' + cleanWa}" target="_blank" rel="noopener" class="btn-outline" style="border-color:#86efac; background:#ecfdf5; color:#065f46; border-radius:999px;"><i class="ri-whatsapp-line" style="font-size:1.1rem;"></i> Soporte WhatsApp</a>`;
+        }
+      }
+      if (cfg.support_email) {
+        supHtml += `<a href="mailto:${escapeHtml(cfg.support_email)}" class="btn-outline" style="border-radius:999px;"><i class="ri-mail-line"></i> ${escapeHtml(cfg.support_email)}</a>`;
+      }
+      if (supHtml) {
+        supFooter.innerHTML = `<div style="display:flex; flex-wrap:wrap; gap:0.65rem; justify-content:center;">${supHtml}</div>`;
+        supFooter.style.display = 'block';
+      }
+    }
+
+    async function apiCall(url, payload) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (state.sessionToken) {
+        headers['x-buyer-session'] = state.sessionToken;
+      }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 401 && url === API_URL) {
+          sessionStorage.removeItem(STORAGE_KEY);
+          state.sessionToken = '';
+          state.wizardOrder = null;
+          render();
+        }
+        throw new Error(data.error || 'Ocurrió un error al procesar la solicitud.');
+      }
+      return data;
+    }
+
+    // Compresión automática de fotos en cliente (máx 1600px JPEG) para rapidez móvil
+    async function compressImageIfPhoto(file) {
+      if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.size < 350 * 1024) {
+        return file;
+      }
+      return new Promise((resolve) => {
+        const img = new Image();
+        const objUrl = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(objUrl);
+          const maxDim = 1600;
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob((blob) => {
+            if (!blob) return resolve(file);
+            const compressed = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+            resolve(compressed.size < file.size ? compressed : file);
+          }, 'image/jpeg', 0.84);
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(objUrl);
+          resolve(file);
+        };
+        img.src = objUrl;
+      });
+    }
+
+    // Subida directa a Supabase Storage vía Signed Upload URL con barra de progreso
+    async function uploadFileDirectToStorage(file, contextOrderId, onProgress) {
+      const processedFile = await compressImageIfPhoto(file);
+      const ticket = await apiCall(API_URL, {
+        action: 'create_media_upload_url',
+        order_id: contextOrderId,
+        file_name: processedFile.name,
+        mime_type: processedFile.type || 'application/octet-stream',
+        file_size_bytes: processedFile.size
+      });
+
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', ticket.upload_url, true);
+        xhr.setRequestHeader('Content-Type', processedFile.type || 'application/octet-stream');
+        if (xhr.upload && typeof onProgress === 'function') {
+          xhr.upload.onprogress = (evt) => {
+            if (evt.lengthComputable) {
+              onProgress(Math.round((evt.loaded / evt.total) * 100));
+            }
+          };
+        }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve(true);
+          else reject(new Error('Error subiendo el archivo al servidor.'));
+        };
+        xhr.onerror = () => reject(new Error('Error de red al subir archivo.'));
+        xhr.send(processedFile);
+      });
+
+      return {
+        storage_path: ticket.storage_path,
+        name: processedFile.name,
+        mime_type: processedFile.type,
+        size: processedFile.size,
+        local_preview: URL.createObjectURL(processedFile)
+      };
+    }
+
+    async function loadOrdersAndRmas() {
+      state.loadingData = true;
+      render();
+      try {
+        const res = await apiCall(API_URL, { action: 'list_my_orders_and_rmas' });
+        state.buyerEmail = res.email;
+        state.scopeComercio = res.scope_comercio;
+        state.orders = res.orders || [];
+        state.rmas = res.rmas || [];
+
+        // Si venía prefillOrder por URL desde el portal de tracking, abrir directamente ese pedido si es elegible
+        if (prefillOrder && !state._prefillHandled) {
+          state._prefillHandled = true;
+          const cleanPrefill = prefillOrder.replace(/^#+/, '').toLowerCase();
+          const matched = state.orders.find(o =>
+            String(o.order_number || '').replace(/^#+/, '').toLowerCase() === cleanPrefill ||
+            String(o.id || '').toLowerCase() === cleanPrefill
+          );
+          if (matched && matched.eligibility?.any_allowed) {
+            startWizardForOrder(matched.id);
+            return;
+          }
+        }
+      } catch (err) {
+        showToast(err.message);
+      } finally {
+        state.loadingData = false;
+        render();
+      }
+    }
+
+    // =========================================================================
+    // VISTAS DE RENDERIZADO
+    // =========================================================================
+    function render() {
+      const mount = document.getElementById('portal-app');
+      if (!mount) return;
+
+      if (state.portalConfig && state.portalConfig.mode === 'not_found') {
+        mount.innerHTML = `
+          <div class="card" style="text-align:center; padding:2.5rem 1.5rem;">
+            <i class="ri-store-3-line" style="font-size:2.8rem; color:#94a3b8;"></i>
+            <h3 style="margin:0.75rem 0 0.4rem 0;">Portal no encontrado</h3>
+            <p style="color:var(--text-muted); font-size:0.9rem;">Verifica el enlace proporcionado por la tienda o accede al portal general en <a href="/cambios" style="color:var(--primary); font-weight:700;">wms.stocka.cl/cambios</a>.</p>
+          </div>
+        `;
+        notifyParentResize();
+        return;
+      }
+
+      if (!state.sessionToken) {
+        renderLoginView(mount);
+      } else if (state.wizardOrder) {
+        renderWizardView(mount);
+      } else {
+        renderDashboardView(mount);
+      }
+      notifyParentResize();
+    }
+
+    function renderLoginView(mount) {
+      const isSeller = state.portalConfig?.mode === 'seller';
+      const storeLabel = isSeller
+        ? `tus compras en <strong>${escapeHtml(state.portalConfig.brand_name || state.portalConfig.comercio)}</strong>`
+        : `todas tus compras realizadas en tiendas operadas por <strong>Stocka</strong>`;
+
+      if (state.authStep === 'email') {
+        mount.innerHTML = `
+          <div class="card" style="max-width:540px; margin:0 auto;">
+            <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:1rem; padding-bottom:0.85rem; border-bottom:1px solid var(--border);">
+              <div style="width:38px; height:38px; border-radius:10px; background:var(--primary-subtle); color:var(--primary); display:flex; align-items:center; justify-content:center; font-size:1.2rem;">
+                <i class="ri-mail-lock-line"></i>
+              </div>
+              <div>
+                <div style="font-weight:800; font-size:1rem;">Ingresa con tu Correo de Compra</div>
+                <div style="font-size:0.76rem; color:var(--text-muted);">Te enviaremos un código único de 6 dígitos para verificar tu identidad</div>
+              </div>
+            </div>
+
+            <p style="font-size:0.86rem; color:#475569; line-height:1.5; margin-bottom:1.15rem;">
+              Escribe el mismo correo electrónico que utilizaste al comprar para consultar ${storeLabel}.
+            </p>
+
+            <form id="form-request-otp">
+              <div style="margin-bottom:1.15rem;">
+                <label class="form-label" for="inp-login-email">Correo Electrónico del Comprador</label>
+                <input type="email" id="inp-login-email" class="form-input" placeholder="tu-correo@ejemplo.com" value="${escapeHtml(state.pendingEmail)}" required autocomplete="email">
+              </div>
+              <button type="submit" id="btn-send-otp" class="btn-primary" style="width:100%; height:48px;">
+                <i class="ri-send-plane-fill"></i> Enviar Código de Verificación
+              </button>
+            </form>
+          </div>
+        `;
+
+        document.getElementById('form-request-otp').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const btn = document.getElementById('btn-send-otp');
+          const email = document.getElementById('inp-login-email').value.trim().toLowerCase();
+          if (!email) return;
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner"></span> Enviando código a tu correo...';
+          try {
+            await apiCall(AUTH_URL, {
+              action: 'request_otp',
+              email,
+              comercio_or_slug: storeSlugParam || null
+            });
+            state.pendingEmail = email;
+            state.authStep = 'otp';
+            showToast('¡Código de 6 dígitos enviado a tu correo!');
+            render();
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Código de Verificación';
+          }
+        });
+      } else {
+        mount.innerHTML = `
+          <div class="card" style="max-width:520px; margin:0 auto; text-align:center;">
+            <div style="width:48px; height:48px; border-radius:50%; background:var(--success-bg); color:var(--success); display:inline-flex; align-items:center; justify-content:center; font-size:1.5rem; margin-bottom:0.75rem;">
+              <i class="ri-shield-keyhole-line"></i>
+            </div>
+            <h3 style="font-size:1.2rem; font-weight:800; margin-bottom:0.35rem;">Revisa tu correo electrónico</h3>
+            <p style="font-size:0.86rem; color:var(--text-muted); margin-bottom:1.25rem; line-height:1.5;">
+              Enviamos un código de 6 dígitos a <strong>${escapeHtml(state.pendingEmail)}</strong>.<br>
+              <span style="font-size:0.76rem;">(Si no aparece en tu bandeja principal, revisa Promociones o Spam).</span>
+            </p>
+
+            <form id="form-verify-otp">
+              <div style="margin-bottom:1.15rem;">
+                <input type="text" id="inp-otp-code" class="form-input otp-input-box" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code">
+              </div>
+              <button type="submit" id="btn-verify-otp" class="btn-primary" style="width:100%; height:48px; margin-bottom:0.75rem;">
+                <i class="ri-login-circle-line"></i> Verificar y Ver mis Pedidos
+              </button>
+              <button type="button" id="btn-back-email" class="btn-outline" style="width:100%;">
+                <i class="ri-arrow-left-line"></i> Cambiar correo o reenviar código
+              </button>
+            </form>
+          </div>
+        `;
+
+        const otpInput = document.getElementById('inp-otp-code');
+        setTimeout(() => otpInput?.focus(), 60);
+
+        document.getElementById('btn-back-email').addEventListener('click', () => {
+          state.authStep = 'email';
+          render();
+        });
+
+        document.getElementById('form-verify-otp').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const code = otpInput.value.replace(/\D/g, '').trim();
+          if (code.length !== 6) {
+            showToast('Ingresa los 6 dígitos del código.');
+            return;
+          }
+          const btn = document.getElementById('btn-verify-otp');
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner"></span> Validando acceso...';
+          try {
+            const res = await apiCall(AUTH_URL, {
+              action: 'verify_otp',
+              email: state.pendingEmail,
+              otp: code,
+              comercio_or_slug: storeSlugParam || null
+            });
+            state.sessionToken = res.session_token;
+            sessionStorage.setItem(STORAGE_KEY, res.session_token);
+            await loadOrdersAndRmas();
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ri-login-circle-line"></i> Verificar y Ver mis Pedidos';
+          }
+        });
+      }
+    }
+
+    function renderDashboardView(mount) {
+      if (state.loadingData) {
+        mount.innerHTML = `
+          <div class="card" style="text-align:center; padding:3rem 1.5rem;">
+            <span class="spinner" style="color:var(--primary); width:26px; height:26px;"></span>
+            <p style="margin-top:0.8rem; color:var(--text-muted); font-size:0.9rem; font-weight:600;">Consultando tus compras y solicitudes...</p>
+          </div>
+        `;
+        return;
+      }
+
+      const scopeBadge = state.scopeComercio
+        ? `<span class="badge badge-blue"><i class="ri-store-2-line"></i> Tienda: ${escapeHtml(state.portalConfig?.brand_name || state.scopeComercio)}</span>`
+        : `<span class="badge badge-blue"><i class="ri-global-line"></i> Vista Multimarca Stocka</span>`;
+
+      let contentHtml = '';
+      if (state.activeTab === 'orders') {
+        if (state.orders.length === 0) {
+          contentHtml = `
+            <div class="card" style="text-align:center; padding:2.75rem 1.5rem;">
+              <i class="ri-shopping-bag-3-line" style="font-size:2.6rem; color:#94a3b8;"></i>
+              <h3 style="margin:0.75rem 0 0.35rem 0; font-size:1.1rem;">No encontramos compras asociadas</h3>
+              <p style="color:var(--text-muted); font-size:0.86rem; max-width:440px; margin:0 auto;">
+                No registramos pedidos para el correo <strong>${escapeHtml(state.buyerEmail || state.pendingEmail)}</strong>${state.scopeComercio ? ` en ${escapeHtml(state.portalConfig?.brand_name || state.scopeComercio)}` : ''}. Verifica si compraste con otro correo electrónico.
+              </p>
+            </div>
+          `;
+        } else {
+          contentHtml = state.orders.map(order => {
+            const elig = order.eligibility || {};
+            const statusClass = order.is_delivered ? 'badge-green' : 'badge-amber';
+            const itemsHtml = (order.items || []).map(it => `
+              <div class="order-item-row">
+                ${it.image_url
+                  ? `<img src="${escapeHtml(it.image_url)}" alt="${escapeHtml(it.name)}" class="prod-thumb" onerror="this.style.display='none';">`
+                  : `<div class="prod-thumb"><i class="ri-Archive-line"></i></div>`
+                }
+                <div style="flex:1; min-width:0;">
+                  <div style="font-weight:700; font-size:0.88rem; color:var(--text-main);">${escapeHtml(it.name)}</div>
+                  <div style="font-size:0.75rem; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:2px;">
+                    <span>SKU: <code>${escapeHtml(it.sku)}</code></span>
+                    ${it.talla ? `<span>Talla: <strong>${escapeHtml(it.talla)}</strong></span>` : ''}
+                    ${it.color ? `<span>Color: <strong>${escapeHtml(it.color)}</strong></span>` : ''}
+                    <span>Valor compra: <strong>${formatCLP(it.paid_unit_price)} c/u</strong></span>
+                  </div>
+                </div>
+                <div style="text-align:right; flex-shrink:0;">
+                  <div style="font-weight:800; font-size:0.9rem;">x${it.quantity}</div>
+                  ${it.already_requested_qty > 0
+                    ? `<span class="badge badge-amber" style="font-size:0.66rem;">${it.already_requested_qty} en gestión</span>`
+                    : ''
+                  }
+                </div>
+              </div>
+            `).join('');
+
+            return `
+              <div class="card">
+                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-start; gap:0.75rem; padding-bottom:1rem; border-bottom:1px solid var(--border);">
+                  <div>
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.35rem;">
+                      <span class="badge badge-gray"><i class="ri-store-2-line"></i> ${escapeHtml(order.brand_name || order.comercio)}</span>
+                      <span class="badge ${statusClass}">${escapeHtml(order.status_label)}</span>
+                    </div>
+                    <h3 style="font-size:1.2rem; font-weight:900;">Pedido #${escapeHtml(order.order_number)}</h3>
+                    <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.2rem;">
+                      Comprado el ${formatDate(order.created_at)} ${order.shipping_city ? `· Destino: ${escapeHtml(order.shipping_city)}` : ''}
+                    </div>
+                  </div>
+                  <div>
+                    ${elig.any_allowed ? `
+                      <button type="button" class="btn-primary btn-start-rma" data-order-id="${escapeHtml(order.id)}">
+                        <i class="ri-exchange-box-line"></i> Solicitar Cambio / Devolución
+                      </button>
+                    ` : `
+                      <span class="badge badge-gray" style="padding:0.45rem 0.85rem;">No disponible</span>
+                    `}
+                  </div>
+                </div>
+
+                <div style="margin-top:0.5rem;">
+                  ${itemsHtml}
+                </div>
+
+                ${!elig.any_allowed && elig.ineligible_reason ? `
+                  <div style="margin-top:0.85rem; background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:0.65rem 0.9rem; font-size:0.78rem; color:var(--text-muted);">
+                    <i class="ri-information-line"></i> ${escapeHtml(elig.ineligible_reason)}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('');
+        }
+      } else {
+        contentHtml = renderMyRmasList();
+      }
+
+      mount.innerHTML = `
+        <div class="session-bar">
+          <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+            <i class="ri-user-smile-line" style="color:var(--primary); font-size:1.2rem;"></i>
+            <span style="font-size:0.84rem; font-weight:700;">${escapeHtml(state.buyerEmail || state.pendingEmail)}</span>
+            ${scopeBadge}
+          </div>
+          <div style="display:flex; gap:0.5rem;">
+            <button type="button" id="btn-refresh-dash" class="btn-outline" style="padding:0.4rem 0.75rem; font-size:0.78rem;">
+              <i class="ri-refresh-line"></i> Actualizar
+            </button>
+            <button type="button" id="btn-logout" class="btn-outline" style="padding:0.4rem 0.75rem; font-size:0.78rem; color:var(--danger);">
+              <i class="ri-logout-box-r-line"></i> Salir
+            </button>
+          </div>
+        </div>
+
+        <div class="tabs-bar">
+          <button type="button" class="tab-btn ${state.activeTab === 'orders' ? 'active' : ''}" data-tab="orders">
+            <i class="ri-shopping-bag-line"></i> Mis Compras <span class="tab-count">${state.orders.length}</span>
+          </button>
+          <button type="button" class="tab-btn ${state.activeTab === 'rmas' ? 'active' : ''}" data-tab="rmas">
+            <i class="ri-loop-left-line"></i> Mis Solicitudes <span class="tab-count">${state.rmas.length}</span>
+          </button>
+        </div>
+
+        ${contentHtml}
+      `;
+
+      document.getElementById('btn-refresh-dash')?.addEventListener('click', loadOrdersAndRmas);
+      document.getElementById('btn-logout')?.addEventListener('click', async () => {
+        try { await apiCall(AUTH_URL, { action: 'logout' }); } catch {}
+        sessionStorage.removeItem(STORAGE_KEY);
+        state.sessionToken = '';
+        state.authStep = 'email';
+        render();
+      });
+
+      mount.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.activeTab = btn.dataset.tab;
+          render();
+        });
+      });
+
+      mount.querySelectorAll('.btn-start-rma').forEach(btn => {
+        btn.addEventListener('click', () => startWizardForOrder(btn.dataset.orderId));
+      });
+
+      bindRmaListEvents(mount);
+    }
+
+    function renderMyRmasList() {
+      if (state.rmas.length === 0) {
+        return `
+          <div class="card" style="text-align:center; padding:2.5rem 1.5rem;">
+            <i class="ri-History-line" style="font-size:2.4rem; color:#94a3b8;"></i>
+            <h3 style="margin:0.6rem 0 0.3rem 0; font-size:1.05rem;">Aún no tienes solicitudes registradas</h3>
+            <p style="color:var(--text-muted); font-size:0.85rem;">Selecciona un pedido en la pestaña "Mis Compras" para iniciar un cambio o devolución.</p>
+          </div>
+        `;
+      }
+
+      const wfLabels = {
+        solicitado: { text: 'En Revisión por la Tienda', badge: 'badge-amber' },
+        esperando_pago: { text: 'Aprobado · Esperando tu Pago', badge: 'badge-amber' },
+        aprobado_esperando_retorno: { text: 'Aprobado · Listo para Entrega/Envío', badge: 'badge-blue' },
+        en_transito_retorno: { text: 'Paquete en Tránsito a Bodega', badge: 'badge-blue' },
+        recibido_en_revision: { text: 'Recibido en Bodega · En Inspección', badge: 'badge-blue' },
+        reemplazo_en_preparacion: { text: 'Cambio en Preparación / Despacho', badge: 'badge-green' },
+        completado: { text: 'Finalizado con Éxito', badge: 'badge-green' },
+        procesado: { text: 'Confirmado en Bodega', badge: 'badge-green' },
+        rechazado: { text: 'No Aprobado', badge: 'badge-red' },
+        cancelado: { text: 'Cancelado', badge: 'badge-gray' },
+        expirado: { text: 'Plazo Expirado', badge: 'badge-gray' },
+        pendiente: { text: 'Pendiente de Revisión', badge: 'badge-amber' }
+      };
+
+      return state.rmas.map(rma => {
+        const wf = String(rma.workflow_status || rma.status || 'pendiente').toLowerCase();
+        const stInfo = wfLabels[wf] || { text: wf, badge: 'badge-gray' };
+        const fin = rma.financial_summary || {};
+        const buyerOwes = Number(fin.buyer_owes_amount || 0);
+        const logOpt = String(rma.logistics_option || '');
+
+        let actionBoxHtml = '';
+
+        // 1. Caja de Pago Pendiente + Subida de Comprobante
+        if (wf === 'esperando_pago' || (buyerOwes > 0 && rma.payment_status === 'pending')) {
+          actionBoxHtml += `
+            <div style="background:#fffbeb; border:1.5px solid #fcd34d; border-radius:12px; padding:1rem; margin-top:1rem;">
+              <div style="font-weight:800; color:#92400e; font-size:0.95rem; margin-bottom:0.35rem;">
+                <i class="ri-bank-card-line"></i> Saldo por pagar para activar despacho/retiro: ${formatCLP(buyerOwes)}
+              </div>
+              ${rma.payment_instructions ? `<div style="font-size:0.82rem; color:#78350f; white-space:pre-line; margin-bottom:0.65rem;">${escapeHtml(rma.payment_instructions)}</div>` : ''}
+              ${rma.payment_link_url ? `<div style="margin-bottom:0.75rem;"><a href="${escapeHtml(rma.payment_link_url)}" target="_blank" rel="noopener" class="btn-primary" style="background:#d97706; font-size:0.82rem; padding:0.5rem 1rem;"><i class="ri-external-link-line"></i> Pagar en Link de la Tienda</a></div>` : ''}
+              <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; margin-top:0.5rem;">
+                <input type="file" id="receipt-file-${rma.id}" accept="image/*,application/pdf" class="form-input" style="max-width:280px; padding:0.4rem; font-size:0.78rem;">
+                <button type="button" class="btn-primary btn-upload-receipt" data-rma-id="${rma.id}" style="padding:0.55rem 1rem; font-size:0.82rem;">
+                  <i class="ri-upload-cloud-2-line"></i> Subir Comprobante
+                </button>
+              </div>
+            </div>
+          `;
+        } else if (rma.payment_status === 'receipt_uploaded') {
+          actionBoxHtml += `
+            <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:0.75rem 1rem; margin-top:0.85rem; font-size:0.82rem; color:#1e40af;">
+              <i class="ri-checkbox-circle-line"></i> <strong>Comprobante recibido:</strong> La tienda está validando tu pago para liberar las instrucciones finales.
+            </div>
+          `;
+        }
+
+        // 2. Instrucciones Activas una vez aprobado
+        if (['aprobado_esperando_retorno', 'en_transito_retorno', 'reemplazo_en_preparacion'].includes(wf)) {
+          if (logOpt === 'sucursal_nunoa' || logOpt === 'sucursal') {
+            const qrData = encodeURIComponent(rma.qr_branch_token || rma.rma_number);
+            actionBoxHtml += `
+              <div style="background:#f0fdf4; border:1.5px solid #86efac; border-radius:12px; padding:1rem; margin-top:1rem; display:flex; flex-wrap:wrap; gap:1rem; align-items:center; justify-content:space-between;">
+                <div style="flex:1; min-width:220px;">
+                  <div style="font-weight:800; color:#166534; font-size:0.92rem; margin-bottom:0.25rem;">
+                    <i class="ri-store-2-fill"></i> Pase de Atención Presencial · Punto Stocka Ñuñoa
+                  </div>
+                  <div style="font-size:0.8rem; color:#14532d; line-height:1.45;">
+                    <strong>Dirección:</strong> Av. Campo de Deportes 405, Ñuñoa, RM<br>
+                    <strong>Horario:</strong> Lunes a Viernes 10:30 a 17:00 · Sábado 10:30 a 14:00 hrs<br>
+                    <strong>Código en Mesón:</strong> <code style="background:#fff; padding:2px 6px; border-radius:4px; font-weight:900;">${escapeHtml(rma.qr_branch_token || rma.rma_number)}</code>
+                  </div>
+                </div>
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${qrData}" alt="QR Sucursal" style="width:96px; height:96px; border-radius:10px; border:1px solid #bbf7d0; background:#fff; padding:4px;">
+              </div>
+            `;
+          } else if (rma.inbound_label_url) {
+            actionBoxHtml += `
+              <div style="background:#eff6ff; border:1.5px solid #93c5fd; border-radius:12px; padding:1rem; margin-top:1rem; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:0.75rem;">
+                <div>
+                  <div style="font-weight:800; color:#1e3a8a; font-size:0.9rem;">Etiqueta de Retorno Lista (${escapeHtml(rma.inbound_courier || 'Courier')})</div>
+                  <div style="font-size:0.8rem; color:#1e40af;">Guía N°: <strong>${escapeHtml(rma.inbound_tracking_number || '-')}</strong></div>
+                </div>
+                <a href="${escapeHtml(rma.inbound_label_url)}" target="_blank" rel="noopener" class="btn-primary" style="font-size:0.82rem; padding:0.55rem 1rem;">
+                  <i class="ri-file-download-line"></i> Descargar Etiqueta PDF
+                </a>
+              </div>
+            `;
+          } else if (logOpt !== 'rm_simultaneous_swap') {
+            actionBoxHtml += `
+              <div style="background:#f8fafc; border:1.5px solid #cbd5e1; border-radius:12px; padding:1rem; margin-top:1rem;">
+                <div style="font-weight:800; font-size:0.88rem; margin-bottom:0.3rem;">
+                  <i class="ri-truck-line" style="color:var(--primary);"></i> Envío hacia Bodega Stocka Ñuñoa
+                </div>
+                <div style="font-size:0.79rem; color:#475569; margin-bottom:0.75rem;">
+                  Destinatario: <strong>Stocka Logística Inversa (${escapeHtml(rma.brand_name || rma.comercio)}) · Folio ${escapeHtml(rma.rma_number)}</strong><br>
+                  Dirección: <strong>Av. Campo de Deportes 405, Ñuñoa, RM</strong> (Envío pagado en origen).
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0.5rem; align-items:center;">
+                  <input type="text" id="trk-courier-${rma.id}" class="form-input" placeholder="Courier (Ej: Starken, Blue)" value="${escapeHtml(rma.inbound_courier && rma.inbound_courier !== 'PROPIO DEL CLIENTE' ? rma.inbound_courier : '')}" style="padding:0.5rem 0.7rem; font-size:0.8rem;">
+                  <input type="text" id="trk-code-${rma.id}" class="form-input" placeholder="N° de seguimiento" value="${escapeHtml(rma.inbound_tracking_number || '')}" style="padding:0.5rem 0.7rem; font-size:0.8rem;">
+                  <button type="button" class="btn-primary btn-save-inbound-trk" data-rma-id="${rma.id}" style="padding:0.52rem 0.9rem; font-size:0.8rem;">
+                    Guardar Guía
+                  </button>
+                </div>
+              </div>
+            `;
+          }
+        }
+
+        // 3. Seguimiento del Pedido de Reemplazo si aplica
+        if (rma.replacement_order) {
+          const ro = rma.replacement_order;
+          const roHold = ro.hold_reason === 'awaiting_return_receipt'
+            ? 'Stock reservado · Se despachará al recepcionar tu devolución'
+            : (ro.hold_reason === 'awaiting_buyer_payment' ? 'Stock reservado · Pendiente confirmación de pago' : (ro.estado_wms || ro.status));
+          actionBoxHtml += `
+            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:0.75rem 1rem; margin-top:0.75rem; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:0.5rem; font-size:0.8rem;">
+              <div>
+                <strong>📦 Orden de Reemplazo #${escapeHtml(ro.external_order_number)}:</strong> ${escapeHtml(roHold)}
+                ${ro.tracking_number ? ` · Guía: <code>${escapeHtml(ro.tracking_number)}</code>` : ''}
+              </div>
+              <a href="/seguimiento?t=${encodeURIComponent(ro.id)}" target="_blank" class="btn-outline" style="padding:0.35rem 0.75rem; font-size:0.76rem;">
+                Ver Tracking Reemplazo <i class="ri-external-link-line"></i>
+              </a>
+            </div>
+          `;
+        }
+
+        if (wf === 'rechazado' && rma.rejection_reason) {
+          actionBoxHtml += `
+            <div style="background:var(--danger-bg); border:1px solid var(--danger-border); border-radius:10px; padding:0.75rem 1rem; margin-top:0.85rem; font-size:0.82rem; color:#991b1b;">
+              <strong>Motivo informado por la tienda:</strong> ${escapeHtml(rma.rejection_reason)}
+            </div>
+          `;
+        }
+
+        return `
+          <div class="card">
+            <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-start; gap:0.75rem; padding-bottom:0.85rem; border-bottom:1px solid var(--border);">
+              <div>
+                <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.3rem;">
+                  <span class="badge badge-gray">${escapeHtml(rma.brand_name || rma.comercio)}</span>
+                  <span class="badge ${rma.tipo_movimiento === 'CAMBIO' ? 'badge-green' : 'badge-amber'}">${escapeHtml(rma.tipo_movimiento)}</span>
+                  <span class="badge ${stInfo.badge}">${escapeHtml(stInfo.text)}</span>
+                </div>
+                <h3 style="font-size:1.1rem; font-weight:900;">Folio ${escapeHtml(rma.rma_number)} <span style="font-weight:600; color:var(--text-muted); font-size:0.88rem;">· Pedido #${escapeHtml(rma.referencia_pedido || '-')}</span></h3>
+                <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">Solicitado el ${formatDate(rma.created_at)} · ${escapeHtml(rma.transporte || '')}</div>
+              </div>
+              ${wf === 'solicitado' ? `
+                <button type="button" class="btn-outline btn-cancel-rma" data-rma-id="${rma.id}" style="color:var(--danger); font-size:0.78rem; padding:0.4rem 0.8rem;">
+                  Cancelar Solicitud
+                </button>
+              ` : ''}
+            </div>
+
+            ${actionBoxHtml}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function bindRmaListEvents(mount) {
+      mount.querySelectorAll('.btn-upload-receipt').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const rmaId = btn.dataset.rmaId;
+          const fileInp = document.getElementById(`receipt-file-${rmaId}`);
+          const file = fileInp?.files?.[0];
+          if (!file) {
+            showToast('Selecciona primero la imagen o PDF del comprobante.');
+            return;
+          }
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner"></span> Subiendo...';
+          try {
+            const uploaded = await uploadFileDirectToStorage(file, rmaId);
+            await apiCall(API_URL, {
+              action: 'buyer_update_rma',
+              rma_id: rmaId,
+              sub_action: 'upload_payment_receipt',
+              payment_receipt_path: uploaded.storage_path
+            });
+            showToast('¡Comprobante enviado correctamente!');
+            await loadOrdersAndRmas();
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ri-upload-cloud-2-line"></i> Subir Comprobante';
+          }
+        });
+      });
+
+      mount.querySelectorAll('.btn-save-inbound-trk').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const rmaId = btn.dataset.rmaId;
+          const courier = document.getElementById(`trk-courier-${rmaId}`)?.value.trim();
+          const code = document.getElementById(`trk-code-${rmaId}`)?.value.trim();
+          if (!courier || !code) {
+            showToast('Ingresa el nombre del transporte y el número de seguimiento.');
+            return;
+          }
+          btn.disabled = true;
+          try {
+            await apiCall(API_URL, {
+              action: 'buyer_update_rma',
+              rma_id: rmaId,
+              sub_action: 'submit_inbound_tracking',
+              inbound_courier: courier,
+              inbound_tracking_number: code
+            });
+            showToast('¡Seguimiento registrado!');
+            await loadOrdersAndRmas();
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+          }
+        });
+      });
+
+      mount.querySelectorAll('.btn-cancel-rma').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('¿Estás seguro de cancelar esta solicitud?')) return;
+          btn.disabled = true;
+          try {
+            await apiCall(API_URL, {
+              action: 'buyer_update_rma',
+              rma_id: btn.dataset.rmaId,
+              sub_action: 'cancel_request'
+            });
+            showToast('Solicitud cancelada.');
+            await loadOrdersAndRmas();
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    // =========================================================================
+    // FLUJO WIZARD DE 4 PASOS PARA CREAR CAMBIO / DEVOLUCIÓN
+    // =========================================================================
+    function startWizardForOrder(orderId) {
+      const ord = state.orders.find(o => o.id === orderId);
+      if (!ord) return;
+
+      // Aplicar tema del comercio del pedido seleccionado (especialmente útil en modo Multimarca Stocka)
+      if (ord.portal_config) {
+        applyBranding(ord.portal_config);
+      }
+
+      const elig = ord.eligibility || {};
+      let defaultRes = 'exchange';
+      if (!elig.can_exchange) {
+        defaultRes = elig.can_store_credit ? 'store_credit' : 'return';
+      }
+
+      state.wizardOrder = ord;
+      state.wizardStep = 1;
+      state.resolutionType = defaultRes;
+      state.selectedItems = {};
+      state.requestFormAnswers = {};
+      state.exchangeCart = [];
+      state.buyerComments = '';
+
+      const reasons = getFilteredReasons(ord.portal_config, defaultRes);
+      const firstReasonId = reasons[0]?.id || 'otro';
+
+      (ord.items || []).forEach((it, idx) => {
+        state.selectedItems[idx] = {
+          selected: ord.items.length === 1 && it.eligible_qty > 0,
+          qty: 1,
+          reason_id: firstReasonId,
+          custom_fields_answers: {},
+          media_files: []
+        };
+      });
+
+      state.shippingForm = {
+        customer_name: ord.customer_name || '',
+        customer_phone: ord.customer_phone || '',
+        comuna: ord.shipping_city || '',
+        address: ord.shipping_address || '',
+        complement: ord.shipping_complement || '',
+        user_tracking_number: ''
+      };
+
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function getFilteredReasons(cfg, resolutionType) {
+      const all = Array.isArray(cfg?.custom_reasons) ? cfg.custom_reasons : [];
+      const filtered = all.filter(r => r.active !== false && (!Array.isArray(r.applies_to) || r.applies_to.includes(resolutionType)));
+      return filtered.length > 0 ? filtered : [{ id: 'general', label: 'Cambio o devolución', is_fault: false }];
+    }
+
+    function shouldShowFormField(field, resolutionType, itemReasonId) {
+      if (!field || !field.show_when) return true;
+      const resTypes = field.show_when.resolution_types;
+      if (Array.isArray(resTypes) && resTypes.length > 0 && !resTypes.includes(resolutionType)) {
+        return false;
+      }
+      const rIds = field.show_when.reason_ids;
+      if (Array.isArray(rIds) && rIds.length > 0) {
+        if (field.scope === 'per_item') {
+          if (!itemReasonId || !rIds.includes(itemReasonId)) return false;
+        } else {
+          // En per_request: mostrar si alguno de los ítems seleccionados tiene ese motivo
+          const anyMatches = Object.entries(state.selectedItems).some(([, st]) => st.selected && rIds.includes(st.reason_id));
+          if (!anyMatches) return false;
+        }
+      }
+      return true;
+    }
+
+    function computeWizardFinancialPreview() {
+      const ord = state.wizardOrder;
+      const cfg = ord?.portal_config || {};
+      let creditTotal = 0;
+      const modelPool = [];
+
+      (ord?.items || []).forEach((it, idx) => {
+        const sel = state.selectedItems[idx];
+        if (sel?.selected && it.eligible_qty > 0) {
+          const q = Math.min(it.eligible_qty, Math.max(1, Number(sel.qty) || 1));
+          const unitPaid = Number(it.paid_unit_price) || 0;
+          creditTotal += unitPaid * q;
+          modelPool.push({ base_model_key: it.base_model_key, paid_unit_price: unitPaid, remaining: q });
+        }
+      });
+
+      let exchangeSubtotal = 0;
+      let evenApplied = false;
+
+      if (state.resolutionType === 'exchange') {
+        state.exchangeCart.forEach(cartIt => {
+          let rem = cartIt.qty;
+          const catPrice = Number(cartIt.product.price) || 0;
+          if (state.catalogRules.allow_even_variant_exchange !== false) {
+            for (const p of modelPool) {
+              if (rem <= 0) break;
+              if (p.base_model_key === cartIt.product.base_model_key && p.remaining > 0) {
+                const m = Math.min(rem, p.remaining);
+                exchangeSubtotal += p.paid_unit_price * m;
+                p.remaining -= m;
+                rem -= m;
+                if (p.paid_unit_price !== catPrice) evenApplied = true;
+              }
+            }
+          }
+          if (rem > 0) exchangeSubtotal += catPrice * rem;
+        });
+      }
+
+      const chosenLog = state.logisticsOptions.find(o => o.id === state.selectedLogisticsId);
+      const shippingFee = state.wizardStep >= 3 && chosenLog ? (Number(chosenLog.fee_clp) || 0) : 0;
+      const bonusPct = state.resolutionType === 'store_credit' ? (Number(cfg.store_credit_bonus_pct) || 0) : 0;
+      const bonusAmt = state.resolutionType === 'store_credit' ? Math.round(creditTotal * (bonusPct / 100)) : 0;
+
+      let netDiff = 0;
+      if (state.resolutionType === 'exchange') {
+        netDiff = (exchangeSubtotal - creditTotal) + shippingFee;
+      } else if (state.resolutionType === 'store_credit') {
+        netDiff = -(creditTotal + bonusAmt) + shippingFee;
+      } else {
+        netDiff = -Math.max(0, creditTotal - shippingFee);
+      }
+
+      return {
+        creditTotal,
+        exchangeSubtotal,
+        bonusPct,
+        bonusAmt,
+        shippingFee,
+        netDiff,
+        evenApplied
+      };
+    }
+
+    function renderDynamicFieldHtml(field, scopeKey, currentVal) {
+      const reqStar = field.required ? '<span style="color:var(--danger);">*</span>' : '';
+      const guideHtml = field.reference_image_url ? `
+        <div class="guide-img-box">
+          <img src="${escapeHtml(field.reference_image_url)}" alt="Ejemplo de referencia" onclick="window.open(this.src, '_blank')">
+          <div style="font-size:0.74rem; color:#475569; line-height:1.35;">
+            <strong style="color:var(--primary); display:block;">📸 Imagen de ejemplo de la tienda</strong>
+            Guíate por esta referencia al tomar tu foto.
+          </div>
+        </div>
+      ` : '';
+
+      if (field.type === 'info_banner') {
+        return `
+          <div class="dyn-field-card" style="background:#eff6ff; border-color:#bfdbfe; color:#1e3a8a;">
+            <div style="font-weight:800; font-size:0.85rem; margin-bottom:0.2rem;"><i class="ri-information-fill"></i> ${escapeHtml(field.label)}</div>
+            ${field.instructions ? `<div style="font-size:0.8rem; line-height:1.45;">${escapeHtml(field.instructions)}</div>` : ''}
+            ${guideHtml}
+          </div>
+        `;
+      }
+
+      if (field.type === 'photo_upload' || field.type === 'video_upload' || field.type === 'file_pdf') {
+        const filesArr = Array.isArray(currentVal) ? currentVal : [];
+        const maxFiles = Number(field.max_files) || (field.type === 'video_upload' ? 1 : 3);
+        const acceptAttr = field.type === 'video_upload'
+          ? 'video/mp4,video/quicktime,video/webm'
+          : (field.type === 'file_pdf' ? 'application/pdf,image/*' : 'image/*');
+        const btnIcon = field.type === 'video_upload' ? 'ri-video-upload-line' : 'ri-camera-lens-line';
+        const btnText = field.type === 'video_upload' ? 'Subir o Grabar Video' : (field.type === 'file_pdf' ? 'Adjuntar Documento / Foto' : 'Tomar o Subir Foto');
+
+        const thumbsHtml = filesArr.map((f, fIdx) => `
+          <div class="media-thumb-item">
+            ${String(f.mime_type || '').startsWith('video/')
+              ? `<video src="${escapeHtml(f.local_preview || '')}" muted playsinline></video>`
+              : (String(f.mime_type || '') === 'application/pdf'
+                  ? `<div style="color:#fff; font-size:0.68rem; display:flex; align-items:center; justify-content:center; height:100%; padding:4px; text-align:center;">PDF</div>`
+                  : `<img src="${escapeHtml(f.local_preview || '')}" alt="Evidencia">`)
+            }
+            <button type="button" class="media-thumb-remove btn-del-dyn-media" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}" data-fidx="${fIdx}">&times;</button>
+          </div>
+        `).join('');
+
+        return `
+          <div class="dyn-field-card">
+            <label class="form-label">${escapeHtml(field.label)} ${reqStar}</label>
+            ${field.instructions ? `<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:0.45rem; line-height:1.4;">${escapeHtml(field.instructions)}</div>` : ''}
+            ${guideHtml}
+            ${filesArr.length < maxFiles ? `
+              <div>
+                <label class="btn-outline" style="cursor:pointer; font-size:0.8rem; padding:0.5rem 0.9rem;">
+                  <i class="${btnIcon}" style="color:var(--primary); font-size:1rem;"></i> ${btnText} (${filesArr.length}/${maxFiles})
+                  <input type="file" class="inp-dyn-media" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}" accept="${acceptAttr}" style="display:none;">
+                </label>
+                <span id="prog-${escapeHtml(scopeKey)}-${escapeHtml(field.id)}" style="font-size:0.75rem; color:var(--primary); font-weight:700; margin-left:0.5rem;"></span>
+              </div>
+            ` : ''}
+            ${thumbsHtml ? `<div class="media-thumbs-grid">${thumbsHtml}</div>` : ''}
+          </div>
+        `;
+      }
+
+      if (field.type === 'checkbox_confirm') {
+        return `
+          <div class="dyn-field-card">
+            <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
+              <input type="checkbox" class="inp-dyn-check" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}" ${currentVal ? 'checked' : ''} style="width:18px; height:18px; margin-top:2px; accent-color:var(--primary);">
+              <div>
+                <div style="font-weight:700; font-size:0.84rem;">${escapeHtml(field.label)} ${reqStar}</div>
+                ${field.instructions ? `<div style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">${escapeHtml(field.instructions)}</div>` : ''}
+              </div>
+            </label>
+          </div>
+        `;
+      }
+
+      if (field.type === 'bank_details_cl') {
+        const bankObj = (currentVal && typeof currentVal === 'object') ? currentVal : { rut: '', bank: '', account_type: 'Cuenta Vista / RUT', account_number: '' };
+        return `
+          <div class="dyn-field-card">
+            <div style="font-weight:800; font-size:0.88rem; margin-bottom:0.25rem;"><i class="ri-bank-line" style="color:var(--primary);"></i> ${escapeHtml(field.label)} ${reqStar}</div>
+            ${field.instructions ? `<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:0.75rem;">${escapeHtml(field.instructions)}</div>` : ''}
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:0.65rem;">
+              <div>
+                <label class="form-label" style="font-size:0.75rem;">RUT Titular</label>
+                <input type="text" class="form-input inp-dyn-bank" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}" data-sub="rut" placeholder="12.345.678-9" value="${escapeHtml(bankObj.rut || '')}">
+              </div>
+              <div>
+                <label class="form-label" style="font-size:0.75rem;">Banco</label>
+                <select class="form-select inp-dyn-bank" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}" data-sub="bank">
+                  <option value="">Selecciona banco...</option>
+                  ${CHILE_BANKS.map(b => `<option value="${escapeHtml(b)}" ${bankObj.bank === b ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="form-label" style="font-size:0.75rem;">Tipo de Cuenta</label>
+                <select class="form-select inp-dyn-bank" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}" data-sub="account_type">
+                  ${['Cuenta Corriente', 'Cuenta Vista / RUT', 'Cuenta de Ahorro'].map(t => `<option value="${t}" ${bankObj.account_type === t ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="form-label" style="font-size:0.75rem;">Número de Cuenta</label>
+                <input type="text" class="form-input inp-dyn-bank" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}" data-sub="account_number" placeholder="Ej: 0012345678" value="${escapeHtml(bankObj.account_number || '')}">
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      if (field.type === 'select') {
+        const opts = Array.isArray(field.options) ? field.options : [];
+        return `
+          <div class="dyn-field-card">
+            <label class="form-label">${escapeHtml(field.label)} ${reqStar}</label>
+            ${field.instructions ? `<div style="font-size:0.76rem; color:var(--text-muted); margin-bottom:0.4rem;">${escapeHtml(field.instructions)}</div>` : ''}
+            <select class="form-select inp-dyn-val" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}">
+              <option value="">Selecciona una opción...</option>
+              ${opts.map(o => `<option value="${escapeHtml(o)}" ${currentVal === o ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}
+            </select>
+          </div>
+        `;
+      }
+
+      if (field.type === 'textarea') {
+        return `
+          <div class="dyn-field-card">
+            <label class="form-label">${escapeHtml(field.label)} ${reqStar}</label>
+            ${field.instructions ? `<div style="font-size:0.76rem; color:var(--text-muted); margin-bottom:0.4rem;">${escapeHtml(field.instructions)}</div>` : ''}
+            <textarea rows="2" class="form-textarea inp-dyn-val" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}" placeholder="Escribe aquí...">${escapeHtml(currentVal || '')}</textarea>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="dyn-field-card">
+          <label class="form-label">${escapeHtml(field.label)} ${reqStar}</label>
+          ${field.instructions ? `<div style="font-size:0.76rem; color:var(--text-muted); margin-bottom:0.4rem;">${escapeHtml(field.instructions)}</div>` : ''}
+          <input type="${field.type === 'number' ? 'number' : 'text'}" class="form-input inp-dyn-val" data-scope-key="${escapeHtml(scopeKey)}" data-field-id="${escapeHtml(field.id)}" value="${escapeHtml(currentVal || '')}">
+        </div>
+      `;
+    }
+
+    function validateStep1() {
+      const ord = state.wizardOrder;
+      const cfg = ord?.portal_config || {};
+      const schema = Array.isArray(cfg.form_schema) ? cfg.form_schema : [];
+      const activeIndices = Object.keys(state.selectedItems).filter(k => state.selectedItems[k]?.selected);
+
+      if (activeIndices.length === 0) {
+        showToast('Selecciona al menos un producto para continuar.');
+        return false;
+      }
+
+      for (const idx of activeIndices) {
+        const it = ord.items[idx];
+        const sel = state.selectedItems[idx];
+        for (const fld of schema.filter(f => f.scope === 'per_item')) {
+          if (!fld.required || fld.type === 'info_banner') continue;
+          if (!shouldShowFormField(fld, state.resolutionType, sel.reason_id)) continue;
+
+          if (fld.type === 'photo_upload' || fld.type === 'video_upload' || fld.type === 'file_pdf') {
+            const minF = Math.max(1, Number(fld.min_files) || 1);
+            const uploaded = (sel.media_files || []).filter(m => m.field_id === fld.id);
+            if (uploaded.length < minF) {
+              showToast(`En "${it.name}": debes adjuntar "${fld.label}".`);
+              return false;
+            }
+          } else {
+            const ans = sel.custom_fields_answers?.[fld.id];
+            if (!ans || (typeof ans === 'string' && !ans.trim())) {
+              showToast(`En "${it.name}": completa "${fld.label}".`);
+              return false;
+            }
+          }
+        }
+      }
+
+      for (const fld of schema.filter(f => f.scope === 'per_request')) {
+        if (!fld.required || fld.type === 'info_banner') continue;
+        if (!shouldShowFormField(fld, state.resolutionType, null)) continue;
+        const ans = state.requestFormAnswers[fld.id];
+
+        if (fld.type === 'bank_details_cl') {
+          if (!ans || !ans.rut || !ans.bank || !ans.account_number) {
+            showToast(`Completa todos los datos bancarios en "${fld.label}".`);
+            return false;
+          }
+          if (!validateRutCL(ans.rut)) {
+            showToast('El RUT ingresado en los datos bancarios no es válido.');
+            return false;
+          }
+        } else if (fld.type === 'photo_upload' || fld.type === 'video_upload' || fld.type === 'file_pdf') {
+          if (!Array.isArray(ans) || ans.length === 0) {
+            showToast(`Debes adjuntar "${fld.label}".`);
+            return false;
+          }
+        } else if (!ans || (typeof ans === 'string' && !ans.trim())) {
+          showToast(`Debes completar "${fld.label}".`);
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    async function ensureExchangeCatalogLoaded() {
+      const ord = state.wizardOrder;
+      if (!ord || state.catalogLoadedForOrder === ord.id) return;
+      const res = await apiCall(API_URL, {
+        action: 'get_exchange_catalog',
+        order_id: ord.id
+      });
+      state.catalogLoadedForOrder = ord.id;
+      state.catalogItems = res.catalog || [];
+      state.catalogRules = {
+        allow_even_variant_exchange: res.allow_even_variant_exchange !== false,
+        allow_catalog_exchange: res.allow_catalog_exchange !== false
+      };
+    }
+
+    async function refreshLogisticsQuotes() {
+      const ord = state.wizardOrder;
+      if (!ord) return;
+      state.loadingLogistics = true;
+      render();
+      try {
+        const reasons = getFilteredReasons(ord.portal_config, state.resolutionType);
+        let hasFault = false;
+        let estWeight = 0;
+        (ord.items || []).forEach((it, idx) => {
+          const sel = state.selectedItems[idx];
+          if (sel?.selected) {
+            estWeight += (Number(it.weight_kg) || 0.5) * (Number(sel.qty) || 1);
+            const rObj = reasons.find(r => r.id === sel.reason_id);
+            if (rObj?.is_fault) hasFault = true;
+          }
+        });
+
+        const res = await apiCall(API_URL, {
+          action: 'quote_logistics_options',
+          order_id: ord.id,
+          comuna: state.shippingForm.comuna,
+          resolution_type: state.resolutionType,
+          has_fault_reason: hasFault,
+          estimated_weight_kg: Math.max(0.4, estWeight)
+        });
+        state.logisticsOptions = res.options || [];
+        if (res.matched_commune && !state.shippingForm.comuna) {
+          state.shippingForm.comuna = res.matched_commune.comuna;
+        }
+        if (!state.logisticsOptions.some(o => o.id === state.selectedLogisticsId)) {
+          state.selectedLogisticsId = state.logisticsOptions[0]?.id || 'sucursal_nunoa';
+        }
+        const currOpt = state.logisticsOptions.find(o => o.id === state.selectedLogisticsId);
+        if (currOpt && (!state.preferredCourier || !currOpt.couriers?.includes(state.preferredCourier))) {
+          state.preferredCourier = currOpt.couriers?.[0] || '';
+        }
+      } catch (err) {
+        showToast(err.message);
+      } finally {
+        state.loadingLogistics = false;
+        render();
+      }
+    }
+
+    function renderWizardView(mount) {
+      const ord = state.wizardOrder;
+      const cfg = ord.portal_config || {};
+      const elig = ord.eligibility || {};
+      const isExchange = state.resolutionType === 'exchange';
+      const stepLabels = [
+        { num: 1, title: '1. Productos y Motivo' },
+        { num: 2, title: isExchange ? '2. Nuevo Producto' : '2. Resolución' },
+        { num: 3, title: '3. Medio de Entrega' },
+        { num: 4, title: '4. Confirmación' }
+      ];
+
+      const stepperHtml = `
+        <div class="wizard-steps">
+          ${stepLabels.map(s => {
+            if (!isExchange && s.num === 2) return `<div class="wiz-step done"><span class="wiz-num"><i class="ri-check-line"></i></span> <span>Sin reemplazo</span></div>`;
+            const cls = state.wizardStep === s.num ? 'active' : (state.wizardStep > s.num ? 'done' : '');
+            return `<div class="wiz-step ${cls}"><span class="wiz-num">${state.wizardStep > s.num ? '<i class="ri-check-line"></i>' : s.num}</span> <span>${s.title}</span></div>`;
+          }).join('')}
+        </div>
+      `;
+
+      let stepBodyHtml = '';
+
+      // ---------------- PASO 1: PRODUCTOS + FORMULARIO DINÁMICO ----------------
+      if (state.wizardStep === 1) {
+        const schema = Array.isArray(cfg.form_schema) ? cfg.form_schema : [];
+        const reasons = getFilteredReasons(cfg, state.resolutionType);
+
+        stepBodyHtml = `
+          <h3 style="font-size:1.05rem; font-weight:800; margin-bottom:0.65rem;">¿Qué gestión deseas realizar?</h3>
+          <div class="res-grid">
+            ${elig.can_exchange ? `
+              <div class="res-card ${state.resolutionType === 'exchange' ? 'selected' : ''}" data-res="exchange">
+                <div style="font-weight:800; font-size:0.95rem; display:flex; align-items:center; gap:0.4rem;">
+                  <i class="ri-repeat-2-line" style="color:var(--primary); font-size:1.2rem;"></i> Cambiar Producto
+                </div>
+                <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.25rem;">Cambia talla, color o elige otro producto disponible en stock.</div>
+              </div>
+            ` : ''}
+            ${elig.can_store_credit ? `
+              <div class="res-card ${state.resolutionType === 'store_credit' ? 'selected' : ''}" data-res="store_credit">
+                <div style="font-weight:800; font-size:0.95rem; display:flex; align-items:center; gap:0.4rem;">
+                  <i class="ri-gift-2-line" style="color:var(--success); font-size:1.2rem;"></i> Crédito en Tienda
+                  ${Number(cfg.store_credit_bonus_pct) > 0 ? `<span class="badge badge-green">+${cfg.store_credit_bonus_pct}% Extra</span>` : ''}
+                </div>
+                <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.25rem;">Recibe un cupón inmediato para tu próxima compra en la tienda.</div>
+              </div>
+            ` : ''}
+            ${elig.can_return ? `
+              <div class="res-card ${state.resolutionType === 'return' ? 'selected' : ''}" data-res="return">
+                <div style="font-weight:800; font-size:0.95rem; display:flex; align-items:center; gap:0.4rem;">
+                  <i class="ri-arrow-go-back-line" style="color:#64748b; font-size:1.2rem;"></i> Solicitar Devolución
+                </div>
+                <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.25rem;">Devuelve tus productos para reembolso según políticas de la tienda.</div>
+              </div>
+            ` : ''}
+          </div>
+
+          <h3 style="font-size:1.05rem; font-weight:800; margin-bottom:0.65rem;">Selecciona las unidades de tu pedido #${escapeHtml(ord.order_number)}</h3>
+          <div style="display:flex; flex-direction:column; gap:0.85rem;">
+            ${(ord.items || []).map((it, idx) => {
+              const sel = state.selectedItems[idx] || { selected: false, qty: 1, reason_id: reasons[0]?.id };
+              const disabled = it.eligible_qty <= 0;
+              const itemSchema = schema.filter(f => f.scope === 'per_item' && shouldShowFormField(f, state.resolutionType, sel.reason_id));
+
+              return `
+                <div style="border:1.5px solid ${sel.selected ? 'var(--primary)' : 'var(--border)'}; border-radius:14px; padding:1rem; background:${disabled ? '#f8fafc' : '#ffffff'}; opacity:${disabled ? '0.6' : '1'};">
+                  <div style="display:flex; align-items:center; gap:0.85rem; flex-wrap:wrap;">
+                    <input type="checkbox" class="chk-wiz-item" data-idx="${idx}" ${sel.selected ? 'checked' : ''} ${disabled ? 'disabled' : ''} style="width:20px; height:20px; accent-color:var(--primary); cursor:pointer;">
+                    ${it.image_url
+                      ? `<img src="${escapeHtml(it.image_url)}" alt="${escapeHtml(it.name)}" class="prod-thumb">`
+                      : `<div class="prod-thumb"><i class="ri-shopping-bag-line"></i></div>`
+                    }
+                    <div style="flex:1; min-width:180px;">
+                      <div style="font-weight:800; font-size:0.92rem;">${escapeHtml(it.name)}</div>
+                      <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">
+                        SKU: <code>${escapeHtml(it.sku)}</code> · Pagado: <strong>${formatCLP(it.paid_unit_price)} c/u</strong>
+                        ${disabled ? ` · <span style="color:var(--danger); font-weight:700;">Sin unidades elegibles</span>` : ` · Máx elegible: ${it.eligible_qty}`}
+                      </div>
+                    </div>
+                    ${sel.selected && !disabled ? `
+                      <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <label style="font-size:0.76rem; font-weight:700;">Cant:</label>
+                        <select class="form-select sel-wiz-qty" data-idx="${idx}" style="width:74px; padding:0.45rem;">
+                          ${Array.from({ length: it.eligible_qty }, (_, n) => n + 1).map(n => `<option value="${n}" ${Number(sel.qty) === n ? 'selected' : ''}>${n}</option>`).join('')}
+                        </select>
+                      </div>
+                    ` : ''}
+                  </div>
+
+                  ${sel.selected && !disabled ? `
+                    <div style="margin-top:0.85rem; padding-top:0.85rem; border-top:1px dashed var(--border);">
+                      <label class="form-label">Motivo principal para este producto <span style="color:var(--danger);">*</span></label>
+                      <select class="form-select sel-wiz-reason" data-idx="${idx}">
+                        ${reasons.map(r => `<option value="${escapeHtml(r.id)}" ${sel.reason_id === r.id ? 'selected' : ''}>${escapeHtml(r.label)}</option>`).join('')}
+                      </select>
+
+                      ${itemSchema.map(fld => {
+                        const val = (fld.type === 'photo_upload' || fld.type === 'video_upload' || fld.type === 'file_pdf')
+                          ? (sel.media_files || []).filter(m => m.field_id === fld.id)
+                          : sel.custom_fields_answers?.[fld.id];
+                        return renderDynamicFieldHtml(fld, `item_${idx}`, val);
+                      }).join('')}
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <!-- Campos Generales del Formulario del Seller (per_request) -->
+          <div style="margin-top:1.25rem;">
+            ${schema.filter(f => f.scope === 'per_request' && shouldShowFormField(f, state.resolutionType, null)).map(fld => {
+              return renderDynamicFieldHtml(fld, 'request', state.requestFormAnswers[fld.id]);
+            }).join('')}
+          </div>
+        `;
+      }
+
+      // ---------------- PASO 2: CATÁLOGO DE CAMBIO Y DIFERENCIAS EN VIVO ----------------
+      else if (state.wizardStep === 2) {
+        const fin = computeWizardFinancialPreview();
+        const returnedModels = new Set();
+        const returnedSkus = new Set();
+        (ord.items || []).forEach((it, idx) => {
+          if (state.selectedItems[idx]?.selected) {
+            returnedModels.add(it.base_model_key);
+            returnedSkus.add(String(it.sku || '').toLowerCase());
+          }
+        });
+
+        const sameModelVariants = state.catalogItems.filter(p =>
+          returnedModels.has(p.base_model_key) && !returnedSkus.has(String(p.sku || '').toLowerCase()) && p.available_stock > 0
+        );
+
+        const tallas = Array.from(new Set(state.catalogItems.map(p => p.talla).filter(Boolean))).sort();
+        const colors = Array.from(new Set(state.catalogItems.map(p => p.color).filter(Boolean))).sort();
+
+        const q = state.catalogSearch.toLowerCase().trim();
+        const filteredCatalog = state.catalogItems.filter(p => {
+          if (p.available_stock <= 0) return false;
+          if (q && !String(p.name || '').toLowerCase().includes(q) && !String(p.sku || '').toLowerCase().includes(q)) return false;
+          if (state.catalogFilterTalla && p.talla !== state.catalogFilterTalla) return false;
+          if (state.catalogFilterColor && p.color !== state.catalogFilterColor) return false;
+          return true;
+        });
+
+        stepBodyHtml = `
+          ${sameModelVariants.length > 0 ? `
+            <div style="background:var(--primary-subtle); border:1.5px solid var(--primary-border); border-radius:14px; padding:1rem; margin-bottom:1.25rem;">
+              <div style="font-weight:800; font-size:0.92rem; color:var(--primary); margin-bottom:0.5rem;">
+                <i class="ri-magic-line"></i> Cambio Rápido de Talla / Variante del mismo producto
+                ${state.catalogRules.allow_even_variant_exchange ? `<span class="badge badge-green" style="margin-left:0.4rem;">Respeta tu precio ($0 dif.)</span>` : ''}
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
+                ${sameModelVariants.map(v => `
+                  <button type="button" class="btn-outline btn-add-exchange-prod" data-prod-id="${escapeHtml(v.id)}" style="background:#fff; font-size:0.8rem; padding:0.45rem 0.85rem;">
+                    + ${escapeHtml(v.name)} <span style="color:var(--success); font-weight:800;">(${v.available_stock} disp.)</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- Carrito de Reemplazo Seleccionado -->
+          <div style="margin-bottom:1.25rem;">
+            <h4 style="font-size:0.95rem; font-weight:800; margin-bottom:0.5rem;">Productos que recibirás en tu cambio (${state.exchangeCart.reduce((s, i) => s + i.qty, 0)})</h4>
+            ${state.exchangeCart.length === 0 ? `
+              <div style="background:#f8fafc; border:1.5px dashed #cbd5e1; border-radius:12px; padding:1rem; text-align:center; font-size:0.84rem; color:var(--text-muted);">
+                Aún no has agregado productos de reemplazo. Haz clic en una variante arriba o elige del catálogo abajo.
+              </div>
+            ` : `
+              <div style="border:1px solid var(--border); border-radius:12px; padding:0.5rem 1rem; background:#fff;">
+                ${state.exchangeCart.map((ci, cIdx) => `
+                  <div class="order-item-row">
+                    ${ci.product.image_url ? `<img src="${escapeHtml(ci.product.image_url)}" class="prod-thumb">` : `<div class="prod-thumb"><i class="ri-shopping-bag-line"></i></div>`}
+                    <div style="flex:1;">
+                      <div style="font-weight:800; font-size:0.88rem;">${escapeHtml(ci.product.name)}</div>
+                      <div style="font-size:0.75rem; color:var(--text-muted);">SKU: ${escapeHtml(ci.product.sku)} · Precio lista: ${formatCLP(ci.product.price)}</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:0.45rem;">
+                      <span style="font-weight:800;">x${ci.qty}</span>
+                      <button type="button" class="btn-outline btn-rem-cart" data-cidx="${cIdx}" style="padding:0.3rem 0.55rem; color:var(--danger);"><i class="ri-delete-bin-line"></i></button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            `}
+          </div>
+
+          ${state.catalogRules.allow_catalog_exchange !== false ? `
+            <h4 style="font-size:0.95rem; font-weight:800; margin-bottom:0.6rem;">Explorar Catálogo con Stock en Bodega (${filteredCatalog.length})</h4>
+            <div style="display:flex; flex-wrap:wrap; gap:0.6rem; margin-bottom:0.85rem;">
+              <input type="text" id="inp-cat-search" class="form-input" placeholder="Buscar por nombre o SKU..." value="${escapeHtml(state.catalogSearch)}" style="flex:1; min-width:200px;">
+              ${tallas.length > 0 ? `
+                <select id="sel-cat-talla" class="form-select" style="width:auto; min-width:130px;">
+                  <option value="">Todas las tallas</option>
+                  ${tallas.map(t => `<option value="${escapeHtml(t)}" ${state.catalogFilterTalla === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+                </select>
+              ` : ''}
+              ${colors.length > 0 ? `
+                <select id="sel-cat-color" class="form-select" style="width:auto; min-width:130px;">
+                  <option value="">Todos los colores</option>
+                  ${colors.map(c => `<option value="${escapeHtml(c)}" ${state.catalogFilterColor === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+                </select>
+              ` : ''}
+            </div>
+
+            <div class="catalog-grid">
+              ${filteredCatalog.slice(0, 60).map(p => `
+                <div class="cat-card">
+                  <div>
+                    ${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}">` : `<div style="height:110px; background:#f8fafc; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#94a3b8; font-size:1.8rem;"><i class="ri-image-line"></i></div>`}
+                    <div style="font-weight:800; font-size:0.84rem; margin-top:0.5rem; line-height:1.3;">${escapeHtml(p.name)}</div>
+                    <div style="font-size:0.74rem; color:var(--text-muted); margin-top:2px;">SKU: ${escapeHtml(p.sku)}</div>
+                  </div>
+                  <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                      <strong style="font-size:0.92rem;">${formatCLP(p.price)}</strong>
+                      <span class="badge badge-green">${p.available_stock} disp.</span>
+                    </div>
+                    <button type="button" class="btn-primary btn-add-exchange-prod" data-prod-id="${escapeHtml(p.id)}" style="width:100%; padding:0.5rem; font-size:0.8rem;">
+                      + Elegir Producto
+                    </button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+
+          <div class="sticky-balance-bar">
+            <div style="font-size:0.82rem;">
+              Crédito devueltos: <strong>${formatCLP(fin.creditTotal)}</strong> · Nuevos: <strong>${formatCLP(fin.exchangeSubtotal)}</strong>
+              ${fin.evenApplied ? `<span class="badge badge-green" style="margin-left:0.4rem;">Cambio paritario aplicado</span>` : ''}
+            </div>
+            <div style="font-size:0.95rem; font-weight:900;">
+              ${fin.netDiff === 0
+                ? 'Diferencia de productos: $0'
+                : (fin.netDiff > 0 ? `Diferencia a pagar: ${formatCLP(fin.netDiff)}` : `Saldo a tu favor: ${formatCLP(Math.abs(fin.netDiff))}`)
+              }
+            </div>
+          </div>
+        `;
+      }
+
+      // ---------------- PASO 3: MEDIO LOGÍSTICO Y COBERTURA POR COMUNA ----------------
+      else if (state.wizardStep === 3) {
+        const chosenOpt = state.logisticsOptions.find(o => o.id === state.selectedLogisticsId);
+        const needsAddress = state.selectedLogisticsId !== 'sucursal_nunoa';
+
+        stepBodyHtml = `
+          <h3 style="font-size:1.05rem; font-weight:800; margin-bottom:0.4rem;">Selecciona tu Comuna y Medio de Cambio / Devolución</h3>
+          <p style="font-size:0.83rem; color:var(--text-muted); margin-bottom:1.1rem;">
+            Calculamos automáticamente la cobertura en Sucursal Stocka Ñuñoa, Flota Stocka X RM y Couriers a Regiones según tu comuna.
+          </p>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.85rem; margin-bottom:1.25rem;">
+            <div>
+              <label class="form-label">Comuna de Origen / Destino <span style="color:var(--danger);">*</span></label>
+              <select id="sel-ship-comuna" class="form-select">
+                <option value="">Selecciona tu comuna...</option>
+                ${state.communes.map(c => `<option value="${escapeHtml(c.comuna)}" ${state.shippingForm.comuna.toLowerCase() === c.comuna.toLowerCase() ? 'selected' : ''}>${escapeHtml(c.comuna)} (${escapeHtml(c.region)})</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Nombre de Contacto <span style="color:var(--danger);">*</span></label>
+              <input type="text" id="inp-ship-name" class="form-input" value="${escapeHtml(state.shippingForm.customer_name)}">
+            </div>
+            <div>
+              <label class="form-label">Teléfono Móvil <span style="color:var(--danger);">*</span></label>
+              <input type="tel" id="inp-ship-phone" class="form-input" placeholder="+56 9 1234 5678" value="${escapeHtml(state.shippingForm.customer_phone)}">
+            </div>
+          </div>
+
+          ${state.loadingLogistics ? `
+            <div style="padding:1.5rem; text-align:center; color:var(--text-muted);"><span class="spinner" style="color:var(--primary);"></span> Verificando cobertura para tu comuna...</div>
+          ` : `
+            <div style="margin-bottom:1rem;">
+              ${state.logisticsOptions.map(opt => `
+                <div class="logistics-option-card ${state.selectedLogisticsId === opt.id ? 'selected' : ''}" data-log-id="${escapeHtml(opt.id)}">
+                  <div style="flex:1;">
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                      <strong style="font-size:0.94rem;">${escapeHtml(opt.title)}</strong>
+                      ${opt.badge ? `<span class="badge badge-blue">${escapeHtml(opt.badge)}</span>` : ''}
+                    </div>
+                    <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem; line-height:1.45;">${escapeHtml(opt.subtitle)}</div>
+                    <div style="font-size:0.75rem; color:#475569; margin-top:0.25rem;"><i class="ri-time-line"></i> ${escapeHtml(opt.schedule || '')}</div>
+                  </div>
+                  <div style="text-align:right; font-weight:900; font-size:1rem; color:${opt.fee_clp === 0 ? 'var(--success)' : 'var(--text-main)'};">
+                    ${opt.fee_clp === 0 ? 'GRATIS' : formatCLP(opt.fee_clp)}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+
+          ${chosenOpt && chosenOpt.id === 'regiones_courier' && Array.isArray(chosenOpt.courier_details) && chosenOpt.courier_details.length > 1 ? `
+            <div style="margin-bottom:1.15rem;">
+              <label class="form-label">Operador Courier Preferido en tu Comuna</label>
+              <select id="sel-pref-courier" class="form-select">
+                ${chosenOpt.courier_details.map(cd => `<option value="${escapeHtml(cd.code)}" ${state.preferredCourier === cd.code ? 'selected' : ''}>${escapeHtml(cd.label)} (Tránsito aprox. ${cd.transit_days} días hábiles)</option>`).join('')}
+              </select>
+            </div>
+          ` : ''}
+
+          ${needsAddress ? `
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:0.85rem; background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:1rem;">
+              <div>
+                <label class="form-label">Dirección (Calle y Número) <span style="color:var(--danger);">*</span></label>
+                <input type="text" id="inp-ship-addr" class="form-input" value="${escapeHtml(state.shippingForm.address)}" placeholder="Ej: Av. Providencia 1234">
+              </div>
+              <div>
+                <label class="form-label">Depto / Casa / Referencia</label>
+                <input type="text" id="inp-ship-comp" class="form-input" value="${escapeHtml(state.shippingForm.complement)}" placeholder="Ej: Depto 402">
+              </div>
+            </div>
+          ` : ''}
+        `;
+      }
+
+      // ---------------- PASO 4: RESUMEN FINANCIERO Y CONFIRMACIÓN ----------------
+      else if (state.wizardStep === 4) {
+        const fin = computeWizardFinancialPreview();
+        const chosenOpt = state.logisticsOptions.find(o => o.id === state.selectedLogisticsId);
+        const selReturnRows = (ord.items || []).map((it, idx) => ({ it, sel: state.selectedItems[idx] })).filter(x => x.sel?.selected);
+
+        stepBodyHtml = `
+          <h3 style="font-size:1.1rem; font-weight:900; margin-bottom:0.85rem;">Revisa y Confirma tu Solicitud</h3>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:1rem; margin-bottom:1.15rem;">
+            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:1rem;">
+              <div style="font-weight:800; font-size:0.85rem; color:var(--danger); margin-bottom:0.5rem;">⬅️ Productos que devuelves</div>
+              ${selReturnRows.map(({ it, sel }) => `
+                <div style="font-size:0.82rem; margin-bottom:0.35rem;">
+                  <strong>${sel.qty}x</strong> ${escapeHtml(it.name)} <span style="color:var(--text-muted);">(${formatCLP(it.paid_unit_price * sel.qty)})</span>
+                </div>
+              `).join('')}
+            </div>
+
+            ${isExchange ? `
+              <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:12px; padding:1rem;">
+                <div style="font-weight:800; font-size:0.85rem; color:#166534; margin-bottom:0.5rem;">➡️ Productos que recibirás</div>
+                ${state.exchangeCart.map(ci => `
+                  <div style="font-size:0.82rem; margin-bottom:0.35rem;">
+                    <strong>${ci.qty}x</strong> ${escapeHtml(ci.product.name)}
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+
+          <div style="background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1.15rem; font-size:0.84rem; line-height:1.6;">
+            <div style="display:flex; justify-content:space-between;"><span>Crédito por productos devueltos:</span> <strong>${formatCLP(fin.creditTotal)}</strong></div>
+            ${isExchange ? `<div style="display:flex; justify-content:space-between;"><span>Subtotal productos de cambio:</span> <strong>${formatCLP(fin.exchangeSubtotal)}</strong></div>` : ''}
+            ${state.resolutionType === 'store_credit' && fin.bonusAmt > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--success);"><span>Bono extra en tienda (+${fin.bonusPct}%):</span> <strong>+${formatCLP(fin.bonusAmt)}</strong></div>` : ''}
+            <div style="display:flex; justify-content:space-between;"><span>Modalidad logística (${escapeHtml(chosenOpt?.title || '')}):</span> <strong>${fin.shippingFee === 0 ? 'GRATIS' : formatCLP(fin.shippingFee)}</strong></div>
+            <div style="border-top:1px dashed #cbd5e1; margin-top:0.5rem; padding-top:0.5rem; display:flex; justify-content:space-between; font-size:0.98rem; font-weight:900;">
+              <span>${fin.netDiff > 0 ? 'Total diferencia a pagar (una vez aprobada):' : (fin.netDiff < 0 ? 'Monto neto a tu favor:' : 'Balance final:')}</span>
+              <span style="color:${fin.netDiff > 0 ? '#b45309' : 'var(--success)'};">${fin.netDiff === 0 ? '$0 (Sin costo adicional)' : formatCLP(Math.abs(fin.netDiff))}</span>
+            </div>
+          </div>
+
+          <div style="margin-bottom:0.75rem;">
+            <label class="form-label">Comentarios adicionales para la tienda (Opcional)</label>
+            <textarea id="inp-final-comments" rows="2" class="form-textarea" placeholder="¿Algún detalle adicional que quieras indicar?">${escapeHtml(state.buyerComments)}</textarea>
+          </div>
+
+          <div style="font-size:0.78rem; color:var(--text-muted); background:#fffbeb; border:1px solid #fde68a; color:#92400e; padding:0.7rem 0.9rem; border-radius:10px;">
+            <i class="ri-shield-check-line"></i> Al enviar tu solicitud, el comercio validará los antecedentes y te enviará la aprobación junto con tu pase QR de Sucursal Ñuñoa, retiro RM o etiqueta de envío.
+          </div>
+        `;
+      }
+
+      mount.innerHTML = `
+        <div style="margin-bottom:0.85rem;">
+          <button type="button" id="btn-exit-wizard" class="btn-outline" style="padding:0.45rem 0.9rem; font-size:0.8rem;">
+            <i class="ri-arrow-left-line"></i> Volver a Mis Compras
+          </button>
+        </div>
+
+        <div class="card">
+          ${stepperHtml}
+          ${stepBodyHtml}
+
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-top:1.5rem; padding-top:1.15rem; border-top:1px solid var(--border);">
+            ${state.wizardStep > 1 ? `
+              <button type="button" id="btn-wiz-prev" class="btn-outline">
+                <i class="ri-arrow-left-s-line"></i> Paso Anterior
+              </button>
+            ` : `<div></div>`}
+
+            ${state.wizardStep < 4 ? `
+              <button type="button" id="btn-wiz-next" class="btn-primary">
+                Continuar <i class="ri-arrow-right-s-line"></i>
+              </button>
+            ` : `
+              <button type="button" id="btn-wiz-submit" class="btn-primary" ${state.submittingRma ? 'disabled' : ''}>
+                ${state.submittingRma ? '<span class="spinner"></span> Enviando solicitud...' : '<i class="ri-check-double-line"></i> Confirmar y Enviar Solicitud'}
+              </button>
+            `}
+          </div>
+        </div>
+      `;
+
+      bindWizardEvents(mount);
+    }
+
+    function bindWizardEvents(mount) {
+      document.getElementById('btn-exit-wizard')?.addEventListener('click', () => {
+        state.wizardOrder = null;
+        if (!storeSlugParam && state.portalConfig) applyBranding(state.portalConfig);
+        render();
+      });
+
+      // Step 1 listeners
+      mount.querySelectorAll('.res-card').forEach(card => {
+        card.addEventListener('click', () => {
+          state.resolutionType = card.dataset.res;
+          const reasons = getFilteredReasons(state.wizardOrder?.portal_config, state.resolutionType);
+          Object.values(state.selectedItems).forEach(sel => {
+            if (!reasons.some(r => r.id === sel.reason_id)) {
+              sel.reason_id = reasons[0]?.id || 'otro';
+            }
+          });
+          render();
+        });
+      });
+
+      mount.querySelectorAll('.chk-wiz-item').forEach(chk => {
+        chk.addEventListener('change', () => {
+          const idx = chk.dataset.idx;
+          state.selectedItems[idx].selected = chk.checked;
+          render();
+        });
+      });
+
+      mount.querySelectorAll('.sel-wiz-qty').forEach(sel => {
+        sel.addEventListener('change', () => {
+          state.selectedItems[sel.dataset.idx].qty = parseInt(sel.value, 10) || 1;
+          render();
+        });
+      });
+
+      mount.querySelectorAll('.sel-wiz-reason').forEach(sel => {
+        sel.addEventListener('change', () => {
+          state.selectedItems[sel.dataset.idx].reason_id = sel.value;
+          render();
+        });
+      });
+
+      // Dynamic form inputs
+      mount.querySelectorAll('.inp-dyn-val').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const sk = inp.dataset.scopeKey;
+          const fid = inp.dataset.fieldId;
+          if (sk === 'request') state.requestFormAnswers[fid] = inp.value;
+          else {
+            const idx = sk.replace('item_', '');
+            state.selectedItems[idx].custom_fields_answers[fid] = inp.value;
+          }
+        });
+      });
+
+      mount.querySelectorAll('.inp-dyn-check').forEach(chk => {
+        chk.addEventListener('change', () => {
+          const sk = chk.dataset.scopeKey;
+          const fid = chk.dataset.fieldId;
+          if (sk === 'request') state.requestFormAnswers[fid] = chk.checked;
+          else {
+            const idx = sk.replace('item_', '');
+            state.selectedItems[idx].custom_fields_answers[fid] = chk.checked;
+          }
+        });
+      });
+
+      mount.querySelectorAll('.inp-dyn-bank').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const sk = inp.dataset.scopeKey;
+          const fid = inp.dataset.fieldId;
+          const sub = inp.dataset.sub;
+          const target = sk === 'request'
+            ? (state.requestFormAnswers[fid] = state.requestFormAnswers[fid] || { account_type: 'Cuenta Vista / RUT' })
+            : (state.selectedItems[sk.replace('item_', '')].custom_fields_answers[fid] = state.selectedItems[sk.replace('item_', '')].custom_fields_answers[fid] || { account_type: 'Cuenta Vista / RUT' });
+          target[sub] = inp.value;
+        });
+      });
+
+      mount.querySelectorAll('.inp-dyn-media').forEach(fileInp => {
+        fileInp.addEventListener('change', async () => {
+          const file = fileInp.files?.[0];
+          if (!file) return;
+          const sk = fileInp.dataset.scopeKey;
+          const fid = fileInp.dataset.fieldId;
+          const progEl = document.getElementById(`prog-${sk}-${fid}`);
+          if (progEl) progEl.textContent = 'Preparando...';
+
+          try {
+            const uploaded = await uploadFileDirectToStorage(file, state.wizardOrder.id, (pct) => {
+              if (progEl) progEl.textContent = `Subiendo ${pct}%...`;
+            });
+            uploaded.field_id = fid;
+
+            if (sk === 'request') {
+              if (!Array.isArray(state.requestFormAnswers[fid])) state.requestFormAnswers[fid] = [];
+              state.requestFormAnswers[fid].push(uploaded);
+            } else {
+              const idx = sk.replace('item_', '');
+              state.selectedItems[idx].media_files.push(uploaded);
+            }
+            showToast('Archivo cargado con éxito.');
+            render();
+          } catch (err) {
+            alert(err.message);
+            if (progEl) progEl.textContent = '';
+          }
+        });
+      });
+
+      mount.querySelectorAll('.btn-del-dyn-media').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const sk = btn.dataset.scopeKey;
+          const fid = btn.dataset.fieldId;
+          const fidx = parseInt(btn.dataset.fidx, 10);
+          if (sk === 'request') {
+            if (Array.isArray(state.requestFormAnswers[fid])) state.requestFormAnswers[fid].splice(fidx, 1);
+          } else {
+            const idx = sk.replace('item_', '');
+            const sameField = state.selectedItems[idx].media_files.filter(m => m.field_id === fid);
+            const targetObj = sameField[fidx];
+            const realIdx = state.selectedItems[idx].media_files.indexOf(targetObj);
+            if (realIdx >= 0) state.selectedItems[idx].media_files.splice(realIdx, 1);
+          }
+          render();
+        });
+      });
+
+      // Step 2 listeners
+      document.getElementById('inp-cat-search')?.addEventListener('input', (e) => {
+        state.catalogSearch = e.target.value;
+        render();
+        const el = document.getElementById('inp-cat-search');
+        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+      });
+      document.getElementById('sel-cat-talla')?.addEventListener('change', (e) => {
+        state.catalogFilterTalla = e.target.value;
+        render();
+      });
+      document.getElementById('sel-cat-color')?.addEventListener('change', (e) => {
+        state.catalogFilterColor = e.target.value;
+        render();
+      });
+
+      mount.querySelectorAll('.btn-add-exchange-prod').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const prod = state.catalogItems.find(p => p.id === btn.dataset.prodId);
+          if (!prod) return;
+          const existing = state.exchangeCart.find(c => c.product.id === prod.id);
+          if (existing) {
+            if (existing.qty + 1 > prod.available_stock) {
+              showToast(`Solo quedan ${prod.available_stock} unidades disponibles.`);
+              return;
+            }
+            existing.qty += 1;
+          } else {
+            state.exchangeCart.push({ product: prod, qty: 1 });
+          }
+          showToast(`Agregado: ${prod.name}`);
+          render();
+        });
+      });
+
+      mount.querySelectorAll('.btn-rem-cart').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.exchangeCart.splice(parseInt(btn.dataset.cidx, 10), 1);
+          render();
+        });
+      });
+
+      // Step 3 listeners
+      document.getElementById('sel-ship-comuna')?.addEventListener('change', async (e) => {
+        state.shippingForm.comuna = e.target.value;
+        await refreshLogisticsQuotes();
+      });
+      document.getElementById('inp-ship-name')?.addEventListener('input', e => state.shippingForm.customer_name = e.target.value);
+      document.getElementById('inp-ship-phone')?.addEventListener('input', e => state.shippingForm.customer_phone = e.target.value);
+      document.getElementById('inp-ship-addr')?.addEventListener('input', e => state.shippingForm.address = e.target.value);
+      document.getElementById('inp-ship-comp')?.addEventListener('input', e => state.shippingForm.complement = e.target.value);
+      document.getElementById('sel-pref-courier')?.addEventListener('change', e => state.preferredCourier = e.target.value);
+
+      mount.querySelectorAll('.logistics-option-card').forEach(card => {
+        card.addEventListener('click', () => {
+          state.selectedLogisticsId = card.dataset.logId;
+          const opt = state.logisticsOptions.find(o => o.id === state.selectedLogisticsId);
+          state.preferredCourier = opt?.couriers?.[0] || '';
+          render();
+        });
+      });
+
+      // Step 4 listeners
+      document.getElementById('inp-final-comments')?.addEventListener('input', e => state.buyerComments = e.target.value);
+
+      // Prev / Next / Submit
+      document.getElementById('btn-wiz-prev')?.addEventListener('click', () => {
+        if (state.wizardStep === 3 && state.resolutionType !== 'exchange') {
+          state.wizardStep = 1;
+        } else {
+          state.wizardStep = Math.max(1, state.wizardStep - 1);
+        }
+        render();
+      });
+
+      document.getElementById('btn-wiz-next')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-wiz-next');
+        if (state.wizardStep === 1) {
+          if (!validateStep1()) return;
+          if (state.resolutionType === 'exchange') {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Cargando stock disponible...';
+            try {
+              await ensureExchangeCatalogLoaded();
+              state.wizardStep = 2;
+              render();
+            } catch (err) {
+              alert(err.message);
+              btn.disabled = false;
+              btn.innerHTML = 'Continuar <i class="ri-arrow-right-s-line"></i>';
+            }
+          } else {
+            state.wizardStep = 3;
+            await refreshLogisticsQuotes();
+          }
+        } else if (state.wizardStep === 2) {
+          if (state.exchangeCart.length === 0) {
+            showToast('Elige al menos un producto de reemplazo para continuar.');
+            return;
+          }
+          state.wizardStep = 3;
+          await refreshLogisticsQuotes();
+        } else if (state.wizardStep === 3) {
+          if (!state.shippingForm.customer_name.trim() || !state.shippingForm.customer_phone.trim()) {
+            showToast('Completa tu nombre y teléfono de contacto.');
+            return;
+          }
+          if (state.selectedLogisticsId !== 'sucursal_nunoa') {
+            if (!state.shippingForm.comuna || !state.shippingForm.address.trim()) {
+              showToast('Selecciona tu comuna e ingresa la dirección completa.');
+              return;
+            }
+          }
+          state.wizardStep = 4;
+          render();
+        }
+      });
+
+      document.getElementById('btn-wiz-submit')?.addEventListener('click', async () => {
+        state.submittingRma = true;
+        render();
+        try {
+          const ord = state.wizardOrder;
+          const returnItemsPayload = [];
+          (ord.items || []).forEach((it, idx) => {
+            const sel = state.selectedItems[idx];
+            if (sel?.selected) {
+              returnItemsPayload.push({
+                product_id: it.product_id,
+                sku: it.sku,
+                name: it.name,
+                qty: sel.qty,
+                reason_id: sel.reason_id,
+                custom_fields_answers: sel.custom_fields_answers,
+                media_files: (sel.media_files || []).map(m => ({
+                  field_id: m.field_id,
+                  storage_path: m.storage_path,
+                  name: m.name,
+                  mime_type: m.mime_type
+                }))
+              });
+            }
+          });
+
+          const cleanRequestAnswers = {};
+          for (const [k, v] of Object.entries(state.requestFormAnswers)) {
+            if (Array.isArray(v)) {
+              cleanRequestAnswers[k] = v.map(m => ({
+                storage_path: m.storage_path,
+                name: m.name,
+                mime_type: m.mime_type
+              }));
+            } else {
+              cleanRequestAnswers[k] = v;
+            }
+          }
+
+          const exchangeItemsPayload = state.exchangeCart.map(ci => ({
+            product_id: ci.product.id,
+            sku: ci.product.sku,
+            qty: ci.qty
+          }));
+
+          const res = await apiCall(API_URL, {
+            action: 'submit_rma_request',
+            order_id: ord.id,
+            resolution_type: state.resolutionType,
+            return_items: returnItemsPayload,
+            exchange_items: exchangeItemsPayload,
+            request_form_answers: cleanRequestAnswers,
+            logistics_option: state.selectedLogisticsId,
+            preferred_courier: state.preferredCourier,
+            shipping_info: state.shippingForm,
+            comments: state.buyerComments
+          });
+
+          showToast(`¡Solicitud ${res.rma?.rma_number || ''} registrada con éxito!`);
+          state.wizardOrder = null;
+          state.activeTab = 'rmas';
+          await loadOrdersAndRmas();
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          state.submittingRma = false;
+          render();
+        }
+      });
+    }
+
+    // Inicialización del Portal
+    async function initPortal() {
+      try {
+        const boot = await apiCall(API_URL, {
+          action: 'get_portal_bootstrap',
+          comercio_or_slug: storeSlugParam || null
+        });
+        state.portalConfig = boot.config;
+        state.communes = boot.communes || [];
+        applyBranding(state.portalConfig);
+
+        if (state.sessionToken) {
+          const valRes = await apiCall(AUTH_URL, {
+            action: 'validate_session',
+            session_token: state.sessionToken
+          });
+          if (valRes.valid) {
+            state.buyerEmail = valRes.email;
+            state.scopeComercio = valRes.scope_comercio;
+            await loadOrdersAndRmas();
+            return;
+          } else {
+            sessionStorage.removeItem(STORAGE_KEY);
+            state.sessionToken = '';
+          }
+        }
+        render();
+      } catch (err) {
+        console.error('Error iniciando portal de cambios:', err);
+        render();
+      }
+    }
+
+    initPortal();
+  })();
+  </script>
+</body>
+</html>

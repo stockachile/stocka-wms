@@ -865,6 +865,50 @@
   }
 
   // ==========================================================================
+  // 2.b Enlace Directo a Google Maps para la Dirección del Pedido
+  // ==========================================================================
+  function buildOrderGoogleMapsInfo(order) {
+    if (!order) return null;
+    const rawAddr = getOrderFieldValue(order, 'direccion');
+    const addr = String(rawAddr || '').trim();
+    const addrLower = addr.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!addr || ['-', 'n/a', 'sin direccion', 'por definir', 'no registrada', 'no registrado'].includes(addrLower)) {
+      return null;
+    }
+
+    const rawComp = getOrderFieldValue(order, 'complemento');
+    const comp = rawComp && rawComp !== '-' ? String(rawComp).trim() : '';
+
+    const rawComuna = getOrderFieldValue(order, 'comuna');
+    const comuna = rawComuna && rawComuna !== '-' && rawComuna !== 'Por definir' ? String(rawComuna).trim() : '';
+
+    // Si la dirección no tiene numeración (ej. "Huérfanos") o es solo "Pasaje 58" / "Calle 4" y el complemento es un número (ej. "670", "6641"), incorporarlo como numeración
+    let addrPart = addr;
+    const isNumericComp = /^\d+[a-zA-Z]?$/.test(comp);
+    if (isNumericComp && (!/\d/.test(addr) || /^(pasaje|pje\.?|calle)\s+\d+$/i.test(addr))) {
+      addrPart = `${addr} ${comp}`;
+    }
+
+    const parts = [addrPart];
+    if (comuna) {
+      const addrNorm = addrPart.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const comunaNorm = comuna.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (!addrNorm.includes(comunaNorm)) {
+        parts.push(comuna);
+      }
+    }
+    if (!addrPart.toLowerCase().includes('chile')) {
+      parts.push('Chile');
+    }
+
+    const query = parts.join(', ');
+    return {
+      query,
+      url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+    };
+  }
+
+  // ==========================================================================
   // 3. Renderizado de Celda HTML
   // ==========================================================================
   function renderCellHtml(order, col, rowIndex) {
@@ -1123,6 +1167,29 @@
             </button>
             <i class="ri-external-link-line" style="font-size: 0.75rem; opacity: 0.65;" title="Abrir Ficha de Pedido"></i>
           </div>
+        </div>
+      `;
+    }
+
+    if (col.key === 'direccion') {
+      const mapsInfo = buildOrderGoogleMapsInfo(order);
+      if (mapsInfo) {
+        const safeAddr = escapeHtml(rawVal);
+        const safeTip = escapeHtml(`Abrir en Google Maps: ${mapsInfo.query}`);
+        return `
+          <div class="excel-cell-content excel-address-cell">
+            <a href="${mapsInfo.url}" target="_blank" rel="noopener noreferrer" class="excel-address-link" title="${safeTip}">
+              <span class="excel-address-text">${safeAddr}</span>
+              <span class="excel-address-map-icon" aria-hidden="true">
+                <i class="ri-map-pin-2-fill"></i>
+              </span>
+            </a>
+          </div>
+        `;
+      }
+      return `
+        <div class="excel-cell-content" style="text-align: ${col.align}; color: var(--color-text-muted);" title="${escapeHtml(rawVal)}">
+          ${escapeHtml(rawVal || '-')}
         </div>
       `;
     }
@@ -1640,9 +1707,11 @@
     `;
 
     const x = Math.min(event.clientX, window.innerWidth - 235);
-    const y = Math.min(event.clientY, window.innerHeight - 275);
+    const y = Math.min(event.clientY, window.innerHeight - 315);
     menu.style.left = `${Math.max(10, x)}px`;
     menu.style.top = `${Math.max(10, y)}px`;
+
+    const mapsInfo = buildOrderGoogleMapsInfo(order);
 
     menu.innerHTML = `
       <div style="padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--color-border, #e2e8f0); font-weight: 700; color: var(--color-primary, #6366f1); font-size: 0.76rem; display: flex; align-items: center; justify-content: space-between;">
@@ -1651,6 +1720,11 @@
       <div class="agendas-menu-item" data-action="ficha" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s; font-weight: 600;">
         <i class="ri-file-user-line" style="color: #7e22ce; font-size: 0.95rem;"></i> Abrir Ficha Completa
       </div>
+      ${mapsInfo ? `
+      <div class="agendas-menu-item" data-action="maps" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s; font-weight: 600;">
+        <i class="ri-map-pin-2-fill" style="color: #2563eb; font-size: 0.95rem;"></i> Abrir Dirección en Maps
+      </div>
+      ` : ''}
       <div class="agendas-menu-item" data-action="comuna" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s;">
         <i class="ri-map-pin-line" style="color: #059669; font-size: 0.95rem;"></i> Editar Comuna
       </div>
@@ -1685,6 +1759,8 @@
         closeAgendasContextMenu();
         if (action === 'ficha' && typeof window.openWmsOrderModal === 'function') {
           window.openWmsOrderModal(orderId);
+        } else if (action === 'maps' && mapsInfo?.url) {
+          window.open(mapsInfo.url, '_blank', 'noopener,noreferrer');
         } else if (action === 'comuna' && typeof window.editWmsOrderComuna === 'function') {
           window.editWmsOrderComuna(orderId);
         } else if (action === 'despacho' && typeof window.editWmsOrderShippingDetails === 'function') {
@@ -2995,18 +3071,30 @@
           }
         }
 
-        // Si se actualizó la comuna, re-renderizar de inmediato la celda de cobertura_sugerida de esa misma fila
+        // Si se actualizó la comuna, re-renderizar de inmediato cobertura_sugerida y el enlace de Google Maps en direccion
         if (u.field === 'comuna') {
+          const order = (window.loadedOrders || []).find(o => String(o.id) === idKey)
+            || (window.agendasGridState.filteredOrders || []).find(o => String(o.id) === idKey);
+
           let covCell = document.querySelector(`.excel-cell[data-order-id="${u.orderId}"][data-col-key="cobertura_sugerida"]`);
           if (!covCell) {
             covCell = document.querySelector(`.excel-cell[data-order-id="${idKey}"][data-col-key="cobertura_sugerida"]`);
           }
           if (covCell) {
             const covDef = COLUMN_DEFS.find(c => c.key === 'cobertura_sugerida');
-            const order = (window.loadedOrders || []).find(o => String(o.id) === idKey)
-              || (window.agendasGridState.filteredOrders || []).find(o => String(o.id) === idKey);
             if (order && covDef) {
               covCell.innerHTML = renderCellHtml(order, covDef, parseInt(covCell.getAttribute('data-row-index'), 10));
+            }
+          }
+
+          let addrCell = document.querySelector(`.excel-cell[data-order-id="${u.orderId}"][data-col-key="direccion"]`);
+          if (!addrCell) {
+            addrCell = document.querySelector(`.excel-cell[data-order-id="${idKey}"][data-col-key="direccion"]`);
+          }
+          if (addrCell) {
+            const addrDef = COLUMN_DEFS.find(c => c.key === 'direccion');
+            if (order && addrDef) {
+              addrCell.innerHTML = renderCellHtml(order, addrDef, parseInt(addrCell.getAttribute('data-row-index'), 10));
             }
           }
         }
@@ -3204,7 +3292,7 @@
       }
     }
 
-    // Si es comuna, actualizar también cobertura_sugerida
+    // Si es comuna o complemento, actualizar también cobertura_sugerida y el enlace de Google Maps en direccion
     if (targetColKey === 'comuna') {
       let covCell = document.querySelector(`.excel-cell[data-order-id="${idStr}"][data-col-key="cobertura_sugerida"]`);
       if (!covCell) {
@@ -3221,6 +3309,26 @@
         if (covDef) {
           const rIndex = parseInt(covCell.getAttribute('data-row-index'), 10) || 0;
           covCell.innerHTML = renderCellHtml(activeOrder, covDef, rIndex);
+        }
+      }
+    }
+
+    if (targetColKey === 'comuna' || targetColKey === 'complemento') {
+      let addrCell = document.querySelector(`.excel-cell[data-order-id="${idStr}"][data-col-key="direccion"]`);
+      if (!addrCell) {
+        const addrCells = document.querySelectorAll(`.excel-cell[data-col-key="direccion"]`);
+        for (let ac of addrCells) {
+          if (String(ac.getAttribute('data-order-id')) === idStr) {
+            addrCell = ac;
+            break;
+          }
+        }
+      }
+      if (addrCell && activeOrder) {
+        const addrDef = COLUMN_DEFS.find(c => c.key === 'direccion');
+        if (addrDef) {
+          const rIndex = parseInt(addrCell.getAttribute('data-row-index'), 10) || 0;
+          addrCell.innerHTML = renderCellHtml(activeOrder, addrDef, rIndex);
         }
       }
     }

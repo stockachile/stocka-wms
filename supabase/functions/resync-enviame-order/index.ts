@@ -140,7 +140,7 @@ serve(async (req) => {
     if (orderId) {
       const rawOrderStr = String(orderId).trim();
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawOrderStr);
-      let q = supabase.from("orders").select("id, estado_wms, external_order_number, tracking_number, courier, operador, label_url, enviame_delivery_id, comercio");
+      let q = supabase.from("orders").select("id, estado_wms, external_order_number, tracking_number, tracking_url, courier, operador, label_url, enviame_delivery_id, comercio, categoria_entrega, raw_shopify_data");
       if (isUuid) {
         q = q.eq("id", rawOrderStr);
       } else {
@@ -160,9 +160,18 @@ serve(async (req) => {
       }
     }
 
-    if (targetOrder && String(targetOrder.estado_wms || "").trim() === "Entregado") {
+    if (targetOrder && ["Entregado", "Listo para retiro"].includes(String(targetOrder.estado_wms || "").trim())) {
       return new Response(JSON.stringify({
-        error: "Este pedido ya se encuentra finalizado en estado 'Entregado' con su historial sellado en base de datos; no requiere nuevas consultas externas."
+        error: `Este pedido ya se encuentra finalizado en estado '${targetOrder.estado_wms}'; no requiere nuevas consultas externas.`
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    if (targetOrder && String(targetOrder.categoria_entrega || "").toUpperCase().trim() === "RETIRO") {
+      return new Response(JSON.stringify({
+        error: "Los pedidos con categoría RETIRO tienen bloqueada la asignación de courier o tracking desde Envíame."
       }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -185,25 +194,20 @@ serve(async (req) => {
     if (orderComercio) {
       const { data: cConfig } = await supabase
         .from("comercios_adicional_config")
-        .select("comercio, enviame_id, sigla")
+        .select("comercio, enviame_id")
         .ilike("comercio", orderComercio)
         .maybeSingle();
 
       if (cConfig?.enviame_id) {
         expectedEnviameId = String(cConfig.enviame_id).trim();
       }
-      if (cConfig?.sigla) {
-        comercioSigla = String(cConfig.sigla).trim().toUpperCase();
-      }
 
-      if (!comercioSigla) {
-        const { data: vCom } = await supabase
-          .from("v_comercios_config")
-          .select("sigla")
-          .ilike("nombre", orderComercio)
-          .maybeSingle();
-        if (vCom?.sigla) comercioSigla = String(vCom.sigla).trim().toUpperCase();
-      }
+      const { data: vCom } = await supabase
+        .from("v_comercios_config")
+        .select("sigla")
+        .ilike("nombre", orderComercio)
+        .maybeSingle();
+      if (vCom?.sigla) comercioSigla = String(vCom.sigla).trim().toUpperCase();
     }
 
     // Resolver deliveryId
@@ -349,9 +353,11 @@ serve(async (req) => {
         trackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(validTracking)}`;
       }
     }
-    if (!trackingUrl && d.links && Array.isArray(d.links)) {
+    if (!trackingUrl && validTracking && d.links && Array.isArray(d.links)) {
       const webLink = d.links.find((l: any) => l.rel === "tracking-web");
-      if (webLink?.href) trackingUrl = webLink.href;
+      if (webLink?.href && /^https?:\/\//i.test(String(webLink.href)) && !/(no\s*informado|no%20informado)/i.test(String(webLink.href))) {
+        trackingUrl = webLink.href;
+      }
     }
 
     const sellerNameRecord = delCompanyName || (delCompanyId ? `ID: ${delCompanyId}` : (orderComercio || null));
@@ -403,22 +409,41 @@ serve(async (req) => {
 
     // 3. Actualizar tabla orders sólo si targetOrder coincide de manera validada
     if (targetOrder) {
+      const ft = targetOrder.raw_shopify_data?.wms_forced_tracking;
+      const orderValidTrack = validTracking && !/^46\d{6,}$/.test(validTracking) ? validTracking : null;
+      const hasDifferentForcedTrack = Boolean(
+        ft &&
+        ft.active &&
+        ft.tracking_number &&
+        (!orderValidTrack || String(ft.tracking_number).trim().toUpperCase() !== orderValidTrack.toUpperCase())
+      );
+
       const orderUpdate: any = {
         enviame_delivery_id: String(deliveryId),
-        enviame_status: statusName,
-        courier: courier,
-        operador: mappedOperador
+        enviame_status: statusName
       };
 
-      if (validTracking) {
-        orderUpdate.tracking_number = validTracking;
-        if (trackingUrl) orderUpdate.tracking_url = trackingUrl;
-      } else if (targetOrder.tracking_number === "No informado") {
-        orderUpdate.tracking_number = null;
+      if (!hasDifferentForcedTrack) {
+        orderUpdate.courier = courier;
+        orderUpdate.operador = mappedOperador;
+
+        if (orderValidTrack) {
+          orderUpdate.tracking_number = orderValidTrack;
+          if (trackingUrl) orderUpdate.tracking_url = trackingUrl;
+        } else {
+          if (targetOrder.tracking_number && /^(no informado|noinformado|null|undefined|n\/a|-)$/i.test(String(targetOrder.tracking_number).trim())) {
+            orderUpdate.tracking_number = null;
+          }
+          if (targetOrder.tracking_url && /(no\s*informado|no%20informado)/i.test(String(targetOrder.tracking_url))) {
+            orderUpdate.tracking_url = null;
+          }
+        }
       }
 
       if (labelUrl) {
         orderUpdate.label_url = labelUrl;
+      } else if (targetOrder.label_url && !/^https?:\/\//i.test(String(targetOrder.label_url).trim())) {
+        orderUpdate.label_url = null;
       }
 
       await supabase.from("orders").update(orderUpdate).eq("id", targetOrder.id);
@@ -437,6 +462,7 @@ serve(async (req) => {
       labelUrl: labelUrl,
       status: statusName,
       globalStatus: globalStatus,
+      unifiedShipment: unifiedPayload,
       message: validTracking
         ? `Sincronizado [${orderComercio}]: Courier ${courier}, Tracking ${validTracking}`
         : `Envíame consultado [${orderComercio}]: Estado '${statusName}' (Courier aún no asigna tracking)`

@@ -214,10 +214,20 @@ async function syncMerchantOrders(integration) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter(e => e.platform === 'Ripley').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -316,8 +326,8 @@ async function syncMerchantOrders(integration) {
       for (const item of allLines) {
         let sku = item.offer_sku || item.product_sku;
         if (sku) {
-          let cleanSku = sku.replace(/\s+/g, '');
-          let mappedSku = skuMap[cleanSku] || cleanSku;
+          let cleanSku = sku.trim().replace(/\s+/g, '');
+          let mappedSku = skuMap[cleanSku] || skuMap[cleanSku.toUpperCase()] || cleanSku;
           itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity || 1);
         }
         if (item.product_title && !itemNames.includes(item.product_title)) {
@@ -491,8 +501,8 @@ async function syncMerchantOrders(integration) {
           const orderItemDetail = allLines.find(item => {
             let itemSku = item.offer_sku || item.product_sku;
             if (!itemSku) return false;
-            let cleanItemSku = itemSku.replace(/\s+/g, '');
-            let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+            let cleanItemSku = itemSku.trim().replace(/\s+/g, '');
+            let mappedItemSku = skuMap[cleanItemSku] || skuMap[cleanItemSku.toUpperCase()] || cleanItemSku;
             return mappedItemSku === sku;
           });
           let itemImageUrl = orderItemDetail?.product_medias?.[0]?.media_url || orderItemDetail?.image_url || null;
@@ -501,13 +511,24 @@ async function syncMerchantOrders(integration) {
             itemImageUrl = `${originHost}${itemImageUrl}`;
           }
 
-          // Buscar producto por SKU en la base de datos
+          // Buscar producto por SKU en la base de datos (exacto o case-insensitive)
           let { data: product } = await supabase
             .from('products')
             .select('id, comercio, image_url')
             .eq('comercio', integration.comercio)
             .eq('sku', sku)
             .maybeSingle();
+
+          if (!product && sku) {
+            const { data: ilikeProd } = await supabase
+              .from('products')
+              .select('id, comercio, image_url')
+              .eq('comercio', integration.comercio)
+              .ilike('sku', sku)
+              .limit(1)
+              .maybeSingle();
+            if (ilikeProd) product = ilikeProd;
+          }
 
           if (product && product.comercio !== integration.comercio) {
             await supabase

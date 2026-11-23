@@ -134,10 +134,20 @@ async function syncMeliProducts(integration: any): Promise<number> {
   
   if (equivalences) {
     equivalences.filter((e: any) => e.platform === 'Todas').forEach((e: any) => {
-      if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      if (e.platform_sku && e.master_sku) {
+        const clean = e.platform_sku.trim().replace(/\s+/g, '');
+        const mTrim = e.master_sku.trim();
+        skuMap[clean] = mTrim;
+        skuMap[clean.toUpperCase()] = mTrim;
+      }
     });
     equivalences.filter((e: any) => e.platform === 'MercadoLibre').forEach((e: any) => {
-      if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      if (e.platform_sku && e.master_sku) {
+        const clean = e.platform_sku.trim().replace(/\s+/g, '');
+        const mTrim = e.master_sku.trim();
+        skuMap[clean] = mTrim;
+        skuMap[clean.toUpperCase()] = mTrim;
+      }
     });
   }
 
@@ -198,7 +208,7 @@ async function syncMeliProducts(integration: any): Promise<number> {
         for (const variation of itemDetail.variations) {
           const rawSku = getMeliSku(variation, variation.id.toString());
           const cleanSku = rawSku.trim().replace(/\s+/g, '');
-          const mappedSku = skuMap[cleanSku] || cleanSku;
+          const mappedSku = skuMap[cleanSku] || skuMap[cleanSku.toUpperCase()] || cleanSku;
 
           let variantName = itemDetail.title;
           if (variation.attribute_combinations && variation.attribute_combinations.length > 0) {
@@ -244,7 +254,7 @@ async function syncMeliProducts(integration: any): Promise<number> {
         // Handle items without variations
         const rawSku = getMeliSku(itemDetail, itemDetail.id);
         const cleanSku = rawSku.trim().replace(/\s+/g, '');
-        const mappedSku = skuMap[cleanSku] || cleanSku;
+        const mappedSku = skuMap[cleanSku] || skuMap[cleanSku.toUpperCase()] || cleanSku;
 
         const productDataToUpsert = {
           comercio: integration.comercio,

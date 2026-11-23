@@ -416,6 +416,41 @@ async function handleOrderCreate(merchantId, comercio, order) {
   const expectedQuantitiesCreate = new Map<string, { product: any, sku: string, quantity: number }>();
   const lineItems = order.line_items || [];
 
+  // Pre-cargar equivalencias de SKU del comercio (normalizadas, priorizando Shopify sobre Todas)
+  const shopifySkuMapCreate: Record<string, string> = {};
+  try {
+    const { data: eqRowsCreate } = await supabase
+      .from("sku_equivalences")
+      .select("platform_sku, master_sku, platform")
+      .eq("comercio", comercio)
+      .in("platform", ["Shopify", "Todas"]);
+
+    if (eqRowsCreate) {
+      eqRowsCreate.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
+        if (e.platform_sku && e.master_sku) {
+          const pTrim = e.platform_sku.trim();
+          const pClean = pTrim.replace(/\s+/g, "");
+          const mTrim = e.master_sku.trim();
+          shopifySkuMapCreate[pTrim] = mTrim;
+          shopifySkuMapCreate[pClean] = mTrim;
+          shopifySkuMapCreate[pClean.toUpperCase()] = mTrim;
+        }
+      });
+      eqRowsCreate.filter((e: any) => e.platform === "Shopify").forEach((e: any) => {
+        if (e.platform_sku && e.master_sku) {
+          const pTrim = e.platform_sku.trim();
+          const pClean = pTrim.replace(/\s+/g, "");
+          const mTrim = e.master_sku.trim();
+          shopifySkuMapCreate[pTrim] = mTrim;
+          shopifySkuMapCreate[pClean] = mTrim;
+          shopifySkuMapCreate[pClean.toUpperCase()] = mTrim;
+        }
+      });
+    }
+  } catch (eqErr) {
+    console.warn("Aviso cargando equivalencias SKU en handleOrderCreate:", eqErr);
+  }
+
   for (const item of lineItems) {
     const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
     if (effectiveQty <= 0) {
@@ -425,27 +460,13 @@ async function handleOrderCreate(merchantId, comercio, order) {
 
     let product = null;
 
-    // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
+    // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas (case-insensitive)
     const rawSku = (item.sku || item.variant_id?.toString() || "").trim();
     const cleanSku = rawSku.replace(/\s+/g, '');
-    let mappedSku = rawSku;
-    let hasEquivalence = false;
-
-    if (rawSku) {
-      const candidateSkus = rawSku !== cleanSku ? [rawSku, cleanSku] : [rawSku];
-      const { data: eqData } = await supabase
-        .from("sku_equivalences")
-        .select("master_sku, platform")
-        .eq("comercio", comercio)
-        .in("platform_sku", candidateSkus)
-        .in("platform", ["Shopify", "Todas"]);
-
-      if (eqData && eqData.length > 0) {
-        const exactMatch = eqData.find((e: any) => e.platform === "Shopify");
-        mappedSku = exactMatch ? exactMatch.master_sku : eqData[0].master_sku;
-        hasEquivalence = true;
-      }
-    }
+    const upperSku = cleanSku.toUpperCase();
+    const matchedEqSku = rawSku ? (shopifySkuMapCreate[rawSku] || shopifySkuMapCreate[cleanSku] || shopifySkuMapCreate[upperSku]) : undefined;
+    let mappedSku = matchedEqSku || rawSku;
+    let hasEquivalence = Boolean(matchedEqSku);
 
     // Buscar el producto en el catálogo por SKU (exacto o sin espacios, priorizando producto maestro con barcode_wms)
     const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, '')
@@ -986,35 +1007,56 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       });
     };
 
+    // Pre-cargar equivalencias de SKU del comercio (normalizadas, priorizando Shopify sobre Todas)
+    const shopifySkuMapUpdate: Record<string, string> = {};
+    try {
+      const { data: eqRowsUpdate } = await supabase
+        .from("sku_equivalences")
+        .select("platform_sku, master_sku, platform")
+        .eq("comercio", comercio)
+        .in("platform", ["Shopify", "Todas"]);
+
+      if (eqRowsUpdate) {
+        eqRowsUpdate.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
+          if (e.platform_sku && e.master_sku) {
+            const pTrim = e.platform_sku.trim();
+            const pClean = pTrim.replace(/\s+/g, "");
+            const mTrim = e.master_sku.trim();
+            shopifySkuMapUpdate[pTrim] = mTrim;
+            shopifySkuMapUpdate[pClean] = mTrim;
+            shopifySkuMapUpdate[pClean.toUpperCase()] = mTrim;
+          }
+        });
+        eqRowsUpdate.filter((e: any) => e.platform === "Shopify").forEach((e: any) => {
+          if (e.platform_sku && e.master_sku) {
+            const pTrim = e.platform_sku.trim();
+            const pClean = pTrim.replace(/\s+/g, "");
+            const mTrim = e.master_sku.trim();
+            shopifySkuMapUpdate[pTrim] = mTrim;
+            shopifySkuMapUpdate[pClean] = mTrim;
+            shopifySkuMapUpdate[pClean.toUpperCase()] = mTrim;
+          }
+        });
+      }
+    } catch (eqErr) {
+      console.warn("Aviso cargando equivalencias SKU en handleOrderUpdate:", eqErr);
+    }
+
     for (const item of activeItems) {
       const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
       let product = null;
 
-      // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
+      // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas (case-insensitive)
       const rawSku = (item.sku || item.variant_id?.toString() || "").trim();
       const cleanSku = rawSku.replace(/\s+/g, '');
-      let mappedSku = rawSku;
-      let hasEquivalence = false;
+      const upperSku = cleanSku.toUpperCase();
+      const matchedEqSku = rawSku ? (shopifySkuMapUpdate[rawSku] || shopifySkuMapUpdate[cleanSku] || shopifySkuMapUpdate[upperSku]) : undefined;
+      let mappedSku = matchedEqSku || rawSku;
+      let hasEquivalence = Boolean(matchedEqSku);
 
       const cleanLower = cleanSku.toLowerCase();
       const rawLower = rawSku.toLowerCase();
       const varLower = (item.variant_id?.toString() || '').toLowerCase();
-
-      if (rawSku) {
-        const candidateSkus = rawSku !== cleanSku ? [rawSku, cleanSku] : [rawSku];
-        const { data: eqData } = await supabase
-          .from("sku_equivalences")
-          .select("master_sku, platform")
-          .eq("comercio", comercio)
-          .in("platform_sku", candidateSkus)
-          .in("platform", ["Shopify", "Todas"]);
-
-        if (eqData && eqData.length > 0) {
-          const exactMatch = eqData.find((e: any) => e.platform === "Shopify");
-          mappedSku = exactMatch ? exactMatch.master_sku : eqData[0].master_sku;
-          hasEquivalence = true;
-        }
-      }
 
       const mappedLower = mappedSku.trim().toLowerCase();
       if (manualDeletedSet.has(mappedLower) || manualDeletedSet.has(rawLower) || manualDeletedSet.has(cleanLower) || (varLower && manualDeletedSet.has(varLower))) {

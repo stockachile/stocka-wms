@@ -8,7 +8,29 @@ document.addEventListener('DOMContentLoaded', () => {
   const loginBtn = document.getElementById('login-btn');
 
   // Función para mostrar alertas con animación de error (shake)
-  const showAlert = (message, type = 'error') => {
+  let alertTimeoutId = null;
+  const safeHtml = (val) => {
+    if (typeof window.escapeHtml === 'function') return window.escapeHtml(val);
+    return String(val ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
+  const getEmailRedirectUrl = () => {
+    if (window.location.protocol === 'file:' || !window.location.origin || window.location.origin === 'null') {
+      return 'https://wms.stocka.cl/';
+    }
+    return `${window.location.origin}/`;
+  };
+
+  const showAlert = (message, type = 'error', { persistent = false, duration = 5000 } = {}) => {
+    if (alertTimeoutId) {
+      clearTimeout(alertTimeoutId);
+      alertTimeoutId = null;
+    }
     alertContainer.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
     if (type === 'error') {
       const authCard = document.querySelector('.auth-card');
@@ -19,9 +41,111 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => authCard.classList.remove('shake'), 600);
       }
     }
-    setTimeout(() => {
-      alertContainer.innerHTML = '';
-    }, 5000);
+    if (!persistent) {
+      alertTimeoutId = setTimeout(() => {
+        alertContainer.innerHTML = '';
+        alertTimeoutId = null;
+      }, duration);
+    }
+  };
+
+  const translateAuthError = (rawMsg) => {
+    const msg = String(rawMsg || '');
+    const lower = msg.toLowerCase();
+    if (lower.includes('rate limit') || lower.includes('too many requests')) {
+      return 'Se alcanzó el límite temporal de envíos. Espera unos minutos antes de intentar nuevamente.';
+    }
+    if (lower.includes('for security purposes, you can only request this after')) {
+      const secMatch = msg.match(/(\d+)\s*seconds?/i);
+      const secs = secMatch ? secMatch[1] : '60';
+      return `Por seguridad, espera ${secs} segundos antes de solicitar un nuevo correo.`;
+    }
+    return msg;
+  };
+
+  const showResendConfirmationAlert = ({ email, title, subtitle, type = 'warning' }) => {
+    const cleanEmail = String(email || '').trim();
+    const safeEmail = safeHtml(cleanEmail);
+    const isSuccess = type === 'success';
+    const borderColor = isSuccess ? '#10b981' : '#f59e0b';
+    const bgColor = isSuccess ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)';
+    const titleColor = isSuccess ? '#065f46' : '#92400e';
+    const iconClass = isSuccess ? 'ri-mail-check-line' : 'ri-mail-unread-line';
+    const iconColor = isSuccess ? '#059669' : '#d97706';
+
+    showAlert(`
+      <div style="text-align: left; line-height: 1.45;">
+        <div style="display: flex; align-items: flex-start; gap: 0.55rem; margin-bottom: 0.55rem;">
+          <i class="${iconClass}" style="font-size: 1.2rem; color: ${iconColor}; flex-shrink: 0; margin-top: 1px;"></i>
+          <div>
+            <div style="font-weight: 700; color: ${titleColor}; margin-bottom: 0.2rem;">${safeHtml(title)}</div>
+            <div style="font-size: 0.82rem; color: ${titleColor}; opacity: 0.92;">
+              ${safeHtml(subtitle)} <strong>${safeEmail}</strong>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.65rem;">
+          <button type="button" id="btn-resend-confirm-email" style="display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.42rem 0.85rem; font-size: 0.8rem; font-weight: 600; border-radius: 8px; border: 1px solid ${borderColor}; background: #ffffff; color: ${titleColor}; cursor: pointer; transition: opacity 0.2s;">
+            <i class="ri-mail-send-line"></i> Reenviar correo de confirmación
+          </button>
+          <span id="resend-confirm-feedback" style="font-size: 0.78rem; font-weight: 600; color: ${titleColor};"></span>
+        </div>
+      </div>
+    `, type, { persistent: true });
+
+    const resendBtn = document.getElementById('btn-resend-confirm-email');
+    const feedbackEl = document.getElementById('resend-confirm-feedback');
+    if (resendBtn && cleanEmail) {
+      resendBtn.addEventListener('click', async () => {
+        if (resendBtn.disabled) return;
+        resendBtn.disabled = true;
+        resendBtn.style.opacity = '0.65';
+        resendBtn.innerHTML = '<i class="ri-loader-4-line" style="display:inline-block; animation: spin 1s linear infinite;"></i> Enviando...';
+        if (feedbackEl) feedbackEl.textContent = '';
+
+        try {
+          const { error: resendErr } = await supabase.auth.resend({
+            type: 'signup',
+            email: cleanEmail,
+            options: {
+              emailRedirectTo: getEmailRedirectUrl()
+            }
+          });
+          if (resendErr) throw resendErr;
+
+          if (feedbackEl) {
+            feedbackEl.style.color = '#059669';
+            feedbackEl.innerHTML = '<i class="ri-checkbox-circle-fill"></i> Correo reenviado. Revisa tu bandeja y Spam.';
+          }
+          let remaining = 60;
+          resendBtn.innerHTML = `<i class="ri-time-line"></i> Reenviar en ${remaining}s`;
+          const timer = setInterval(() => {
+            remaining--;
+            if (!document.body.contains(resendBtn)) {
+              clearInterval(timer);
+              return;
+            }
+            if (remaining <= 0) {
+              clearInterval(timer);
+              resendBtn.disabled = false;
+              resendBtn.style.opacity = '1';
+              resendBtn.innerHTML = '<i class="ri-mail-send-line"></i> Reenviar correo de confirmación';
+            } else {
+              resendBtn.innerHTML = `<i class="ri-time-line"></i> Reenviar en ${remaining}s`;
+            }
+          }, 1000);
+        } catch (err) {
+          const errMsg = translateAuthError(err?.message || 'No se pudo reenviar el correo.');
+          if (feedbackEl) {
+            feedbackEl.style.color = '#b91c1c';
+            feedbackEl.textContent = errMsg;
+          }
+          resendBtn.disabled = false;
+          resendBtn.style.opacity = '1';
+          resendBtn.innerHTML = '<i class="ri-mail-send-line"></i> Reenviar correo de confirmación';
+        }
+      });
+    }
   };
 
   // Detección inmediata de instalación Shopify OAuth (Regla 2.3.2)
@@ -34,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (cleanShop.includes('myshopify.com')) {
         if (document.body) document.body.style.display = 'none';
         const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
+        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders,read_returns,write_returns,read_draft_orders,write_draft_orders,read_discounts,write_discounts';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         const stateObj = {
           merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31',
@@ -217,6 +341,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (event === 'PASSWORD_RECOVERY') {
       window.isRecoveryMode = true;
       showResetForm();
+    } else if (
+      event === 'SIGNED_IN' &&
+      isAuthRedirect &&
+      session &&
+      !window.isRecoveryMode &&
+      !window.location.hash.includes('type=recovery') &&
+      !window.location.href.includes('type=recovery')
+    ) {
+      try {
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+        const role = profile ? profile.role : 'client';
+        window.location.href = await getPostLoginDestination(role);
+      } catch (_) {
+        window.location.href = await getPostLoginDestination('client');
+      }
     }
   });
 
@@ -286,6 +425,7 @@ document.addEventListener('DOMContentLoaded', () => {
           email: email,
           password: password,
           options: {
+            emailRedirectTo: getEmailRedirectUrl(),
             data: {
               full_name: name,
               company_name: 'Demo - ' + name,
@@ -296,19 +436,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (error) throw error;
 
-        showAlert('¡Registro de demo exitoso! Te hemos enviado un enlace de confirmación a tu correo. Por favor, confírmalo para poder ingresar.', 'success');
-        
-        // Limpiar y volver a login después de unos segundos
-        setTimeout(() => {
-          demoRegisterForm.reset();
-          if (toggleToLoginFromDemo) toggleToLoginFromDemo.click();
-        }, 5000);
+        demoRegisterForm.reset();
+        if (demoRegisterForm) demoRegisterForm.style.display = 'none';
+        loginForm.style.display = 'block';
+        loginForm.classList.add('auth-fade-in');
+        authTitle.textContent = 'Bienvenido';
+        authSubtitle.textContent = 'Ingresa tus credenciales para acceder a tu bodega online.';
+        if (emailInput) emailInput.value = email;
+
+        showResendConfirmationAlert({
+          email,
+          title: '¡Registro de demo exitoso! Confirma tu correo',
+          subtitle: 'Te enviamos un enlace de confirmación (revisa tu bandeja de entrada y carpeta de Spam) a:',
+          type: 'success'
+        });
 
       } catch (error) {
         let msg = error.message;
         if (typeof msg === 'object') msg = JSON.stringify(msg);
         if (msg === '{}' || msg === '[object Object]') msg = '';
-        showAlert(msg || 'Error al registrar la demo. Inténtalo de nuevo.');
+        showAlert(translateAuthError(msg) || 'Error al registrar la demo. Inténtalo de nuevo.');
       } finally {
         demoRegisterSubmitBtn.disabled = false;
         demoRegisterSubmitBtn.textContent = 'Solicitar Acceso Demo';
@@ -438,7 +585,16 @@ document.addEventListener('DOMContentLoaded', () => {
       let msg = error.message;
       if (typeof msg === 'object') msg = JSON.stringify(msg);
       if (msg === '{}' || msg === '[object Object]') msg = '';
-      showAlert(msg || 'Error al iniciar sesión. Verifica tus credenciales.');
+      if (msg && msg.toLowerCase().includes('email not confirmed')) {
+        showResendConfirmationAlert({
+          email,
+          title: 'Tu correo electrónico aún no está confirmado',
+          subtitle: 'Revisa tu bandeja de entrada y carpeta de Spam, o reenvía un nuevo enlace de confirmación a:',
+          type: 'warning'
+        });
+      } else {
+        showAlert(translateAuthError(msg) || 'Error al iniciar sesión. Verifica tus credenciales.');
+      }
     } finally {
       loginBtn.disabled = false;
       loginBtn.textContent = 'Ingresar';
@@ -473,6 +629,7 @@ document.addEventListener('DOMContentLoaded', () => {
           email: email,
           password: password,
           options: {
+            emailRedirectTo: getEmailRedirectUrl(),
             data: {
               full_name: name,
               company_name: company
@@ -496,20 +653,43 @@ document.addEventListener('DOMContentLoaded', () => {
               window.location.href = await getPostLoginDestination('client');
             }
           }, 1500);
+        } else if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          // Correo ya registrado en Supabase (puede estar confirmado o pendiente de confirmación)
+          registerForm.style.display = 'none';
+          loginForm.style.display = 'block';
+          loginForm.classList.add('auth-fade-in');
+          authTitle.textContent = 'Bienvenido';
+          authSubtitle.textContent = 'Ingresa tus credenciales para acceder a tu bodega online.';
+          if (emailInput) emailInput.value = email;
+
+          showResendConfirmationAlert({
+            email,
+            title: 'Este correo ya se encuentra registrado',
+            subtitle: 'Intenta iniciar sesión (o recuperar tu contraseña). Si tu cuenta aún no está confirmada, puedes reenviar el enlace a:',
+            type: 'warning'
+          });
         } else {
-          // Si requiere confirmación por email
-          showAlert('¡Registro exitoso! Por favor revisa tu correo electrónico para confirmar tu cuenta.', 'success');
-          // Limpiar formulario y alternar a login
-          setTimeout(() => {
-            registerForm.reset();
-            toggleToLogin.click();
-          }, 4000);
+          // Requiere confirmación por email: volver a login manteniendo el aviso persistente con opción de reenvío
+          registerForm.reset();
+          registerForm.style.display = 'none';
+          loginForm.style.display = 'block';
+          loginForm.classList.add('auth-fade-in');
+          authTitle.textContent = 'Bienvenido';
+          authSubtitle.textContent = 'Ingresa tus credenciales para acceder a tu bodega online.';
+          if (emailInput) emailInput.value = email;
+
+          showResendConfirmationAlert({
+            email,
+            title: '¡Cuenta creada! Confirma tu correo electrónico',
+            subtitle: 'Te enviamos un enlace de verificación (revisa tu bandeja de entrada y carpeta de Spam) a:',
+            type: 'success'
+          });
         }
       } catch (error) {
         let msg = error.message;
         if (typeof msg === 'object') msg = JSON.stringify(msg);
         if (msg === '{}' || msg === '[object Object]') msg = '';
-        showAlert(msg || 'Error al registrar usuario. Inténtalo de nuevo.');
+        showAlert(translateAuthError(msg) || 'Error al registrar usuario. Inténtalo de nuevo.');
       } finally {
         registerBtn.disabled = false;
         registerBtn.textContent = 'Crear Cuenta';

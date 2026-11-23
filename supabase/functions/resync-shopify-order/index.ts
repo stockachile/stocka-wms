@@ -413,17 +413,21 @@ serve(async (req) => {
         equivalences.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
           if (e.platform_sku && e.master_sku) {
             const pTrim = e.platform_sku.trim();
+            const pClean = pTrim.replace(/\s+/g, "");
             const mTrim = e.master_sku.trim();
             skuMap[pTrim] = mTrim;
-            skuMap[pTrim.replace(/\s+/g, "")] = mTrim;
+            skuMap[pClean] = mTrim;
+            skuMap[pClean.toUpperCase()] = mTrim;
           }
         });
         equivalences.filter((e: any) => e.platform === "Shopify").forEach((e: any) => {
           if (e.platform_sku && e.master_sku) {
             const pTrim = e.platform_sku.trim();
+            const pClean = pTrim.replace(/\s+/g, "");
             const mTrim = e.master_sku.trim();
             skuMap[pTrim] = mTrim;
-            skuMap[pTrim.replace(/\s+/g, "")] = mTrim;
+            skuMap[pClean] = mTrim;
+            skuMap[pClean.toUpperCase()] = mTrim;
           }
         });
       }
@@ -523,8 +527,9 @@ serve(async (req) => {
       const fallbackSku = item.variant_id ? String(item.variant_id) : (item.id ? String(item.id) : "NO-SKU");
       const rawSku = (item.sku || fallbackSku).trim();
       const cleanSku = rawSku.replace(/\s+/g, "");
-      const mappedSku = skuMap[rawSku] || skuMap[cleanSku] || rawSku;
-      const hasEquivalence = !!(skuMap[rawSku] || skuMap[cleanSku]);
+      const upperSku = cleanSku.toUpperCase();
+      const mappedSku = skuMap[rawSku] || skuMap[cleanSku] || skuMap[upperSku] || rawSku;
+      const hasEquivalence = !!(skuMap[rawSku] || skuMap[cleanSku] || skuMap[upperSku]);
       const searchSku = mappedSku || fallbackSku;
 
       const searchLower = searchSku.toLowerCase();

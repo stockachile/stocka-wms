@@ -47,7 +47,7 @@ async function loadCommerceConfigs() {
 
   const { data: configs } = await supabase
     .from('comercios_adicional_config')
-    .select('comercio, enviame_id, sigla, pedido_trae_sigla');
+    .select('comercio, enviame_id, pedido_trae_sigla');
 
   const { data: vComercios } = await supabase
     .from('v_comercios_config')
@@ -238,9 +238,12 @@ async function processEnviameDelivery(d, context = {}) {
 
   let labelUrl = null;
   if (d.label && typeof d.label === 'object') {
-    labelUrl = d.label.PDF || d.label.PNG || null;
-  } else if (typeof d.label === 'string' && d.label.startsWith('http')) {
-    labelUrl = d.label;
+    const cand = d.label.PDF || d.label.PNG || null;
+    if (typeof cand === 'string' && /^https?:\/\//i.test(cand.trim())) {
+      labelUrl = cand.trim();
+    }
+  } else if (typeof d.label === 'string' && /^https?:\/\//i.test(d.label.trim())) {
+    labelUrl = d.label.trim();
   }
 
   let trackingUrl = null;
@@ -254,9 +257,11 @@ async function processEnviameDelivery(d, context = {}) {
       trackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(validTracking)}`;
     }
   }
-  if (!trackingUrl && d.links && Array.isArray(d.links)) {
+  if (!trackingUrl && validTracking && d.links && Array.isArray(d.links)) {
     const webLink = d.links.find(l => l.rel === 'tracking-web');
-    if (webLink?.href) trackingUrl = webLink.href;
+    if (webLink?.href && /^https?:\/\//i.test(String(webLink.href)) && !/(no\s*informado|no%20informado)/i.test(String(webLink.href))) {
+      trackingUrl = String(webLink.href).trim();
+    }
   }
 
   // 1. Actualizar enviame_shipments
@@ -333,6 +338,14 @@ async function processEnviameDelivery(d, context = {}) {
     return Boolean(validTracking);
   }
 
+  // Ignorar RECIBELO / WELIVERY en actualización de public.orders para no pisar Alpha / LightData
+  const isIgnoredCourier = /(RECIBELO|RECÍBELO|WELIVERY|WOODELIVERY|WODELY)/i.test(String(courier || ''));
+  if (isIgnoredCourier) {
+    return Boolean(validTracking);
+  }
+
+  const orderSelectCols = 'id, estado_wms, external_order_number, external_platform, tracking_number, tracking_url, courier, operador, label_url, comercio, categoria_entrega, agenda, raw_shopify_data';
+
   if (importedId) {
     // Normalizar número eliminando '#' y prefijo de sigla del comercio si aplica
     let cleanNum = importedId.replace(/^#+/, '');
@@ -355,13 +368,14 @@ async function processEnviameDelivery(d, context = {}) {
     // Búsqueda ESTRICTA por comercio exacto y candidatos exactos (sin ILIKE comodín)
     const { data: matchedOrders } = await supabase
       .from('orders')
-      .select('id, estado_wms, external_order_number, tracking_number, courier, operador, label_url, comercio, categoria_entrega, agenda')
+      .select(orderSelectCols)
       .ilike('comercio', resolved.comercio)
       .in('external_order_number', uniqueCandidates)
-      .limit(1);
+      .order('created_at', { ascending: false })
+      .limit(5);
 
     if (matchedOrders && matchedOrders.length > 0) {
-      targetOrder = matchedOrders[0];
+      targetOrder = matchedOrders.find(o => !['MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'Walmart'].includes(String(o.external_platform || ''))) || null;
     }
   }
 
@@ -369,7 +383,7 @@ async function processEnviameDelivery(d, context = {}) {
   if (!targetOrder) {
     const { data: o3 } = await supabase
       .from('orders')
-      .select('id, estado_wms, external_order_number, tracking_number, courier, operador, label_url, comercio, categoria_entrega, agenda')
+      .select(orderSelectCols)
       .eq('enviame_delivery_id', deliveryId)
       .ilike('comercio', resolved.comercio)
       .maybeSingle();
@@ -384,22 +398,42 @@ async function processEnviameDelivery(d, context = {}) {
       console.log(`⛔ Pedido [${targetOrder.comercio}] ${targetOrder.external_order_number} tiene categoría RETIRO: se bloquea asignación de courier/tracking desde Envíame.`);
       return false;
     }
+
+    const orderValidTrack = validTracking && !/^46\d{6,}$/.test(validTracking) ? validTracking : null;
+    const ft = targetOrder.raw_shopify_data?.wms_forced_tracking;
+    const hasDifferentForcedTrack = Boolean(
+      ft &&
+      ft.active &&
+      ft.tracking_number &&
+      (!orderValidTrack || String(ft.tracking_number).trim().toUpperCase() !== orderValidTrack.toUpperCase())
+    );
+
     const orderUpdate = {
       enviame_delivery_id: deliveryId,
-      enviame_status: statusName,
-      courier: courier,
-      operador: mappedOperator
+      enviame_status: statusName
     };
 
-    if (validTracking) {
-      orderUpdate.tracking_number = validTracking;
-      if (trackingUrl) orderUpdate.tracking_url = trackingUrl;
-    } else if (targetOrder.tracking_number === 'No informado') {
-      orderUpdate.tracking_number = null;
+    if (!hasDifferentForcedTrack) {
+      orderUpdate.courier = courier;
+      orderUpdate.operador = mappedOperator;
+
+      if (orderValidTrack) {
+        orderUpdate.tracking_number = orderValidTrack;
+        if (trackingUrl) orderUpdate.tracking_url = trackingUrl;
+      } else {
+        if (targetOrder.tracking_number && /^(no informado|noinformado|null|undefined|n\/a|-)$/i.test(String(targetOrder.tracking_number).trim())) {
+          orderUpdate.tracking_number = null;
+        }
+        if (targetOrder.tracking_url && /(no\s*informado|no%20informado)/i.test(String(targetOrder.tracking_url))) {
+          orderUpdate.tracking_url = null;
+        }
+      }
     }
 
     if (labelUrl) {
       orderUpdate.label_url = labelUrl;
+    } else if (targetOrder.label_url && !/^https?:\/\//i.test(String(targetOrder.label_url).trim())) {
+      orderUpdate.label_url = null;
     }
 
     const { error: ordErr } = await supabase
@@ -510,6 +544,11 @@ async function runSync(options = {}) {
     .from('enviame_shipments')
     .select('id, order_id, courier, tracking_number, status, seller_name, created_at')
     .or('tracking_number.eq.No informado,tracking_number.is.null,status.eq.Creado,status.ilike.Listo para despacho%')
+    .not('courier', 'ilike', '%RECIBELO%')
+    .not('courier', 'ilike', '%RECÍBELO%')
+    .not('courier', 'ilike', '%WELIVERY%')
+    .not('courier', 'ilike', '%WOODELIVERY%')
+    .not('courier', 'ilike', '%WODELY%')
     .gte('created_at', fourteenDaysAgo)
     .order('created_at', { ascending: false })
     .limit(180);
@@ -539,32 +578,36 @@ async function runSync(options = {}) {
     .not('enviame_id', 'is', null);
 
   for (const c of (comercios || [])) {
-    const compId = String(c.enviame_id).trim();
-    if (!/^\d+$/.test(compId)) continue;
+    const compIds = String(c.enviame_id)
+      .split(',')
+      .map(s => s.trim().replace(/^ID\s*:?\s*/i, ''))
+      .filter(id => /^\d+$/.test(id) && id !== '1' && id !== '12345');
 
-    try {
-      console.log(`Sincronizando entregas recientes para [${c.comercio}] (Company ID: ${compId})...`);
-      const url = `https://api.enviame.io/api/s2/v2/companies/${compId}/deliveries?limit=30`;
-      const res = await fetch(url, {
-        headers: { 'Accept': 'application/json', 'api-key': API_KEY }
-      });
+    for (const compId of compIds) {
+      try {
+        console.log(`Sincronizando entregas recientes para [${c.comercio}] (Company ID: ${compId})...`);
+        const url = `https://api.enviame.io/api/s2/v2/companies/${compId}/deliveries?limit=30`;
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json', 'api-key': API_KEY }
+        });
 
-      if (res.ok) {
-        const json = await res.json();
-        const deliveries = json.data || [];
-        console.log(`  -> Obtenidos ${deliveries.length} envíos recientes.`);
-        for (const d of deliveries) {
-          // Si el comercio no viene en el payload, inyectar el nombre y el company ID
-          if (!d.company) d.company = { id: compId, name: c.comercio };
-          await processEnviameDelivery(d, { comercio: c.comercio, enviameId: compId });
+        if (res.ok) {
+          const json = await res.json();
+          const deliveries = json.data || [];
+          console.log(`  -> Obtenidos ${deliveries.length} envíos recientes.`);
+          for (const d of deliveries) {
+            // Si el comercio no viene en el payload, inyectar el nombre y el company ID
+            if (!d.company) d.company = { id: compId, name: c.comercio };
+            await processEnviameDelivery(d, { comercio: c.comercio, enviameId: compId });
+          }
+        } else {
+          console.warn(`  ⚠️ Respuesta ${res.status} de Envíame para ${c.comercio}`);
         }
-      } else {
-        console.warn(`  ⚠️ Respuesta ${res.status} de Envíame para ${c.comercio}`);
+      } catch (err) {
+        console.error(`  ❌ Error sincronizando ${c.comercio}:`, err.message);
       }
-    } catch (err) {
-      console.error(`  ❌ Error sincronizando ${c.comercio}:`, err.message);
+      await delay(200);
     }
-    await delay(200);
   }
 
   console.log('\n🎉 ¡Sincronización de Envíame finalizada exitosamente!');

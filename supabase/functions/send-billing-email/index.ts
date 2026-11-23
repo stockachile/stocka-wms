@@ -412,12 +412,85 @@ serve(async (req) => {
 
     const periodName = record?.billing_periods?.name || 'Periodo Actual';
 
-    // Obtener los contactos de facturación activos para este comercio
-    const { data: contacts } = await supabaseClient
+    // Mapear emailType a categoría de preferencias granulares (billing_contacts.email_preferences)
+    const resolveEmailPrefCategory = (type: string): string | null => {
+      if ([
+        'billing_summary',
+        'payment_reminder',
+        'payment_overdue',
+        'payment_overdue_manual',
+        'suspension_warning',
+        'service_paused',
+        'service_restored',
+        'invoice_uploaded',
+        'payment_received'
+      ].includes(type)) {
+        return 'billing';
+      }
+      if ([
+        'stock_inbound_created',
+        'stock_inbound_warehouse_assigned',
+        'stock_inbound_received',
+        'stock_inbound_completed'
+      ].includes(type)) {
+        return 'inbounds';
+      }
+      if (type.startsWith('inventory_')) {
+        return 'inventory';
+      }
+      if ([
+        'out_of_stock',
+        'critical_stock_report',
+        'incident_report',
+        'volume_alert',
+        'weekly_sales_report',
+        'monthly_activity_report',
+        'order_no_stock_alert'
+      ].includes(type)) {
+        return 'alerts';
+      }
+      if (type === 'communication' || type === 'announcement' || type === 'news') {
+        return 'communications';
+      }
+      return null;
+    };
+
+    const prefCategory = resolveEmailPrefCategory(emailType);
+
+    // Obtener todos los contactos del comercio (incluyendo alias/conglomerado e inactivos para aplicar opt-out)
+    const contactMatchNames = new Set<string>(relatedNames);
+    if (commerceName) contactMatchNames.add(String(commerceName).toLowerCase().trim());
+
+    const { data: rawContacts } = await supabaseClient
       .from('billing_contacts')
-      .select('email, nombre')
-      .eq('comercio', commerceName || '')
-      .eq('activo', true)
+      .select('comercio, email, nombre, activo, email_preferences');
+
+    const commerceContacts = (rawContacts || []).filter((c: any) =>
+      c?.comercio && contactMatchNames.has(String(c.comercio).toLowerCase().trim())
+    );
+
+    const allowedContactEmailsSet = new Set<string>();
+    const optedOutContactEmailsSet = new Set<string>();
+
+    commerceContacts.forEach((c: any) => {
+      const clean = String(c?.email || '').toLowerCase().trim();
+      if (!clean || !clean.includes('@') || !clean.includes('.')) return;
+
+      const isActive = c.activo !== false;
+      const prefs = (c.email_preferences && typeof c.email_preferences === 'object') ? c.email_preferences : {};
+      const categoryEnabled = !prefCategory || prefs[prefCategory] !== false;
+
+      if (isActive && categoryEnabled) {
+        allowedContactEmailsSet.add(clean);
+      } else {
+        optedOutContactEmailsSet.add(clean);
+      }
+    });
+
+    // Si el mismo email está explícitamente habilitado en una fila activa del comercio/conglomerado, prevalece habilitado
+    const effectiveOptedOutSet = new Set<string>(
+      Array.from(optedOutContactEmailsSet).filter((em) => !allowedContactEmailsSet.has(em))
+    );
 
     const isSystemNotif = [
       'onboarding_received', 
@@ -441,18 +514,21 @@ serve(async (req) => {
       'commercial_info'
     ].includes(emailType);
 
-    const validEmails = (contacts || []).map((c: any) => c.email.toLowerCase().trim())
-    let recipientEmails: string[] = []
+    const validEmails = Array.from(allowedContactEmailsSet);
+    let recipientEmails: string[] = [];
+    let hasExplicitRecipients = false;
 
     const singleEmail = payload.email || payload.recipientEmail || payload.destinatario;
     if (singleEmail) {
       const cleanedSingle = String(singleEmail).toLowerCase().trim();
       if (cleanedSingle.includes('@') && cleanedSingle.includes('.')) {
         recipientEmails.push(cleanedSingle);
+        hasExplicitRecipients = true;
       }
     }
 
     if (Array.isArray(emails) && emails.length > 0) {
+      hasExplicitRecipients = true;
       emails.forEach((email: string) => {
         const cleaned = email.toLowerCase().trim()
         if (validEmails.includes(cleaned) || (cleaned.includes('@') && cleaned.includes('.'))) {
@@ -478,7 +554,7 @@ serve(async (req) => {
             const coms = p.comercio.split(',').map((c: string) => c.trim().toLowerCase());
             if (coms.includes(targetLower)) {
               const em = p.email.trim().toLowerCase();
-              if (em.includes('@') && !recipientEmails.includes(em)) {
+              if (em.includes('@') && !effectiveOptedOutSet.has(em) && !recipientEmails.includes(em)) {
                 recipientEmails.push(em);
               }
             }
@@ -492,7 +568,7 @@ serve(async (req) => {
         if (addConf && addConf.email_colaborador) {
           addConf.email_colaborador.split(/[,;\s]+/).forEach((em: string) => {
             const clean = em.trim().toLowerCase();
-            if (clean.includes('@') && !recipientEmails.includes(clean)) {
+            if (clean.includes('@') && !effectiveOptedOutSet.has(clean) && !recipientEmails.includes(clean)) {
               recipientEmails.push(clean);
             }
           });
@@ -500,8 +576,27 @@ serve(async (req) => {
       }
     }
 
+    // Si todos los contactos del comercio desactivaron explícitamente esta categoría (envío automático sin destinatarios explícitos), omitir limpiamente
+    if (
+      !hasExplicitRecipients &&
+      recipientEmails.length === 0 &&
+      prefCategory &&
+      effectiveOptedOutSet.size > 0 &&
+      emailType !== 'stock_inbound_created'
+    ) {
+      console.log(`[send-billing-email] Omitiendo envío automático "${emailType}" (${prefCategory}) para "${commerceName}": todos los contactos tienen desactivada esta categoría.`);
+      return new Response(JSON.stringify({
+        success: true,
+        skipped: true,
+        message: `Todos los contactos de '${commerceName}' tienen desactivados los correos de categoría '${prefCategory}'.`
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     if (recipientEmails.length === 0 && !isSystemNotif) {
-      return new Response(JSON.stringify({ error: `El comercio '${commerceName}' no tiene correos de facturación configurados ni se especificaron destinatarios.` }), {
+      return new Response(JSON.stringify({ error: `El comercio '${commerceName}' no tiene correos habilitados para esta categoría ni se especificaron destinatarios.` }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })

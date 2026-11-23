@@ -16,6 +16,14 @@ document.addEventListener('DOMContentLoaded', () => {
   let isExistingObserverSession = false;
   let existingObserverUser = null;
   let existingObserverProfile = null;
+  let lastSubmittedEmail = '';
+
+  const getEmailRedirectUrl = () => {
+    if (window.location.protocol === 'file:' || !window.location.origin || window.location.origin === 'null') {
+      return 'https://wms.stocka.cl/';
+    }
+    return `${window.location.origin}/`;
+  };
   
   // Elementos del DOM
   const form = document.getElementById('onboarding-form');
@@ -876,6 +884,7 @@ document.addEventListener('DOMContentLoaded', () => {
           email: email,
           password: password,
           options: {
+            emailRedirectTo: getEmailRedirectUrl(),
             data: {
               full_name: name,
               company_name: razon
@@ -991,7 +1000,10 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // 3. Éxito: Avanzar al paso 4 (adaptando mensaje si venía desde cuenta activa en solo lectura)
       hideLoader();
+      lastSubmittedEmail = email;
+      const resendBox = document.getElementById('onboarding-resend-email-box');
       if (isLinkedSession) {
+        if (resendBox) resendBox.style.display = 'none';
         const s4Title = document.getElementById('step-4-title');
         const s4Desc = document.getElementById('step-4-desc');
         if (s4Title) s4Title.textContent = '¡Datos Comerciales Vinculados con Éxito!';
@@ -1009,6 +1021,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnFinish) {
           btnFinish.innerHTML = 'Continuar a Firma de Contrato en mi WMS <i class="ri-arrow-right-line"></i>';
         }
+      } else if (resendBox) {
+        resendBox.style.display = 'block';
       }
       currentStep = 4;
       maxReachedStep = 4;
@@ -1067,6 +1081,67 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Inicializar slideshow
   initSlideshow();
+
+  // Botón Reenviar Correo de Confirmación (Paso 4)
+  const btnResendOnboarding = document.getElementById('btn-resend-onboarding-email');
+  const resendOnboardingFeedback = document.getElementById('onboarding-resend-feedback');
+  if (btnResendOnboarding) {
+    btnResendOnboarding.addEventListener('click', async () => {
+      const targetEmail = (lastSubmittedEmail || document.getElementById('email')?.value || '').trim();
+      if (!targetEmail || btnResendOnboarding.disabled) return;
+
+      btnResendOnboarding.disabled = true;
+      btnResendOnboarding.style.opacity = '0.65';
+      btnResendOnboarding.innerHTML = '<i class="ri-loader-4-line spin"></i> Reenviando...';
+      if (resendOnboardingFeedback) resendOnboardingFeedback.textContent = '';
+
+      try {
+        const { error: resendErr } = await supabase.auth.resend({
+          type: 'signup',
+          email: targetEmail,
+          options: {
+            emailRedirectTo: getEmailRedirectUrl()
+          }
+        });
+        if (resendErr) throw resendErr;
+
+        if (resendOnboardingFeedback) {
+          resendOnboardingFeedback.style.color = 'var(--color-success)';
+          resendOnboardingFeedback.innerHTML = `<i class="ri-checkbox-circle-fill"></i> Correo reenviado a <strong>${targetEmail}</strong>. Revisa tu bandeja de entrada y Spam.`;
+        }
+        let remaining = 60;
+        btnResendOnboarding.innerHTML = `<i class="ri-time-line"></i> Reenviar en ${remaining}s`;
+        const timer = setInterval(() => {
+          remaining--;
+          if (remaining <= 0) {
+            clearInterval(timer);
+            btnResendOnboarding.disabled = false;
+            btnResendOnboarding.style.opacity = '1';
+            btnResendOnboarding.innerHTML = '<i class="ri-mail-send-line"></i> Reenviar correo de confirmación';
+          } else {
+            btnResendOnboarding.innerHTML = `<i class="ri-time-line"></i> Reenviar en ${remaining}s`;
+          }
+        }, 1000);
+      } catch (err) {
+        const rawMsg = String(err?.message || '');
+        const lower = rawMsg.toLowerCase();
+        let friendlyMsg = rawMsg || 'No se pudo reenviar el correo. Inténtalo nuevamente.';
+        if (lower.includes('rate limit') || lower.includes('too many requests')) {
+          friendlyMsg = 'Se alcanzó el límite temporal de envíos. Espera unos minutos antes de intentar de nuevo.';
+        } else if (lower.includes('for security purposes, you can only request this after')) {
+          const secMatch = rawMsg.match(/(\d+)\s*seconds?/i);
+          friendlyMsg = `Por seguridad, espera ${secMatch ? secMatch[1] : '60'} segundos antes de solicitar un nuevo correo.`;
+        }
+        if (resendOnboardingFeedback) {
+          resendOnboardingFeedback.style.color = 'var(--color-danger)';
+          resendOnboardingFeedback.textContent = friendlyMsg;
+        }
+        btnResendOnboarding.disabled = false;
+        btnResendOnboarding.style.opacity = '1';
+        btnResendOnboarding.innerHTML = '<i class="ri-mail-send-line"></i> Reenviar correo de confirmación';
+      }
+    });
+  }
 
   // Botón Finalizar
   if (btnFinish) {

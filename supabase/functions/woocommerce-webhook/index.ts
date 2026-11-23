@@ -816,6 +816,12 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
     return;
   }
 
+  // Evitar loop infinito: ignorar órdenes de reemplazo creadas por el motor de Logística Inversa de Stocka
+  if (Array.isArray(order.meta_data) && order.meta_data.some((m: any) => m?.key === "_stocka_skip_webhook_import" && String(m?.value) === "true")) {
+    console.log(`ℹ️ [WooCommerce Webhook] Orden ${order.number || order.id} generada por Logística Inversa Stocka (_stocka_skip_webhook_import). Omitiendo re-importación.`);
+    return;
+  }
+
   const orderId = String(order.id || "");
   const baseNumber = String(order.number || orderId).trim();
   const { finalNumber: resolvedNumber } = await resolveWooOrderNumber(comercio, baseNumber);
@@ -855,8 +861,21 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
       .eq("comercio", comercio);
 
     if (equivalences) {
-      equivalences.filter((e: any) => e.platform === "Todas" || e.platform === "WooCommerce").forEach((e: any) => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
+      equivalences.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, "");
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
+      });
+      equivalences.filter((e: any) => e.platform === "WooCommerce").forEach((e: any) => {
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, "");
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err: any) {
@@ -875,8 +894,8 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
   if (order.line_items && Array.isArray(order.line_items)) {
     for (const item of order.line_items) {
       let sku = item.sku || `WC-${item.product_id}${item.variation_id ? "-" + item.variation_id : ""}`;
-      sku = sku.replace(/\s+/g, "");
-      const mappedSku = skuMap[sku] || sku;
+      sku = sku.trim().replace(/\s+/g, "");
+      const mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
       itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity || 1);
       if (item.name && !itemNames.includes(item.name)) {
         itemNames.push(item.name);
@@ -975,8 +994,8 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
   for (const [sku, qty] of Object.entries(itemQuantities)) {
     const itemDetail = order.line_items?.find((item: any) => {
       let itemSku = item.sku || `WC-${item.product_id}${item.variation_id ? "-" + item.variation_id : ""}`;
-      let cleanItemSku = itemSku.replace(/\s+/g, "");
-      let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+      let cleanItemSku = itemSku.trim().replace(/\s+/g, "");
+      let mappedItemSku = skuMap[cleanItemSku] || skuMap[cleanItemSku.toUpperCase()] || cleanItemSku;
       return mappedItemSku === sku;
     });
     const itemImageUrl = itemDetail?.image?.src || (typeof itemDetail?.image === "string" ? itemDetail.image : null);
@@ -1020,6 +1039,13 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
     }
 
     if (product && warehouseId) {
+      const lineSub = Number(itemDetail?.subtotal || 0);
+      const lineTot = Number(itemDetail?.total || 0);
+      const qNum = Math.max(1, Number(qty || 1));
+      const grossUnit = lineSub > 0 ? Math.round(lineSub / qNum) : Math.round(Number(itemDetail?.price || 0));
+      const netUnit = lineTot >= 0 && itemDetail?.total !== undefined ? Math.round(lineTot / qNum) : grossUnit;
+      const discUnit = Math.max(0, grossUnit - netUnit);
+
       if (product.is_pack) {
         const { data: packMembers } = await supabase
           .from("product_pack_items")
@@ -1028,21 +1054,41 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
 
         if (packMembers && packMembers.length > 0) {
           for (const pm of packMembers) {
-            const currentQty = expectedQuantities.get(pm.member_product_id) || 0;
-            expectedQuantities.set(pm.member_product_id, currentQty + (Number(pm.quantity || 1) * Number(qty)));
+            const prev = expectedQuantities.get(pm.member_product_id);
+            const addQ = Number(pm.quantity || 1) * Number(qty);
+            expectedQuantities.set(pm.member_product_id, {
+              qty: (prev?.qty || 0) + addQ,
+              unit_price: prev?.unit_price ?? 0,
+              discount_amount: 0,
+              effective_unit_price: prev?.effective_unit_price ?? 0,
+              image_url: prev?.image_url || null
+            });
           }
         } else {
-          const currentQty = expectedQuantities.get(product.id) || 0;
-          expectedQuantities.set(product.id, currentQty + Number(qty));
+          const prev = expectedQuantities.get(product.id);
+          expectedQuantities.set(product.id, {
+            qty: (prev?.qty || 0) + Number(qty),
+            unit_price: grossUnit,
+            discount_amount: discUnit,
+            effective_unit_price: netUnit,
+            image_url: itemImageUrl || product.image_url || null
+          });
         }
       } else {
-        const currentQty = expectedQuantities.get(product.id) || 0;
-        expectedQuantities.set(product.id, currentQty + Number(qty));
+        const prev = expectedQuantities.get(product.id);
+        expectedQuantities.set(product.id, {
+          qty: (prev?.qty || 0) + Number(qty),
+          unit_price: grossUnit,
+          discount_amount: discUnit,
+          effective_unit_price: netUnit,
+          image_url: itemImageUrl || product.image_url || null
+        });
       }
     }
   }
 
-  for (const [prodId, totalQty] of expectedQuantities.entries()) {
+  for (const [prodId, meta] of expectedQuantities.entries()) {
+    const totalQty = typeof meta === "number" ? meta : meta.qty;
     if (warehouseId) {
       const { error: itemErr } = await supabase
         .from("order_items")
@@ -1050,7 +1096,11 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
           order_id: newOrder.id,
           product_id: prodId,
           warehouse_id: warehouseId,
-          quantity: totalQty
+          quantity: totalQty,
+          unit_price: typeof meta === "object" ? (meta.unit_price ?? 0) : 0,
+          discount_amount: typeof meta === "object" ? (meta.discount_amount ?? 0) : 0,
+          effective_unit_price: typeof meta === "object" ? (meta.effective_unit_price ?? 0) : 0,
+          image_url: typeof meta === "object" ? (meta.image_url || null) : null
         }]);
 
       if (itemErr) {
@@ -1105,8 +1155,21 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
       .eq("comercio", comercio);
 
     if (equivalences) {
-      equivalences.filter((e: any) => e.platform === "Todas" || e.platform === "WooCommerce").forEach((e: any) => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
+      equivalences.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, "");
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
+      });
+      equivalences.filter((e: any) => e.platform === "WooCommerce").forEach((e: any) => {
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, "");
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err: any) {
@@ -1118,8 +1181,8 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
   if (order.line_items && Array.isArray(order.line_items)) {
     for (const item of order.line_items) {
       let sku = item.sku || `WC-${item.product_id}${item.variation_id ? "-" + item.variation_id : ""}`;
-      sku = sku.replace(/\s+/g, "");
-      const mappedSku = skuMap[sku] || sku;
+      sku = sku.trim().replace(/\s+/g, "");
+      const mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
       itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity || 1);
       if (item.name && !itemNames.includes(item.name)) {
         itemNames.push(item.name);
@@ -1280,8 +1343,8 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
       for (const [sku, qty] of Object.entries(itemQuantities)) {
         const itemDetail = order.line_items?.find((item: any) => {
           let itemSku = item.sku || `WC-${item.product_id}${item.variation_id ? "-" + item.variation_id : ""}`;
-          let cleanItemSku = itemSku.replace(/\s+/g, "");
-          let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+          let cleanItemSku = itemSku.trim().replace(/\s+/g, "");
+          let mappedItemSku = skuMap[cleanItemSku] || skuMap[cleanItemSku.toUpperCase()] || cleanItemSku;
           return mappedItemSku === sku;
         });
         const itemImageUrl = itemDetail?.image?.src || (typeof itemDetail?.image === "string" ? itemDetail.image : null);

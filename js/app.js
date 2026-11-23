@@ -8,8 +8,22 @@ import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
 import { renderNotifications } from './notifications.js';
 import { renderTrackingWidgetCustomizer } from './tracking_widget_customizer.js';
+import { renderReturnsWidgetCustomizer } from './returns_widget_customizer.js';
+import './reverse_rma_manager.js';
 import './manual_order_number_validator.js?v=1.0.0';
 window.renderTrackingWidgetCustomizer = renderTrackingWidgetCustomizer;
+// Modo Preview Privado: ?preview_returns=1 activa la vista Seller SOLO en tu navegador (oculto para todos los demás sellers)
+(function initPrivateSellerReturnsPreview() {
+  try {
+    const qp = new URLSearchParams(window.location.search);
+    if (qp.get('preview_returns') === '1') localStorage.setItem('stocka_preview_returns_seller', '1');
+    else if (qp.get('preview_returns') === '0') localStorage.removeItem('stocka_preview_returns_seller');
+    window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED = localStorage.getItem('stocka_preview_returns_seller') === '1';
+  } catch (_) {
+    window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED = false;
+  }
+})();
+window.renderReturnsWidgetCustomizer = renderReturnsWidgetCustomizer;
 window.navigateToTrackingWidget = function() {
   const twNav = document.querySelector('.nav-item[data-view="tracking_widget"]');
   if (twNav) {
@@ -18,6 +32,17 @@ window.navigateToTrackingWidget = function() {
     const viewTitle = document.getElementById('current-view-title');
     if (viewTitle) viewTitle.textContent = 'Portal de Tracking para Clientes';
     window.renderTrackingWidgetCustomizer();
+  }
+};
+window.navigateToReturnsWidget = function() {
+  if (!window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED) return;
+  const rwNav = document.querySelector('.nav-item[data-view="returns_widget"]');
+  if (rwNav) {
+    rwNav.click();
+  } else if (typeof window.renderReturnsWidgetCustomizer === 'function') {
+    const viewTitle = document.getElementById('current-view-title');
+    if (viewTitle) viewTitle.textContent = 'Portal Público de Cambios y Devoluciones';
+    window.renderReturnsWidgetCustomizer({ onBackToReturns: () => window.renderReturns && window.renderReturns() });
   }
 };
 
@@ -270,7 +295,21 @@ window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierNa
     return window.getPublicWmsTrackingUrlForTarget(shipment, order, trk);
   }
 
-  // 1. Recuperar URL desde LightData raw_data[31] si corresponde
+  // 0.5 Prioridad absoluta al enlace público de WooDelivery (incluye reporte y fotos POD de entrega)
+  const wdCandidates = [
+    srcTable === 'woodelivery_envios' ? shipment?.tracking_url : '',
+    shipment?.raw_data?.tracking_url,
+    order?.raw_woodelivery_data?.tracking_url,
+    url,
+    order?.tracking_url
+  ];
+  for (const cand of wdCandidates) {
+    if (cand && String(cand).toLowerCase().includes('app.woodelivery.com/t?q=')) {
+      return String(cand).trim();
+    }
+  }
+
+  // 1. Recuperar URL desde LightData raw_data[31] si corresponde (solo si no existe URL de WooDelivery)
   if (srcTable === 'lightdata_envios' || order?.raw_lightdata_data) {
     if (shipment?.raw_data?.[31] && String(shipment.raw_data[31]).startsWith('http')) {
       url = String(shipment.raw_data[31]).trim();
@@ -1551,7 +1590,7 @@ async function init() {
         console.log('DEBUG: Detectada instalación de Shopify (Sin sesión). Redirigiendo a OAuth inmediatamente...');
         const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
         const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
+        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders,read_returns,write_returns,read_draft_orders,write_draft_orders,read_discounts,write_discounts';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         
         const stateObj = {
@@ -1600,7 +1639,7 @@ async function init() {
       console.log('DEBUG: Detectada instalación de Shopify con sesión activa. Resolviendo comercio para OAuth...');
       const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
       const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-      const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
+      const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders,read_returns,write_returns,read_draft_orders,write_draft_orders,read_discounts,write_discounts';
       const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
       
       let userCommerce = 'STOCKA STORE TEST';
@@ -1917,6 +1956,8 @@ async function init() {
 
     const isClientViewAllowed = (view) => {
       if (!view) return false;
+      if (view === 'returns_widget') return Boolean(window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED);
+      if (view === 'incidencias' && !window.STOCKA_INCIDENCIAS_MODULE_ENABLED) return false;
       if (userRole === 'observer') {
         return view === 'dashboard' || view === 'observer_onboarding' || view === 'profile' || view === 'inbox';
       }
@@ -1933,6 +1974,12 @@ async function init() {
     };
 
     const activateClientView = (view, historyOptions = {}) => {
+      if (view === 'returns_widget' && !window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED) {
+        view = 'dashboard';
+      }
+      if (view === 'incidencias' && !window.STOCKA_INCIDENCIAS_MODULE_ENABLED) {
+        view = 'dashboard';
+      }
       if (navItems) {
         navItems.forEach(n => {
           const isMatch = n.getAttribute('data-view') === view && !n.classList.contains('hidden-ticket-nav');
@@ -2019,6 +2066,9 @@ async function init() {
       } else if (view === 'tracking_widget') {
         viewTitle.textContent = 'Portal de Tracking para Clientes';
         renderTrackingWidgetCustomizer();
+      } else if (view === 'returns_widget') {
+        viewTitle.textContent = 'Portal de Cambios y Devoluciones';
+        renderReturnsWidgetCustomizer({ onBackToReturns: () => window.renderReturns && window.renderReturns() });
       } else if (view === 'profile') {
         viewTitle.textContent = 'Mi Perfil';
         renderProfile();
@@ -2130,7 +2180,7 @@ async function init() {
 
           if (isClientViewAllowed(view)) {
             if (parentLi) parentLi.style.display = '';
-            else item.style.display = '';
+            item.style.display = '';
             if (!firstVisibleItem) firstVisibleItem = item;
           } else {
             if (parentLi) parentLi.style.display = 'none';
@@ -2138,16 +2188,31 @@ async function init() {
           }
         });
       } else {
-        // Por defecto, si es 'all' todos los ítems están permitidos (excepto workspace y observer_onboarding)
+        // Por defecto, si es 'all' todos los ítems están permitidos (excepto workspace, observer_onboarding, returns_widget e incidencias si están ocultos)
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (view === 'workspace' || view === 'observer_onboarding') {
-            const parentLi = item.closest('li');
+          const parentLi = item.closest('li');
+          if (
+            view === 'workspace' ||
+            view === 'observer_onboarding' ||
+            (view === 'returns_widget' && !window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED) ||
+            (view === 'incidencias' && !window.STOCKA_INCIDENCIAS_MODULE_ENABLED)
+          ) {
             if (parentLi) parentLi.style.display = 'none';
             item.style.display = 'none';
+          } else if (
+            (view === 'returns_widget' && window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED) ||
+            (view === 'incidencias' && window.STOCKA_INCIDENCIAS_MODULE_ENABLED)
+          ) {
+            if (parentLi) parentLi.style.display = '';
+            item.style.display = '';
           }
         });
         if (navItems.length > 0) firstVisibleItem = navItems[0];
+      }
+      const clientOpsIncBtn = document.getElementById('client-ops-incidencias-btn');
+      if (clientOpsIncBtn) {
+        clientOpsIncBtn.style.display = isClientViewAllowed('incidencias') ? '' : 'none';
       }
       
       // Ocultar cabeceras de categorías vacías
@@ -2225,6 +2290,16 @@ async function init() {
 
     // Notification Logic
     initNotifications(session.user.id);
+
+    // PWA Install & Web Push Onboarding
+    if (window.StockaPWA && typeof window.StockaPWA.init === 'function') {
+      window.StockaPWA.init({
+        portal: 'client',
+        supabase,
+        user: session.user,
+        profile
+      });
+    }
 
     // Incidencias Badges Logic
     if (currentCompany) {
@@ -5807,14 +5882,16 @@ async function renderCatalog() {
     const products = await window.fetchAllSupabaseRows('products', '*, inventory(quantity)', q => q.eq('comercio', commerce).order('name'));
 
     let incidents = [];
-    try {
-      const { data: incs } = await supabase
-        .from('incidencias')
-        .select('status')
-        .eq('comercio', commerce);
-      incidents = incs || [];
-    } catch (err) {
-      console.error('Error fetching incidents for stats:', err);
+    if (window.STOCKA_INCIDENCIAS_MODULE_ENABLED) {
+      try {
+        const { data: incs } = await supabase
+          .from('incidencias')
+          .select('status')
+          .eq('comercio', commerce);
+        incidents = incs || [];
+      } catch (err) {
+        console.error('Error fetching incidents for stats:', err);
+      }
     }
 
     // Fetch initial stock movements
@@ -5870,98 +5947,15 @@ async function renderCatalog() {
     window.currentAllSyncedProducts = syncedProducts || [];
     window.currentMappingsMap = mappingsMap;
 
+    window.catalogQuickEditMode = false;
     const isObserver = userRole === 'observer';
     const createBtn = isObserver ? '' : `<button class="btn btn-primary" id="btn-new-product" style="padding: 0 1rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); cursor: pointer; transition: all 0.2s ease;"><i class="ri-add-line" style="font-size: 1.05rem;"></i><span>Nuevo Producto</span></button>`;
-    
-    const importBtn = (mainPlatform && !isObserver)
-      ? `<button class="btn btn-catalog-action" id="btn-import-from-main" style="padding: 0 0.85rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.28); color: #2563eb; font-weight: 600; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s ease;" title="Sincronizar y actualizar todo el catálogo desde ${mainPlatform}">
-          <i class="ri-download-cloud-2-line" style="font-size: 1rem;"></i>
-          <span>Importar de ${mainPlatform}</span>
-        </button>`
-      : '';
-      
-    const importNewBtn = (mainPlatform && !isObserver)
-      ? `<button class="btn btn-catalog-action" id="btn-import-new-only-from-main" style="padding: 0 0.85rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.32); color: #059669; font-weight: 600; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s ease;" title="Buscar e importar únicamente productos nuevos de ${mainPlatform}">
-          <i class="ri-add-circle-line" style="font-size: 1rem;"></i>
-          <span>Importar Nuevos de ${mainPlatform}</span>
-        </button>`
-      : '';
 
-    const quickEditBtnStyle = window.catalogQuickEditMode
-      ? 'background: #10b981; color: white; border: 1px solid #10b981; font-weight: 600; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.25);'
-      : 'background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.28); color: #4f46e5; font-weight: 600;';
-
-    const quickEditBtnHtml = isObserver ? '' : `
-      <button class="btn btn-catalog-action" id="btn-toggle-quick-edit" style="padding: 0 0.85rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s ease; ${quickEditBtnStyle}">
-        <i class="${window.catalogQuickEditMode ? 'ri-save-line' : 'ri-edit-2-line'}" style="font-size: 1rem;"></i> 
-        <span>${window.catalogQuickEditMode ? 'Guardar Cambios Rápidos' : 'Edición Rápida'}</span>
-      </button>
-    `;
-
-    const excelActionsDropdown = isObserver ? '' : `
-      <style>
-        .excel-dropdown { position: relative; display: inline-block; }
-        .excel-dropdown-content { display: none; position: absolute; right: 0; top: calc(100% + 4px); background-color: var(--color-surface); min-width: 215px; box-shadow: var(--shadow-lg); z-index: 1000; border-radius: var(--radius-md); border: 1px solid var(--color-border); padding: 0.5rem; }
-        .excel-dropdown:hover .excel-dropdown-content { display: flex; flex-direction: column; gap: 0.25rem; }
-        .excel-dropdown-btn { width: 100%; text-align: left; padding: 0.5rem 0.75rem; border: none; background: transparent; cursor: pointer; border-radius: var(--radius-sm); color: var(--color-text-main); font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; transition: background 0.2s; }
-        .excel-dropdown-btn:hover { background: var(--color-bg); }
-        .btn-catalog-action:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); filter: brightness(0.96); }
-      </style>
-      <div class="excel-dropdown">
-        <button class="btn btn-catalog-action" style="padding: 0 0.85rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(16, 124, 65, 0.08); border: 1px solid rgba(16, 124, 65, 0.3); color: #107c41; font-weight: 600; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s ease;">
-          <i class="ri-file-excel-2-line" style="font-size: 1rem;"></i>
-          <span>Acciones Excel</span>
-          <i class="ri-arrow-down-s-line" style="font-size: 0.9rem; opacity: 0.8;"></i>
-        </button>
-        <div class="excel-dropdown-content">
-          <div style="position: relative;">
-            <button class="excel-dropdown-btn" id="btn-trigger-import-stock" style="color: var(--color-success);">
-              <i class="ri-file-upload-line"></i> Importar Stock Inicial
-            </button>
-            <input type="file" id="catalog-import-stock-excel" accept=".xlsx, .xls, .csv" style="display: none;">
-          </div>
-          <button class="excel-dropdown-btn" id="btn-download-stock-template" style="color: var(--color-text-muted);" title="Descargar planilla de ejemplo para stock inicial">
-            <i class="ri-download-2-line"></i> Plantilla Stock
-          </button>
-          
-          <div style="height: 1px; background: var(--color-border); margin: 0.25rem 0;"></div>
-          
-          <div style="position: relative;">
-            <button class="excel-dropdown-btn" id="btn-trigger-import-dimensions" style="color: #0284c7;">
-              <i class="ri-file-upload-line"></i> Importar Medidas
-            </button>
-            <input type="file" id="catalog-import-dimensions-excel" accept=".xlsx, .xls, .csv" style="display: none;">
-          </div>
-          <button class="excel-dropdown-btn" id="btn-download-dimensions-template" style="color: var(--color-text-muted);" title="Descargar planilla de ejemplo para medidas (largo, ancho, alto)">
-            <i class="ri-download-2-line"></i> Plantilla Medidas
-          </button>
-          
-          <div style="height: 1px; background: var(--color-border); margin: 0.25rem 0;"></div>
-          
-          <div style="position: relative;">
-            <button class="excel-dropdown-btn" id="btn-trigger-import-volumes" style="color: #8b5cf6;">
-              <i class="ri-file-upload-line"></i> Importar Volúmenes
-            </button>
-            <input type="file" id="catalog-import-volumes-excel" accept=".xlsx, .xls, .csv" style="display: none;">
-          </div>
-          <button class="excel-dropdown-btn" id="btn-download-volumes-template" style="color: var(--color-text-muted);" title="Descargar planilla de ejemplo para volúmenes (m³)">
-            <i class="ri-download-2-line"></i> Plantilla Volúmenes
-          </button>
-          
-          <div style="height: 1px; background: var(--color-border); margin: 0.25rem 0;"></div>
-          
-          <div style="position: relative;">
-            <button class="excel-dropdown-btn" id="btn-trigger-import-barcode-wms" style="color: #2563eb;">
-              <i class="ri-barcode-box-line"></i> Importar Códigos WMS
-            </button>
-            <input type="file" id="catalog-import-barcode-wms-excel" accept=".xlsx, .xls, .csv" style="display: none;">
-          </div>
-          <button class="excel-dropdown-btn" id="btn-download-barcode-wms-template" style="color: var(--color-text-muted);" title="Descargar planilla de ejemplo / catálogo para códigos de barra WMS (CBAR WMS)">
-            <i class="ri-download-2-line"></i> Plantilla Códigos WMS
-          </button>
-        </div>
-      </div>
-    `;
+    // Fase 1 Gobernanza: Importaciones masivas, edición rápida de stock/medidas/CBAR y acciones Excel destructivas son exclusivas de Operaciones STOCKA
+    const importBtn = '';
+    const importNewBtn = '';
+    const quickEditBtnHtml = '';
+    const excelActionsDropdown = '';
 
     const datalistOptionsHtml = masterProducts.filter(p => p.status !== 'archived').map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
 
@@ -5983,27 +5977,11 @@ async function renderCatalog() {
       <div style="margin-bottom: 1rem; background: var(--color-surface); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div>
           <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.2rem; color: var(--color-text-main); font-size: 0.9rem;">
-            <i class="ri-settings-4-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Plataforma Principal de Ventas (Catálogo Maestro)
+            <i class="ri-shield-check-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Plataforma Principal (Catálogo Maestro): <span style="color: var(--color-primary);">${escapeHtml(mainPlatform || 'Catálogo WMS')}</span>
           </label>
           <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
-            Establece la plataforma de donde proviene tu catálogo maestro de productos.
+            Configuración administrada por Operaciones STOCKA. Puedes gestionar tus <strong>Equivalencias SKU</strong> en la pestaña correspondiente; para cambios de SKU maestro, medidas, códigos WMS o fusiones, solicita apoyo a tu ejecutivo.
           </p>
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.75rem;">
-          <select id="eq-main-platform-select" class="form-input" style="min-width: 180px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; height: 34px; font-size: 0.85rem;">
-            <option value="" ${mainPlatform === '' ? 'selected' : ''}>Ninguna (Usar WMS)</option>
-            <option value="Shopify" ${mainPlatform === 'Shopify' ? 'selected' : ''}>Shopify</option>
-            <option value="MercadoLibre" ${mainPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
-            <option value="Falabella" ${mainPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
-            <option value="Paris" ${mainPlatform === 'Paris' ? 'selected' : ''}>París</option>
-            <option value="Ripley" ${mainPlatform === 'Ripley' ? 'selected' : ''}>Ripley</option>
-            <option value="WooCommerce" ${mainPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
-            <option value="Jumpseller" ${mainPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
-            <option value="Tiendanube" ${mainPlatform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
-          </select>
-          <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-md); padding: 0.45rem 1rem; font-weight: 500; height: 34px; font-size: 0.85rem;">
-            <i class="ri-save-line"></i> Guardar
-          </button>
         </div>
       </div>
     `;
@@ -6204,10 +6182,7 @@ async function renderCatalog() {
               <button id="btn-trigger-eq-import-excel" class="btn btn-outline" style="border-color: #10b981; color: #10b981; background: transparent; padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
                 <i class="ri-file-excel-2-line"></i> Importar Planilla de Equivalencias
               </button>
-              <input type="file" id="eq-matrix-import-excel" accept=".xlsx, .xls, .csv" style="display: none;">
-              <button id="btn-merge-catalog-skus" class="btn btn-outline" style="border-color: #8b5cf6; color: #8b5cf6; background: rgba(139, 92, 246, 0.06); padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
-                <i class="ri-git-merge-line"></i> Fusionar / Unificar SKUs Duplicados
-              </button>` : ''}
+              <input type="file" id="eq-matrix-import-excel" accept=".xlsx, .xls, .csv" style="display: none;">` : ''}
             </div>
           </div>
 
@@ -6416,6 +6391,7 @@ async function renderCatalog() {
             </div>
           </div>
 
+          ${window.STOCKA_INCIDENCIAS_MODULE_ENABLED ? `
           <!-- Tarjeta Incidencias -->
           <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
             <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(239, 68, 68, 0.1); color: var(--color-danger);">
@@ -6428,6 +6404,7 @@ async function renderCatalog() {
               </div>
             </div>
           </div>
+          ` : ''}
         </div>
       `;
     }
@@ -6529,12 +6506,21 @@ async function openEditProductModal(prodId) {
     if (error) throw error;
 
     document.getElementById('edit-prod-id').value = product.id;
+
+    const lockClientProtectedField = (el, reason = 'Campo administrado exclusivamente por Operaciones STOCKA') => {
+      if (!el) return;
+      el.disabled = true;
+      el.title = reason;
+      if (el.type !== 'checkbox' && el.type !== 'radio') {
+        el.style.backgroundColor = 'var(--color-gray-dark)';
+        el.style.color = 'var(--color-text-muted)';
+        el.style.cursor = 'not-allowed';
+      }
+    };
     
     const skuInput = document.getElementById('edit-prod-sku');
     skuInput.value = product.sku;
-    skuInput.disabled = false;
-    skuInput.style.backgroundColor = '';
-    skuInput.style.color = '';
+    lockClientProtectedField(skuInput, 'El SKU Maestro no puede ser modificado desde el portal cliente');
 
     const nameInput = document.getElementById('edit-prod-name');
     nameInput.value = product.name;
@@ -6545,11 +6531,24 @@ async function openEditProductModal(prodId) {
     const sendBarInput = document.getElementById('edit-prod-send-barcode');
     if (sendBarInput) {
       sendBarInput.checked = product.send_barcode_to_picker || false;
+      lockClientProtectedField(sendBarInput);
     }
     const barcodeWmsInput = document.getElementById('edit-prod-barcode-wms');
-    if (barcodeWmsInput) barcodeWmsInput.value = product.barcode_wms || '';
+    if (barcodeWmsInput) {
+      barcodeWmsInput.value = product.barcode_wms || '';
+      lockClientProtectedField(barcodeWmsInput);
+    }
     const sendBarcodeWmsInput = document.getElementById('edit-prod-send-barcode-wms');
-    if (sendBarcodeWmsInput) sendBarcodeWmsInput.checked = product.send_barcode_wms_to_picker !== false;
+    if (sendBarcodeWmsInput) {
+      sendBarcodeWmsInput.checked = product.send_barcode_wms_to_picker !== false;
+      lockClientProtectedField(sendBarcodeWmsInput);
+    }
+    const newAltBarcodeInput = document.getElementById('edit-prod-new-alt-barcode');
+    if (newAltBarcodeInput) {
+      lockClientProtectedField(newAltBarcodeInput, 'Los códigos de barras alternativos del Picker son administrados por Operaciones STOCKA');
+      const addAltBtn = newAltBarcodeInput.parentElement?.querySelector('button');
+      if (addAltBtn) lockClientProtectedField(addAltBtn, 'Administrado por Operaciones STOCKA');
+    }
     document.getElementById('edit-prod-alias').value = product.alias || '';
     const sendAliasInput = document.getElementById('edit-prod-send-alias');
     if (sendAliasInput) {
@@ -6565,6 +6564,7 @@ async function openEditProductModal(prodId) {
     const statusInput = document.getElementById('edit-prod-status');
     if (statusInput) {
       statusInput.value = product.status || 'active';
+      lockClientProtectedField(statusInput, 'El estado Activo/Archivado es administrado por Operaciones STOCKA');
     }
 
     const colorInput = document.getElementById('edit-prod-color');
@@ -6578,7 +6578,7 @@ async function openEditProductModal(prodId) {
 
     window.currentEditProductOptions = product.options || {};
 
-    // Set initial volume mode and value
+    // Set initial volume mode and value (solo lectura para cliente)
     const hasVolume = product.volumen !== null && product.volumen !== undefined;
     const hasDims = (product.length !== null && product.length !== undefined && product.length !== '') ||
                     (product.width !== null && product.width !== undefined && product.width !== '') ||
@@ -6603,7 +6603,15 @@ async function openEditProductModal(prodId) {
       }
     }
 
-    // Obtener stock inicial histórico
+    lockClientProtectedField(directRadio, 'Las dimensiones y volumen son medidos por bodega STOCKA');
+    lockClientProtectedField(dimsRadio, 'Las dimensiones y volumen son medidos por bodega STOCKA');
+    lockClientProtectedField(document.getElementById('edit-prod-length'), 'Las dimensiones y volumen son medidos por bodega STOCKA');
+    lockClientProtectedField(document.getElementById('edit-prod-width'), 'Las dimensiones y volumen son medidos por bodega STOCKA');
+    lockClientProtectedField(document.getElementById('edit-prod-height'), 'Las dimensiones y volumen son medidos por bodega STOCKA');
+    lockClientProtectedField(document.getElementById('edit-prod-volume'), 'Las dimensiones y volumen son medidos por bodega STOCKA');
+    lockClientProtectedField(document.getElementById('edit-prod-weight'), 'El peso es verificado por bodega STOCKA');
+
+    // Obtener stock inicial histórico (solo lectura para cliente)
     const { data: initialMov } = await supabase
       .from('movements')
       .select('quantity')
@@ -6618,6 +6626,7 @@ async function openEditProductModal(prodId) {
     const editProdStockInput = document.getElementById('edit-prod-stock');
     if (editProdStockInput) {
       editProdStockInput.value = initialStock;
+      lockClientProtectedField(editProdStockInput, 'El stock inicial es administrado por Operaciones STOCKA');
     }
 
     // Configurar visibilidad del checkbox y sección de packs
@@ -6634,6 +6643,7 @@ async function openEditProductModal(prodId) {
     const editIsVirtual = document.getElementById('edit-prod-is-virtual');
     if (editIsVirtual) {
       editIsVirtual.checked = !!product.is_virtual;
+      lockClientProtectedField(editIsVirtual, 'La clasificación de producto virtual es administrada por Operaciones STOCKA');
     }
 
     // Obtener ítems del pack si corresponde
@@ -8863,6 +8873,17 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
 function getMovementCategoryInfo(referenceDoc, type) {
   const ref = (referenceDoc || '').toLowerCase().trim();
 
+  // 0. Reverso (contramovimiento auditado)
+  if (ref.startsWith('reverso ') || ref.includes('reverso kardex') || ref.includes('reverso por cancelaci')) {
+    return {
+      key: 'reverso',
+      label: 'Reverso',
+      icon: 'ri-arrow-go-back-line',
+      color: '#b45309',
+      bg: 'rgba(245, 158, 11, 0.15)'
+    };
+  }
+
   // 1. Traslado
   if (ref.includes('traslado')) {
     return {
@@ -9156,6 +9177,7 @@ async function openProductMovementsModal(productId, sku, name) {
               <option value="ajuste">Ajuste</option>
               <option value="cambio">Cambio</option>
               <option value="devolucion">Devolución</option>
+              <option value="reverso">Reverso</option>
               <option value="merma">Merma / Baja</option>
               <option value="otro">Otro</option>
             </select>
@@ -9670,6 +9692,9 @@ async function openProductMovementsModal(productId, sku, name) {
     document.getElementById('client-modal-btn-open-fullscreen')?.addEventListener('click', () => {
       modal.remove();
       window.movementsFilterProductId = productId;
+      window.movementsFilterProductText = (sku || name)
+        ? `${sku || ''} - ${name || ''}`.replace(/^\s*-\s*|\s*-\s*$/g, '')
+        : '';
       const navItem = document.querySelector('[data-view="movements"]');
       if (navItem) {
         navItem.click();
@@ -9767,6 +9792,65 @@ async function openProductMovementsModal(productId, sku, name) {
 
 window.clientMovementsTab = 'general'; // 'general' | 'warehouse'
 
+function normalizeClientKardexSearchText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function matchesClientKardexTokens(haystackText, queryText) {
+  const q = normalizeClientKardexSearchText(queryText);
+  if (!q) return true;
+  const h = normalizeClientKardexSearchText(haystackText);
+  if (h.includes(q)) return true;
+  const tokens = q.split(/\s+/).filter(t => t && t !== '-' && t !== '—');
+  return tokens.length > 0 && tokens.every(t => h.includes(t));
+}
+
+function buildClientMovsProductDatalistOptions(products, queryText = '', maxOptions = 250) {
+  const list = Array.isArray(products) ? products : [];
+  const q = normalizeClientKardexSearchText(queryText);
+  const matches = [];
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i];
+    if (!p) continue;
+    if (!q || matchesClientKardexTokens(`${p.sku || ''} ${p.name || ''}`, q)) {
+      matches.push(p);
+      if (matches.length >= maxOptions) break;
+    }
+  }
+  return matches.map(p => `<option value="${escapeKardexClientHtml(`${p.sku || ''} - ${p.name || ''}`)}"></option>`).join('');
+}
+
+function resolveExactClientKardexProductId(products, rawInput) {
+  const inputVal = String(rawInput || '').trim();
+  if (!inputVal || !Array.isArray(products) || products.length === 0) return '';
+  const norm = normalizeClientKardexSearchText(inputVal);
+
+  const exactFullMatches = products.filter(p =>
+    normalizeClientKardexSearchText(`${p.sku || ''} - ${p.name || ''}`) === norm
+  );
+  if (exactFullMatches.length === 1) {
+    return exactFullMatches[0].id;
+  }
+
+  const exactSkuMatches = products.filter(p =>
+    normalizeClientKardexSearchText(p.sku || '') === norm
+  );
+  if (exactSkuMatches.length === 1) {
+    const hasOtherSkuMatches = products.some(p =>
+      p.id !== exactSkuMatches[0].id && normalizeClientKardexSearchText(p.sku || '').includes(norm)
+    );
+    if (!hasOtherSkuMatches) {
+      return exactSkuMatches[0].id;
+    }
+  }
+
+  return '';
+}
+
 async function renderMovements() {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
@@ -9816,6 +9900,8 @@ async function renderMovements() {
             quantity: r.quantity,
             reference_doc: r.reference_doc,
             warehouse_id: r.warehouse_id,
+            reversed_at: r.reversed_at || null,
+            reversed_from_movement_id: r.reversed_from_movement_id || null,
             products: { id: r.product_id, sku: r.product_sku, name: r.product_name, comercio: r.product_comercio },
             warehouses: { id: r.warehouse_id, name: r.warehouse_name }
           }));
@@ -9918,14 +10004,41 @@ async function renderMovements() {
 
     window.cachedMovements = rawMovements;
 
-    // 4. Obtener todos los productos del catálogo del comercio activo para el selector autocomplete
-    const { data: activeProducts } = await supabase
-      .from('products')
-      .select('id, sku, name')
-      .eq('comercio', commerce)
-      .limit(2000);
+    // 4. Obtener todos los productos del catálogo del comercio activo para el selector autocomplete (auto-paginado)
+    const activeProdsById = new Map();
+    rawMovements.forEach(m => {
+      if (m.products?.id && !activeProdsById.has(m.products.id)) {
+        activeProdsById.set(m.products.id, {
+          id: m.products.id,
+          sku: m.products.sku || 'N/A',
+          name: m.products.name || 'N/A'
+        });
+      }
+    });
 
-    window.cachedActiveProducts = activeProducts || [];
+    if (commerce) {
+      let pFrom = 0;
+      const pStep = 1000;
+      const pMaxCap = 10000;
+      while (pFrom < pMaxCap) {
+        const { data: prodsChunk, error: prodsErr } = await supabase
+          .from('products')
+          .select('id, sku, name')
+          .eq('comercio', commerce)
+          .order('sku', { ascending: true })
+          .range(pFrom, pFrom + pStep - 1);
+        if (prodsErr || !prodsChunk || prodsChunk.length === 0) break;
+        prodsChunk.forEach(p => {
+          if (p && p.id && !activeProdsById.has(p.id)) {
+            activeProdsById.set(p.id, p);
+          }
+        });
+        if (prodsChunk.length < pStep) break;
+        pFrom += pStep;
+      }
+    }
+
+    window.cachedActiveProducts = Array.from(activeProdsById.values());
 
     // Extraer lista única de bodegas
     const availableWarehouses = [...new Set(rawMovements.map(m => m.warehouses?.name).filter(Boolean))].sort();
@@ -10001,6 +10114,7 @@ async function renderMovements() {
       clientSelect.addEventListener('change', async (e) => {
         window.activeIntegrationCommerce = e.target.value;
         window.movementsFilterProductId = '';
+        window.movementsFilterProductText = '';
         await renderMovements();
       });
     }
@@ -10151,6 +10265,23 @@ function buildClientMovementsTabContent() {
   }
 
   // Tab General
+  let clientProdFilterVal = window.movementsFilterProductText || '';
+  if (!clientProdFilterVal && window.movementsFilterProductId) {
+    const fp = (window.cachedActiveProducts || []).find(p => p.id === window.movementsFilterProductId);
+    if (fp) {
+      clientProdFilterVal = `${fp.sku} - ${fp.name}`;
+    } else {
+      const fm = (window.cachedMovements || []).find(m => m.products?.id === window.movementsFilterProductId);
+      if (fm?.products) clientProdFilterVal = `${fm.products.sku} - ${fm.products.name}`;
+    }
+  }
+  const clientDatalistMax = (window.cachedActiveProducts || []).length <= 400 ? 400 : 250;
+  const clientDatalistHtml = buildClientMovsProductDatalistOptions(
+    window.cachedActiveProducts,
+    clientProdFilterVal,
+    clientDatalistMax
+  );
+
   container.innerHTML = `
     <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm);">
       
@@ -10160,9 +10291,9 @@ function buildClientMovementsTabContent() {
           <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Filtrar por Producto</label>
           <div style="position: relative;">
             <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-            <input list="movements-products-list" id="movs-product-filter" class="form-input" placeholder="Escribe SKU o nombre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsFilterProductId ? (window.cachedActiveProducts?.find(p => p.id === window.movementsFilterProductId) ? `${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).sku} - ${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).name}` : '') : ''}">
+            <input list="movements-products-list" id="movs-product-filter" class="form-input" placeholder="Escribe SKU o nombre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${escapeKardexClientHtml(clientProdFilterVal)}">
             <datalist id="movements-products-list">
-              ${(window.cachedActiveProducts || []).map(p => `<option value="${p.sku} - ${p.name}"></option>`).join('')}
+              ${clientDatalistHtml}
             </datalist>
           </div>
         </div>
@@ -10171,7 +10302,7 @@ function buildClientMovementsTabContent() {
           <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Buscar SKU/Referencia</label>
           <div style="position: relative;">
             <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-            <input type="text" id="movs-search" class="form-input" placeholder="Texto libre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsSearchQuery || ''}">
+            <input type="text" id="movs-search" class="form-input" placeholder="Texto libre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${escapeKardexClientHtml(window.movementsSearchQuery || '')}">
           </div>
         </div>
 
@@ -10193,6 +10324,7 @@ function buildClientMovementsTabContent() {
             <option value="ajuste" ${window.movementsFilterCategory === 'ajuste' ? 'selected' : ''}>Ajuste</option>
             <option value="cambio" ${window.movementsFilterCategory === 'cambio' ? 'selected' : ''}>Cambio</option>
             <option value="devolucion" ${window.movementsFilterCategory === 'devolucion' ? 'selected' : ''}>Devolución</option>
+            <option value="reverso" ${window.movementsFilterCategory === 'reverso' ? 'selected' : ''}>Reverso</option>
             <option value="merma" ${window.movementsFilterCategory === 'merma' ? 'selected' : ''}>Merma / Baja</option>
             <option value="otro" ${window.movementsFilterCategory === 'otro' ? 'selected' : ''}>Otro</option>
           </select>
@@ -10296,12 +10428,14 @@ function buildClientMovementsTabContent() {
   // Inicializar listeners de filtros
   document.getElementById('movs-product-filter')?.addEventListener('input', (e) => {
     const inputVal = e.target.value.trim();
-    const matched = window.cachedActiveProducts?.find(p => 
-      `${p.sku} - ${p.name}` === inputVal || 
-      p.sku === inputVal ||
-      p.name === inputVal
-    );
-    window.movementsFilterProductId = matched ? matched.id : '';
+    window.movementsFilterProductText = inputVal;
+    window.movementsFilterProductId = resolveExactClientKardexProductId(window.cachedActiveProducts, inputVal);
+    if ((window.cachedActiveProducts || []).length > 400) {
+      const dl = document.getElementById('movements-products-list');
+      if (dl) {
+        dl.innerHTML = buildClientMovsProductDatalistOptions(window.cachedActiveProducts, inputVal, 250);
+      }
+    }
     window.movementsCurrentPage = 1;
     updateClientMovementsKpis();
     renderMovementsTableBody();
@@ -10365,6 +10499,7 @@ function buildClientMovementsTabContent() {
     window.movementsFilterStartDate = '';
     window.movementsFilterEndDate = '';
     window.movementsFilterProductId = '';
+    window.movementsFilterProductText = '';
     
     const search = document.getElementById('movs-search');
     if (search) search.value = '';
@@ -10382,6 +10517,13 @@ function buildClientMovementsTabContent() {
     if (end) end.value = '';
     const prodFilter = document.getElementById('movs-product-filter');
     if (prodFilter) prodFilter.value = '';
+
+    if ((window.cachedActiveProducts || []).length > 400) {
+      const dl = document.getElementById('movements-products-list');
+      if (dl) {
+        dl.innerHTML = buildClientMovsProductDatalistOptions(window.cachedActiveProducts, '', 250);
+      }
+    }
 
     window.movementsCurrentPage = 1;
     updateClientMovementsKpis();
@@ -10418,7 +10560,7 @@ function buildClientMovementsTabContent() {
 
 function applyMovementsFiltersAndSort() {
   const movements = window.cachedMovements || [];
-  const search = (window.movementsSearchQuery || '').toLowerCase().trim();
+  const search = (window.movementsSearchQuery || '').trim();
   const warehouse = window.movementsFilterWarehouse || '';
   const category = window.movementsFilterCategory || '';
   const flow = window.movementsFilterFlow || '';
@@ -10426,12 +10568,18 @@ function applyMovementsFiltersAndSort() {
   const start = window.movementsFilterStartDate || '';
   const end = window.movementsFilterEndDate || '';
   const filterProductId = window.movementsFilterProductId || '';
+  const filterProductText = (window.movementsFilterProductText || '').trim();
 
   let rows = movements.map(mov => {
     let originPlat = 'Manual';
+    let friendlyRef = mov.reference_doc || '';
     if (mov.reference_doc && mov.reference_doc.startsWith('Pedido ')) {
       const orderId = mov.reference_doc.replace('Pedido ', '').trim();
-      originPlat = window.movementOrderInfoMap?.[orderId]?.platform || 'Manual';
+      const orderInfo = window.movementOrderInfoMap?.[orderId];
+      originPlat = orderInfo?.platform || 'Manual';
+      if (orderInfo && orderInfo.orderNumber) {
+        friendlyRef = `Pedido #${orderInfo.orderNumber}`;
+      }
     } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('shopify')) {
       originPlat = 'Shopify';
     } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('mercadolibre')) {
@@ -10462,22 +10610,30 @@ function applyMovementsFiltersAndSort() {
       stockTotalAfter: mov._stockTotalAfter !== undefined ? mov._stockTotalAfter : '-',
       warehouseStockAfter: mov._warehouseStockAfter !== undefined ? mov._warehouseStockAfter : '-',
       reference_doc: mov.reference_doc || '',
+      friendlyRef: friendlyRef,
       platform: originPlat,
-      category: cat
+      category: cat,
+      reversedAt: mov.reversed_at || null,
+      reversedFromMovementId: mov.reversed_from_movement_id || null
     };
   });
 
-  // 1. Filtro específico por ID de producto (del autocomplete)
+  // 1. Filtro por producto (ID exacto o texto libre sobre SKU / Nombre)
   if (filterProductId) {
     rows = rows.filter(r => r.productId === filterProductId);
+  } else if (filterProductText) {
+    rows = rows.filter(r =>
+      matchesClientKardexTokens(`${r.sku || ''} ${r.name || ''}`, filterProductText)
+    );
   }
 
   // 2. Buscador libre
   if (search) {
-    rows = rows.filter(r => 
-      (r.sku || '').toLowerCase().includes(search) || 
-      (r.name || '').toLowerCase().includes(search) ||
-      (r.reference_doc || '').toLowerCase().includes(search)
+    rows = rows.filter(r =>
+      matchesClientKardexTokens(
+        `${r.sku || ''} ${r.name || ''} ${r.friendlyRef || ''} ${r.reference_doc || ''} ${r.warehouse || ''} ${r.platform || ''}`,
+        search
+      )
     );
   }
 
@@ -10550,7 +10706,7 @@ async function updateClientMovementsSkuLocationsBanner(filteredRows) {
       const first = filteredRows[0];
       targetProd = { id: first.productId, sku: first.sku, name: first.name };
     }
-  } else if (window.movementsSearchQuery && filteredRows && filteredRows.length > 0) {
+  } else if ((window.movementsFilterProductText || window.movementsSearchQuery) && filteredRows && filteredRows.length > 0) {
     const uniqueSkus = [...new Set(filteredRows.map(r => r.sku).filter(Boolean))];
     if (uniqueSkus.length === 1 && uniqueSkus[0] !== 'N/A') {
       const first = filteredRows[0];
@@ -10665,6 +10821,10 @@ function renderMovementsTableBody() {
         </div>`
       : `<span style="color: var(--color-text-muted);">-</span>`;
 
+    const clientRevBadge = r.reversedAt
+      ? `<div style="margin-top: 0.22rem;"><span style="background: rgba(245, 158, 11, 0.14); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.35); padding: 0.06rem 0.38rem; border-radius: 4px; font-size: 0.68rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.18rem;"><i class="ri-arrow-go-back-line"></i> Reversado</span></div>`
+      : '';
+
     return `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
         <td style="padding: 0.75rem 1rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
@@ -10676,7 +10836,10 @@ function renderMovementsTableBody() {
         <td style="padding: 0.75rem 1rem;">${platformHtml}</td>
         <td style="padding: 0.75rem 1rem; text-align: center; ${qtyStyle}">${qtyText}</td>
         <td style="padding: 0.75rem 1rem; text-align: center;">${resultingStockHtml}</td>
-        <td style="padding: 0.75rem 1rem; font-weight: 500; color: var(--color-text-main);" title="${r.reference_doc}">${formatMovementReferenceWithIngCode(operationDoc)}</td>
+        <td style="padding: 0.75rem 1rem; font-weight: 500; color: var(--color-text-main);" title="${r.reference_doc}">
+          <div>${formatMovementReferenceWithIngCode(operationDoc)}</div>
+          ${clientRevBadge}
+        </td>
         <td style="padding: 0.75rem 1rem; text-align: center; white-space: nowrap;">
           <button class="btn btn-outline btn-sm btn-view-movements" data-prod-id="${r.productId}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" style="height: 26px; padding: 0 0.5rem; font-size: 0.75rem; border-color: var(--color-border); cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.2rem;">
             <i class="ri-history-line"></i> Kardex
@@ -11997,8 +12160,8 @@ window.buildClientShipmentsIndex = function(shipments) {
 
   (shipments || []).forEach(s => {
     const sCourierUpper = (s.courier || '').toUpperCase().trim();
-    if (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
-        sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY')) {
+    if (s.source_table !== 'woodelivery_envios' && (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
+        sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY'))) {
       return;
     }
     if (s.pedido_referencia) addKey(s.pedido_referencia, s);
@@ -12008,6 +12171,8 @@ window.buildClientShipmentsIndex = function(shipments) {
       addKey(s.id, s);
       if (s.id.startsWith('lightdata_envios:')) {
         addKey(s.id.replace('lightdata_envios:', ''), s);
+      } else if (s.id.startsWith('woodelivery_envios:')) {
+        addKey(s.id.replace('woodelivery_envios:', ''), s);
       }
     }
   });
@@ -12155,14 +12320,14 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
   const forcedTrk = forcedInfo?.tracking_number ? String(forcedInfo.tracking_number).trim() : '';
 
   let orderShipments = candidateShipments.filter(s => {
-    if (forcedTrk && (String(s.tracking || '').trim() === forcedTrk || String(s.source_id || '').trim() === forcedTrk || s.id === 'lightdata_envios:' + forcedTrk)) return true;
+    if (forcedTrk && (String(s.tracking || '').trim() === forcedTrk || String(s.source_id || '').trim() === forcedTrk || s.id === 'lightdata_envios:' + forcedTrk || s.id === 'woodelivery_envios:' + forcedTrk)) return true;
     let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
     if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
     if (isValidRef(s.tracking) && isValidRef(order.tracking_number) && s.tracking === order.tracking_number) return true;
     if (s.source_id && isValidRef(order.tracking_number) && s.source_id === order.tracking_number) return true;
-    if (s.id && isValidRef(order.tracking_number) && s.id === 'lightdata_envios:' + order.tracking_number) return true;
-    if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
-    if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
+    if (s.id && isValidRef(order.tracking_number) && (s.id === 'lightdata_envios:' + order.tracking_number || s.id === 'woodelivery_envios:' + order.tracking_number)) return true;
+    if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid || s.id === 'woodelivery_envios:' + ldDid)) return true;
+    if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders' || s.source_table === 'woodelivery_envios') return true;
 
     return shipCommerce === orderCommerce;
   });
@@ -12409,7 +12574,15 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
         if (!aF && bF) return 1;
       }
 
+      // Autoridad ALPHA: WooDelivery siempre prevalece sobre LightData
+      if (a.source_table === 'woodelivery_envios' && b.source_table === 'lightdata_envios') return -1;
+      if (b.source_table === 'woodelivery_envios' && a.source_table === 'lightdata_envios') return 1;
+
       const getMovedScore = (s) => {
+        if (s.source_table === 'woodelivery_envios' && s.raw_data?.status_wms_normalized) {
+          const wn = String(s.raw_data.status_wms_normalized).toUpperCase();
+          return wn === 'ENTREGADO' ? 4 : (wn === 'EN TRÁNSITO' ? 3 : (['ALERTA', 'DEVOLUCIÓN'].includes(wn) ? 2 : 1));
+        }
         let gStatus = s.global_status;
         let statusText = s.status || '';
         if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
@@ -12551,6 +12724,10 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
   const shipment = orderShipments[0];
   let globStatus = shipment.global_status;
   let statusText = shipment.status || '';
+  if (shipment.source_table === 'woodelivery_envios' && shipment.raw_data?.status_wms_normalized) {
+    globStatus = String(shipment.raw_data.status_wms_normalized).toUpperCase();
+    statusText = shipment.raw_data.status_display || shipment.status || globStatus;
+  }
   if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
     if (shipment.raw_data && shipment.raw_data[23]) statusText = shipment.raw_data[23];
     else if (order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) statusText = order.raw_lightdata_data.raw_data[23];
@@ -14318,14 +14495,14 @@ window.applyClientWmsFiltersAndRender = function() {
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
       const forcedClientInfo = window.getOrderForcedTrackingInfo ? window.getOrderForcedTrackingInfo(order) : null;
-      const ldSourceId = (shipment.source_table === 'lightdata_envios' && shipment.source_id && /^\d+$/.test(String(shipment.source_id).trim())) ? String(shipment.source_id).trim() : null;
+      const ldSourceId = ((shipment.source_table === 'lightdata_envios' || shipment.source_table === 'woodelivery_envios') && shipment.source_id && /^\d+$/.test(String(shipment.source_id).trim())) ? String(shipment.source_id).trim() : null;
       const effTrack = (forcedClientInfo?.active && forcedClientInfo.tracking_number)
         ? forcedClientInfo.tracking_number
         : (ldSourceId || shipment.tracking || (shipment.source_table === 'optiroute_orders' ? shipment.raw_data?.uuid : null));
       if (effTrack) {
         const courierName = (forcedClientInfo?.active && forcedClientInfo.courier)
           ? forcedClientInfo.courier
-          : (shipment.source_table === 'lightdata_envios' ? 'ALPHA' : (shipment.courier || (shipment.source_table === 'optiroute_orders' ? 'STOCKA X' : 'Seguimiento')));
+          : ((shipment.source_table === 'lightdata_envios' || shipment.source_table === 'woodelivery_envios') ? 'ALPHA' : (shipment.courier || (shipment.source_table === 'optiroute_orders' ? 'STOCKA X' : 'Seguimiento')));
         let trackingUrl = (forcedClientInfo?.active && forcedClientInfo.tracking_url) ? forcedClientInfo.tracking_url : shipment.tracking_url;
         if (window.resolveCourierPublicTrackingUrl) {
           trackingUrl = window.resolveCourierPublicTrackingUrl(trackingUrl, effTrack, courierName, shipment, order);
@@ -14365,7 +14542,9 @@ window.applyClientWmsFiltersAndRender = function() {
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
       let platformBadge = '';
-      if (shipment.source_table === 'lightdata_envios') {
+      if (shipment.source_table === 'woodelivery_envios') {
+        platformBadge = `<span class="badge" style="background-color: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">WooDelivery</span>`;
+      } else if (shipment.source_table === 'lightdata_envios') {
         platformBadge = `<span class="badge" style="background-color: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">LightData</span>`;
       } else if (shipment.source_table === 'enviame_shipments') {
         platformBadge = `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Envíame</span>`;
@@ -17117,7 +17296,7 @@ async function renderIntegrations() {
 
         btn.textContent = 'Redirigiendo a Shopify...';
         const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
+        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders,read_returns,write_returns,read_draft_orders,write_draft_orders,read_discounts,write_discounts';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         
         const stateObj = {
@@ -17168,7 +17347,7 @@ async function renderIntegrations() {
       // Re-autorizar permisos de Shopify (nuevos scopes write_fulfillments, write_orders)
       document.getElementById('btn-reauth-shopify-scopes')?.addEventListener('click', () => {
         const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders';
+        const scopes = 'read_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders,read_returns,write_returns,read_draft_orders,write_draft_orders,read_discounts,write_discounts';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         const cleanShopUrl = shopUrl.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
         
@@ -19337,10 +19516,24 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
     }
 
     // Abrir modal de nuevo producto
-    if (e.target && e.target.id === 'btn-new-product') {
+    if (e.target && (e.target.id === 'btn-new-product' || e.target.closest('#btn-new-product'))) {
       if (userRole === 'observer') {
         alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
         return;
+      }
+      const stockInput = document.getElementById('prod-stock');
+      if (stockInput) {
+        stockInput.value = '0';
+        stockInput.disabled = true;
+        stockInput.style.backgroundColor = 'var(--color-gray-dark)';
+        stockInput.style.color = 'var(--color-text-muted)';
+        stockInput.title = 'El stock físico ingresa mediante Declaración de Ingreso / Recepción en bodega';
+      }
+      const virtualInput = document.getElementById('prod-is-virtual');
+      if (virtualInput) {
+        virtualInput.checked = false;
+        virtualInput.disabled = true;
+        virtualInput.title = 'La clasificación de producto virtual es administrada por Operaciones STOCKA';
       }
       document.getElementById('modal-product').classList.add('active');
     }
@@ -19442,13 +19635,19 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
     btnSubmit.disabled = true;
     btnSubmit.textContent = 'Guardando...';
 
-    const sku = document.getElementById('prod-sku').value;
-    const name = document.getElementById('prod-name').value;
+    const sku = (document.getElementById('prod-sku').value || '').trim();
+    const name = (document.getElementById('prod-name').value || '').trim();
     const desc = document.getElementById('prod-desc').value;
-    const stock = parseInt(document.getElementById('prod-stock').value, 10);
     const stockCritico = parseInt(document.getElementById('prod-stock-critico').value, 10) || 0;
     const alias = document.getElementById('prod-alias').value.trim() || null;
     const sendAlias = document.getElementById('prod-send-alias')?.checked || false;
+
+    if (!sku || !name) {
+      alert('El SKU y el Nombre del producto son obligatorios.');
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = 'Guardar Producto';
+      return;
+    }
 
     try {
       const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
@@ -19491,7 +19690,7 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
       }
 
       const isPack = document.getElementById('prod-is-pack')?.checked || false;
-      const isVirtual = document.getElementById('prod-is-virtual')?.checked || false;
+      const isVirtual = false; // Fase 1 Gobernanza: solo Operaciones STOCKA puede marcar productos virtuales
 
       const colorVal = document.getElementById('prod-color')?.value?.trim() || null;
       const tallaVal = document.getElementById('prod-talla')?.value?.trim() || null;
@@ -19507,7 +19706,7 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
         cuello: var2Val
       } : null;
 
-      // 1. Crear el producto
+      // 1. Crear el producto (siempre con stock 0; el stock físico ingresa vía Declaración de Ingreso / Recepción)
       const { data: newProd, error: errProd } = await supabase
         .from('products')
         .insert([{
@@ -19532,44 +19731,14 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
       
       if (errProd) throw errProd;
 
-      // 2. Si el stock inicial > 0 y no es un pack, asignar a Bodega Central
-      if (stock > 0 && !isPack) {
-        // Buscar la Bodega Central
-        const { data: bodegaCentral } = await supabase
-          .from('warehouses')
-          .select('id')
-          .ilike('name', '%Central%')
-          .limit(1)
-          .single();
-        
-        if (bodegaCentral) {
-          await supabase.from('inventory').insert([{
-            product_id: newProd.id,
-            warehouse_id: bodegaCentral.id,
-            quantity: stock
-          }]);
-          
-          // Registrar movimiento inicial
-          await supabase.from('movements').insert([{
-            product_id: newProd.id,
-            warehouse_id: bodegaCentral.id,
-            type: 'in',
-            quantity: stock,
-            reference_doc: 'Stock Inicial'
-          }]);
-        }
-      }
-
-      alert(isPack ? 'Combo/Pack creado exitosamente! Edítalo en la pestaña Packs para agregar sus componentes.' : 'Producto creado exitosamente!');
+      alert(isPack ? 'Combo/Pack creado exitosamente! Edítalo en la pestaña Packs para agregar sus componentes.' : 'Producto creado exitosamente! El stock físico se cargará al recepcionar mercadería en bodega.');
       document.getElementById('modal-product').classList.remove('active');
       e.target.reset();
 
-      // Reiniciar estado del input de stock deshabilitado
       const stockInput = document.getElementById('prod-stock');
       if (stockInput) {
-        stockInput.disabled = false;
-        stockInput.style.backgroundColor = '';
-        stockInput.style.color = '';
+        stockInput.value = '0';
+        stockInput.disabled = true;
       }
 
       renderInventory(); // Refrescar vista
@@ -19632,48 +19801,27 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
     btnSubmit.textContent = 'Guardando...';
 
     const prodId = document.getElementById('edit-prod-id').value;
-    const sku = document.getElementById('edit-prod-sku').value;
-    const name = document.getElementById('edit-prod-name').value;
-    const barcode = document.getElementById('edit-prod-barcode').value || null;
-
-    const volMethod = document.querySelector('input[name="edit-prod-vol-method"]:checked')?.value || 'dims';
-    let length = null;
-    let width = null;
-    let height = null;
-    let volumen = null;
-
-    if (volMethod === 'dims') {
-      length = document.getElementById('edit-prod-length').value ? parseFloat(document.getElementById('edit-prod-length').value) : null;
-      width = document.getElementById('edit-prod-width').value ? parseFloat(document.getElementById('edit-prod-width').value) : null;
-      height = document.getElementById('edit-prod-height').value ? parseFloat(document.getElementById('edit-prod-height').value) : null;
-      if (length !== null && width !== null && height !== null) {
-        volumen = window.roundUpVolume((length * width * height) / 1000000);
-      }
-    } else {
-      const volRaw = document.getElementById('edit-prod-volume').value;
-      volumen = volRaw ? window.roundUpVolume(parseFloat(volRaw)) : null;
-    }
-
-    const weight = document.getElementById('edit-prod-weight').value ? parseFloat(document.getElementById('edit-prod-weight').value) : null;
+    const name = (document.getElementById('edit-prod-name').value || '').trim();
+    const barcode = document.getElementById('edit-prod-barcode').value.trim() || null;
     const expiration = document.getElementById('edit-prod-expiration').value || null;
     const lot = document.getElementById('edit-prod-lot').value || null;
     const stockCritico = parseInt(document.getElementById('edit-prod-stock-critico').value, 10) || 0;
-    const newInitialStock = parseInt(document.getElementById('edit-prod-stock').value, 10) || 0;
-    const oldInitialStock = window.currentEditProductOldInitialStock || 0;
 
     try {
       const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
-      const isVirtual = document.getElementById('edit-prod-is-virtual')?.checked || false;
-      const sendBarcode = document.getElementById('edit-prod-send-barcode')?.checked || false;
-      const barcodeWms = document.getElementById('edit-prod-barcode-wms')?.value?.trim() || null;
-      const sendBarcodeWms = document.getElementById('edit-prod-send-barcode-wms')?.checked ?? true;
       const alias = document.getElementById('edit-prod-alias').value.trim() || null;
       const sendAlias = document.getElementById('edit-prod-send-alias')?.checked || false;
-      const statusVal = document.getElementById('edit-prod-status')?.value || 'active';
       const colorVal = document.getElementById('edit-prod-color')?.value?.trim() || null;
       const tallaVal = document.getElementById('edit-prod-talla')?.value?.trim() || null;
       const var1Val = document.getElementById('edit-prod-var1')?.value?.trim() || null;
       const var2Val = document.getElementById('edit-prod-var2')?.value?.trim() || null;
+
+      if (isPack && (!window.currentPackItems || window.currentPackItems.length === 0)) {
+        alert('Un Pack / Combo debe tener al menos 1 componente configurado antes de guardar.');
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'Guardar Producto';
+        return;
+      }
 
       const currentOptions = window.currentEditProductOptions || {};
       const updatedOptions = {
@@ -19687,23 +19835,14 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
         cuello: var2Val
       };
 
-      // Validación para evitar movimientos (actualización de stock inicial) en productos archivados
-      if (statusVal === 'archived' && newInitialStock !== oldInitialStock) {
-        alert('No se puede modificar el stock inicial de un producto archivado/inactivo.');
-        btnSubmit.disabled = false;
-        btnSubmit.textContent = 'Guardar Producto';
-        return;
-      }
-
+      // Fase 1 Gobernanza: el portal cliente solo actualiza atributos comerciales no destructivos.
+      // SKU, medidas, volumen, peso, barcode_wms, flags de Picker, is_virtual, status y Stock Inicial
+      // son administrados exclusivamente por Operaciones STOCKA.
       const { error } = await supabase
         .from('products')
         .update({
-          sku,
           name,
           barcode,
-          send_barcode_to_picker: sendBarcode,
-          barcode_wms: barcodeWms,
-          send_barcode_wms_to_picker: sendBarcodeWms,
           alias,
           send_alias_to_picker: sendAlias,
           color: colorVal,
@@ -19711,101 +19850,14 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
           variable_1: var1Val,
           variable_2: var2Val,
           options: updatedOptions,
-          status: statusVal,
-          length,
-          width,
-          height,
-          largo: length,
-          ancho: width,
-          alto: height,
-          volumen,
-          weight,
           expiration_date: expiration,
           lot_number: lot,
           is_pack: isPack,
-          is_virtual: isVirtual,
           stock_critico: stockCritico
         })
         .eq('id', prodId);
 
       if (error) throw error;
-
-      // Si el stock inicial cambió y no es un pack, actualizar inventario y movimiento histórico
-      if (newInitialStock !== oldInitialStock && !isPack) {
-        const { data: bodegaCentral } = await supabase
-          .from('warehouses')
-          .select('id')
-          .ilike('name', '%Central%')
-          .limit(1)
-          .single();
-
-        if (bodegaCentral) {
-          const diff = newInitialStock - oldInitialStock;
-
-          // Actualizar o insertar inventario en Bodega Central
-          const { data: invRecord } = await supabase
-            .from('inventory')
-            .select('id, quantity')
-            .eq('product_id', prodId)
-            .eq('warehouse_id', bodegaCentral.id)
-            .maybeSingle();
-
-          if (invRecord) {
-            const { error: invErr } = await supabase
-              .from('inventory')
-              .update({ quantity: Math.max(0, invRecord.quantity + diff) })
-              .eq('id', invRecord.id);
-            if (invErr) throw invErr;
-          } else {
-            const { error: invErr } = await supabase
-              .from('inventory')
-              .insert([{
-                product_id: prodId,
-                warehouse_id: bodegaCentral.id,
-                quantity: newInitialStock
-              }]);
-            if (invErr) throw invErr;
-          }
-
-          // Actualizar o insertar movimiento de "Stock Inicial"
-          const { data: movRecord } = await supabase
-            .from('movements')
-            .select('id')
-            .eq('product_id', prodId)
-            .eq('reference_doc', 'Stock Inicial')
-            .limit(1)
-            .maybeSingle();
-
-          if (newInitialStock > 0) {
-            if (movRecord) {
-              const { error: movErr } = await supabase
-                .from('movements')
-                .update({ quantity: newInitialStock })
-                .eq('id', movRecord.id);
-              if (movErr) throw movErr;
-            } else {
-              const { error: movErr } = await supabase
-                .from('movements')
-                .insert([{
-                  product_id: prodId,
-                  warehouse_id: bodegaCentral.id,
-                  type: 'in',
-                  quantity: newInitialStock,
-                  reference_doc: 'Stock Inicial'
-                }]);
-              if (movErr) throw movErr;
-            }
-          } else {
-            if (movRecord) {
-              const { error: movErr } = await supabase
-                .from('movements')
-                .delete()
-                .eq('id', movRecord.id);
-              if (movErr) throw movErr;
-            }
-          }
-        }
-      }
 
       // Guardar componentes de packs y registrar auditoría
       const prevPackItems = window.originalPackItemsSnapshot || [];
@@ -20434,6 +20486,12 @@ function formatShipmentCourierDisplay(shipment) {
   const linkedOp = (shipment?._linkedOrder?.courier || shipment?._linkedOrder?.operador || '').trim();
 
   if (!raw || raw.toUpperCase() === 'CARRIER EXTERNO' || raw.toUpperCase() === 'EXTERNO') {
+    if (src === 'woodelivery_envios') {
+      return {
+        label: 'Alpha Group',
+        sub: 'Carrier Externo · WooDelivery'
+      };
+    }
     if (src === 'lightdata_envios') {
       return {
         label: linkedOp && linkedOp.toUpperCase() !== 'CARRIER EXTERNO' ? linkedOp : 'Alpha Group',
@@ -21441,12 +21499,14 @@ async function renderShipments() {
         const statusMeta = classifyShipmentStatus(s);
         const courierInfo = formatShipmentCourierDisplay(s);
 
-        const platformBadge = s.source_table === 'lightdata_envios' ? 'LightData' 
+        const platformBadge = s.source_table === 'woodelivery_envios' ? 'WooDelivery'
+          : s.source_table === 'lightdata_envios' ? 'LightData' 
           : s.source_table === 'enviame_shipments' ? 'Enviame' 
           : s.source_table === 'bluex_envios' ? 'Blue Express' 
           : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
         
-        const platformColor = s.source_table === 'lightdata_envios' ? '#3b82f6'
+        const platformColor = s.source_table === 'woodelivery_envios' ? '#059669'
+          : s.source_table === 'lightdata_envios' ? '#3b82f6'
           : s.source_table === 'enviame_shipments' ? '#10b981' 
           : s.source_table === 'bluex_envios' ? '#0032A0' 
           : s.source_table === 'starken_envios' ? '#b91c1c' : '#8b5cf6';
@@ -22011,7 +22071,8 @@ async function renderShipments() {
 
         const headers = ['Referencia Pedido', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Telefono', 'Direccion', 'Comuna', 'Estado', 'Fecha Compromiso Entrega', 'Enlace Seguimiento Publico', 'Fecha Creacion'];
         const rows = filtered.map(s => {
-          const platformName = s.source_table === 'lightdata_envios' ? 'LightData' 
+          const platformName = s.source_table === 'woodelivery_envios' ? 'WooDelivery'
+            : s.source_table === 'lightdata_envios' ? 'LightData' 
             : s.source_table === 'enviame_shipments' ? 'Enviame' 
             : s.source_table === 'bluex_envios' ? 'Blue Express' 
             : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
@@ -22441,7 +22502,8 @@ function showShipmentDetailsModal(shipment) {
   const updatedObj = shipment.updated_at ? new Date(shipment.updated_at) : null;
   const updatedStr = updatedObj ? updatedObj.toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' }) : '-';
 
-  const platformBadge = shipment.source_table === 'lightdata_envios' ? 'LightData'
+  const platformBadge = shipment.source_table === 'woodelivery_envios' ? 'WooDelivery'
+    : shipment.source_table === 'lightdata_envios' ? 'LightData'
     : shipment.source_table === 'enviame_shipments' ? 'Envíame'
     : shipment.source_table === 'bluex_envios' ? 'Blue Express'
     : shipment.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
@@ -23182,7 +23244,7 @@ async function fetchAndRenderAssociatedOrder(pedidoRef, shipment) {
     if (!order) {
       const extPlat = shipment.source_table === 'enviame_shipments'
         ? 'Envíame'
-        : (shipment.source_table === 'lightdata_envios' ? 'LightData' : 'Optiroute');
+        : (shipment.source_table === 'woodelivery_envios' ? 'WooDelivery' : (shipment.source_table === 'lightdata_envios' ? 'LightData' : 'Optiroute'));
 
       if (pickingBodyEl) {
         if (hasPickerRecord) {
@@ -26357,6 +26419,14 @@ window.renderReturns = async function() {
         </p>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        ${window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED ? `
+          <button id="btn-open-returns-portal-builder" onclick="window.navigateToReturnsWidget()" class="btn btn-primary" style="background: linear-gradient(135deg, #5c24ff, #2563eb); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 800; box-shadow: 0 3px 10px rgba(92, 36, 255, 0.25);" title="Personalizar tu Portal Público de Cambios y Constructor de Formulario">
+            <i class="ri-palette-line"></i> Mi Portal Público & Form
+          </button>
+          <button id="btn-scan-qr-nunoa-client" onclick="window.openBranchQrLookupModal()" class="btn btn-outline" style="border-color: #8b5cf6; color: #5c24ff; font-weight: 700; display: flex; align-items: center; gap: 0.3rem;" title="Buscar solicitud por Pase QR o Folio RMA">
+            <i class="ri-qr-scan-2-line"></i> Buscar RMA / QR
+          </button>
+        ` : ''}
         <button id="btn-quick-branch-receipt" onclick="window.openQuickBranchExchangeReceiptModal()" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 3px 8px rgba(79, 70, 229, 0.25);" title="Crear o imprimir Comprobante de Cambio o Recepción en Sucursal Ñuñoa">
           <i class="ri-file-list-3-line"></i> Comprobante Sucursal
         </button>
@@ -26424,6 +26494,19 @@ window.renderReturns = async function() {
         </div>
       </div>
 
+      ${window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED ? `
+        <div class="card" onclick="window.filterClientReturnsByKpi('por_revisar')" style="padding: 0.9rem 1.1rem; cursor: pointer; border-left: 4px solid #8b5cf6; display: flex; align-items: center; justify-content: space-between;">
+          <div>
+            <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: #6d28d9;">Solicitudes Portal</div>
+            <div id="kpi-client-ret-revisar" style="font-size: 1.45rem; font-weight: 800; color: #6d28d9; margin-top: 0.15rem;">0</div>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted);">Por aprobar / validar pago</div>
+          </div>
+          <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(139, 92, 246, 0.14); color: #6d28d9; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="ri-notification-badge-line"></i>
+          </div>
+        </div>
+      ` : ''}
+
       <div class="card" onclick="window.filterClientReturnsByKpi('procesado')" style="padding: 0.9rem 1.1rem; cursor: pointer; border-left: 4px solid #3b82f6; display: flex; align-items: center; justify-content: space-between;">
         <div>
           <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted);">Confirmados</div>
@@ -26461,8 +26544,10 @@ window.renderReturns = async function() {
           <label class="form-label" style="font-size: 0.78rem; font-weight: 600;"><i class="ri-checkbox-multiple-line" style="color: var(--color-primary);"></i> Estado</label>
           <select id="filter-ret-status" class="form-input" style="height: 38px; font-size: 0.85rem;">
             <option value="">Todos</option>
+            ${window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED ? '<option value="por_revisar">🟣 Solicitudes por Aprobar / Pago</option>' : ''}
             <option value="pendiente">Pendiente</option>
             <option value="procesado">Confirmado / Procesado</option>
+            ${window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED ? '<option value="rechazado">Rechazado</option>' : ''}
           </select>
         </div>
 
@@ -26728,7 +26813,7 @@ window.filterClientReturnsByKpi = function(kpiType) {
   } else if (kpiType === 'CAMBIO' || kpiType === 'DEVOLUCION') {
     typeEl.value = kpiType;
     statusEl.value = '';
-  } else if (kpiType === 'pendiente' || kpiType === 'procesado') {
+  } else if (kpiType === 'pendiente' || kpiType === 'procesado' || kpiType === 'por_revisar') {
     statusEl.value = kpiType;
   }
   returnsCurrentPage = 1;
@@ -26802,7 +26887,11 @@ function buildReturnsQuery(query) {
     query = query.eq('tipo_movimiento', 'DEVOLUCION').not('wms_order_id', 'is', null);
   }
 
-  if (fStatus) query = query.eq('status', fStatus);
+  if (fStatus === 'por_revisar') {
+    query = query.in('workflow_status', ['solicitado', 'esperando_pago']);
+  } else if (fStatus) {
+    query = query.eq('status', fStatus);
+  }
 
   if (fDeliveryMode === 'sucursal') {
     query = query.ilike('transporte', '%Sucursal%');
@@ -26813,7 +26902,7 @@ function buildReturnsQuery(query) {
   }
 
   if (fSearch) {
-    query = query.or(`referencia_pedido.ilike.%${fSearch}%,comercio.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%,customer_name.ilike.%${fSearch}%,comentarios.ilike.%${fSearch}%`);
+    query = query.or(`rma_number.ilike.%${fSearch}%,referencia_pedido.ilike.%${fSearch}%,comercio.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%,customer_name.ilike.%${fSearch}%,comentarios.ilike.%${fSearch}%`);
   }
   
   if (fFrom) {
@@ -26878,16 +26967,17 @@ async function fetchAndRenderReturnsData() {
 
     // Update KPIs
     try {
-      let kpiQuery = supabase.from('reverse_logistics').select('tipo_movimiento, status, cantidad_total');
+      let kpiQuery = supabase.from('reverse_logistics').select('tipo_movimiento, status, workflow_status, cantidad_total');
       kpiQuery = buildReturnsQuery(kpiQuery);
       const { data: kpiRows } = await kpiQuery;
       const list = kpiRows || returns || [];
-      let cambios = 0, devoluciones = 0, pendientes = 0, procesados = 0, units = 0;
+      let cambios = 0, devoluciones = 0, pendientes = 0, procesados = 0, porRevisar = 0, units = 0;
       list.forEach(item => {
         if (item.tipo_movimiento === 'CAMBIO') cambios++;
         else devoluciones++;
         if ((item.status || 'pendiente') === 'pendiente') pendientes++;
         else procesados++;
+        if (item.workflow_status === 'solicitado' || item.workflow_status === 'esperando_pago') porRevisar++;
         units += Number(item.cantidad_total) || 0;
       });
       const setEl = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
@@ -26896,6 +26986,7 @@ async function fetchAndRenderReturnsData() {
       setEl('kpi-client-ret-cambios', cambios);
       setEl('kpi-client-ret-devoluciones', devoluciones);
       setEl('kpi-client-ret-pendientes', pendientes);
+      setEl('kpi-client-ret-revisar', porRevisar);
       setEl('kpi-client-ret-procesados', procesados);
     } catch (_kpiErr) {}
 
@@ -26923,14 +27014,24 @@ async function fetchAndRenderReturnsData() {
 
         const statusVal = r.status || 'pendiente';
         let statusBadge = '';
-        if (statusVal === 'pendiente') {
+        if (r.workflow_status && typeof window.getRmaWorkflowBadgeHtml === 'function') {
+          statusBadge = window.getRmaWorkflowBadgeHtml(r);
+        } else if (statusVal === 'pendiente') {
           statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;">Pendiente</span>`;
         } else {
           statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;">Confirmado</span>`;
         }
 
+        const rmaFolioChip = r.rma_number
+          ? `<div style="margin-top:3px;"><span style="font-family:monospace;font-size:0.72rem;font-weight:800;background:#f3e8ff;color:#6b21a8;padding:1px 6px;border-radius:5px;">${r.rma_number}</span></div>`
+          : '';
+
         const customerSub = r.customer_name
           ? `<div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.2rem;"><i class="ri-user-line"></i> ${r.customer_name}</div>`
+          : '';
+
+        const rmaActionBtn = (window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED && (r.rma_number || r.workflow_status))
+          ? `<button class="btn btn-primary" onclick="window.openRmaManagementModal('${r.id}')" style="padding: 0.25rem 0.6rem; font-size: 0.78rem; background: #5c24ff; border-color: #5c24ff; color: #fff; font-weight: 800;" title="Ver fotos/videos, aprobar, marcar pagado o recepcionar RMA"><i class="ri-shield-check-line"></i> Gestionar RMA</button>`
           : '';
 
         html += `
@@ -26940,6 +27041,7 @@ async function fetchAndRenderReturnsData() {
             <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i><strong>${r.comercio || 'N/A'}</strong></td>
             <td>
               <span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-weight: 700;">${r.referencia_pedido || 'S/R'}</span>
+              ${rmaFolioChip}
               ${customerSub}
             </td>
             <td>${buildClientRlProductsSummaryHtml(r)}</td>
@@ -26952,6 +27054,7 @@ async function fetchAndRenderReturnsData() {
             <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 1.05rem;">${r.cantidad_total}</strong></td>
             <td style="white-space: nowrap;">
               <div style="display: flex; align-items: center; gap: 0.3rem;">
+                ${rmaActionBtn}
                 <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.55rem; font-size: 0.78rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary);"></i> Detalle</button>
                 <button class="btn btn-outline" onclick="window.openEditReverseLogisticsModal('${safeData}')" style="padding: 0.25rem 0.55rem; font-size: 0.78rem; border-color: #f59e0b; color: #d97706; background: rgba(245, 158, 11, 0.06); font-weight: 600;" title="Editar movimiento"><i class="ri-edit-2-line"></i> Editar</button>
                 <button class="btn btn-outline" onclick="window.openQuickBranchExchangeReceiptModal('${safeData}')" style="padding: 0.25rem 0.55rem; font-size: 0.78rem; border-color: #6366f1; color: #4f46e5; background: rgba(99, 102, 241, 0.06); font-weight: 600;" title="Generar Comprobante de Cambio / Recepción en Sucursal"><i class="ri-file-list-3-line"></i> Comprobante</button>
@@ -27256,6 +27359,41 @@ window.toggleRlReturnToStock = async function(recordId, productIndex) {
       .eq('id', recordId);
       
     if (updErr) throw updErr;
+
+    if (typeof window.reconcileReverseLogisticsKardexAndStock === 'function') {
+      await window.reconcileReverseLogisticsKardexAndStock(record, record.productos);
+    } else if (String(record.status || record.estado || '').toLowerCase() === 'procesado') {
+      const targetItem = record.productos[productIndex];
+      const prodId = targetItem?.id_devuelto || targetItem?.product_id || null;
+      const qty = Math.max(1, Number(targetItem?.qty_devuelto ?? targetItem?.cantidad ?? 1) || 1);
+      const shouldReturn = targetItem?.regresar_a_inventario !== false;
+      if (prodId && record.wms_order_id) {
+        const { data: exMov } = await supabase
+          .from('movements')
+          .select('*')
+          .eq('order_id', record.wms_order_id)
+          .eq('product_id', prodId)
+          .eq('type', 'in')
+          .limit(1)
+          .maybeSingle();
+        if (!shouldReturn && exMov) {
+          await supabase.from('movements').delete().eq('id', exMov.id);
+          const { data: invR } = await supabase
+            .from('inventory')
+            .select('id, quantity, quarantine_quantity')
+            .eq('product_id', prodId)
+            .eq('warehouse_id', exMov.warehouse_id)
+            .maybeSingle();
+          if (invR) {
+            await supabase.from('inventory').update({
+              quantity: Math.max(0, (Number(invR.quantity) || 0) - (Number(exMov.quantity) || qty)),
+              quarantine_quantity: (Number(invR.quarantine_quantity) || 0) + (Number(exMov.quantity) || qty),
+              updated_at: new Date().toISOString()
+            }).eq('id', invR.id);
+          }
+        }
+      }
+    }
     
     // Si tiene wms_order_id, actualizar también en raw_shopify_data de la orden
     if (record.wms_order_id) {
@@ -27621,6 +27759,9 @@ window.openEditReverseLogisticsModal = async function(dataOrId) {
         btn.textContent = 'Guardando...';
         const { error } = await supabase.from('reverse_logistics').update(payload).eq('id', record.id);
         if (error) throw error;
+        if (typeof window.reconcileReverseLogisticsKardexAndStock === 'function') {
+          await window.reconcileReverseLogisticsKardexAndStock({ ...record, ...payload }, productosPayload);
+        }
         closeModal();
         if (typeof Swal !== 'undefined') Swal.fire('¡Actualizado!', 'El movimiento fue editado correctamente.', 'success');
         await fetchAndRenderReturnsData();
@@ -30012,6 +30153,7 @@ async function handleRloFormSubmit(e) {
         rl_type: type,
         rl_reference: refPedido,
         no_stock_deduction: type === 'DEVOLUCION',
+        force_wms_stock_control: type === 'CAMBIO' && !isManual,
         ...rlClientCreatorMeta,
         incoming_products: incomingProducts.map(p => ({
           sku: p.sku,
@@ -30029,8 +30171,32 @@ async function handleRloFormSubmit(e) {
       .single();
       
     if (errOrder) throw errOrder;
+
+    // Asegurar fila base en inventory antes de insertar order_items (para que el trigger handle_new_order_item comprometa stock una sola vez sin duplicar)
+    if (type === 'CAMBIO' && !isManual && whId) {
+      for (const out of outgoingProducts) {
+        if (out.product_id) {
+          const { data: invExists } = await supabase
+            .from('inventory')
+            .select('id')
+            .eq('product_id', out.product_id)
+            .eq('warehouse_id', whId)
+            .maybeSingle();
+          if (!invExists) {
+            await supabase
+              .from('inventory')
+              .insert([{
+                product_id: out.product_id,
+                warehouse_id: whId,
+                quantity: 0,
+                committed_quantity: 0
+              }]);
+          }
+        }
+      }
+    }
     
-    // Crear order_items
+    // Crear order_items (el trigger SQL handle_new_order_item gestiona automáticamente committed_quantity)
     const orderItemsPayload = [];
     for (const item of wmsOrderItems) {
       orderItemsPayload.push({
@@ -30048,172 +30214,33 @@ async function handleRloFormSubmit(e) {
       if (errOrderItems) throw errOrderItems;
     }
     
-    // Vincular ID de orden en reverse_logistics
+    // Vincular ID de orden en reverse_logistics (replacement_order_id en CAMBIO, wms_order_id por compatibilidad)
     await supabase
       .from('reverse_logistics')
-      .update({ wms_order_id: insertedOrder.id })
+      .update({
+        wms_order_id: insertedOrder.id,
+        replacement_order_id: type === 'CAMBIO' ? insertedOrder.id : null
+      })
       .eq('id', insertedRl.id);
     
-    // Stock comprometido para salidas de Cambios
-    if (type === 'CAMBIO' && !isManual) {
-      if (whId) {
-        for (const out of outgoingProducts) {
-          if (out.product_id) {
-            const { data: invRecord } = await supabase
-              .from('inventory')
-              .select('id, committed_quantity')
-              .eq('product_id', out.product_id)
-              .eq('warehouse_id', whId)
-              .maybeSingle();
-              
-            if (invRecord) {
-              await supabase
-                .from('inventory')
-                .update({ committed_quantity: (invRecord.committed_quantity || 0) + out.cantidad })
-                .eq('id', invRecord.id);
-            } else {
-              await supabase
-                .from('inventory')
-                .insert([{
-                  product_id: out.product_id,
-                  warehouse_id: whId,
-                  quantity: 0,
-                  committed_quantity: out.cantidad
-                }]);
-            }
-          }
-        }
-      }
-    }
-    
-    // Enviar notificación Brevo
+    // Enviar notificación segura vía Edge Function (sin exponer credenciales SMTP en cliente)
     try {
-      const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
-      const subject = `🔄 Nueva Solicitud de Logística Inversa (${newRecord.tipo_movimiento}) - Ref: ${newRecord.referencia_pedido}`;
-      
-      const incomingHtml = incomingProducts.map(p => `
-        <tr style="border-bottom: 1px solid #edf2f7;">
-          <td style="padding: 8px; color: #4a5568; font-family: monospace;">${p.sku}</td>
-          <td style="padding: 8px; color: #2d3748; font-weight: 500;">${p.name}</td>
-          <td style="padding: 8px; text-align: center; color: #1a202c; font-weight: bold;">${p.cantidad}</td>
-          <td style="padding: 8px; text-align: center; color: #4a5568;">${p.regresar_a_inventario ? 'Sí' : 'No'}</td>
-          <td style="padding: 8px; color: #718096;">${p.comentario || ''}</td>
-        </tr>
-      `).join('');
-
-      let outgoingHtml = '';
-      if (newRecord.tipo_movimiento === 'CAMBIO') {
-        outgoingHtml = `
-          <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-top: 20px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Productos Salientes (Reemplazo)</h3>
-          <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
-            <thead>
-              <tr style="background: #f7fafc; border-bottom: 1px solid #edf2f7;">
-                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">SKU</th>
-                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">Producto</th>
-                <th style="padding: 8px; text-align: center; font-weight: bold; color: #718096; width: 60px;">Cant</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${outgoingProducts.map(p => `
-                <tr style="border-bottom: 1px solid #edf2f7;">
-                  <td style="padding: 8px; color: #4a5568; font-family: monospace;">${p.sku}</td>
-                  <td style="padding: 8px; color: #2d3748; font-weight: 500;">${p.name}</td>
-                  <td style="padding: 8px; text-align: center; color: #1a202c; font-weight: bold;">${p.cantidad}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        `;
+      const { data: { session: activeSess } } = await supabase.auth.getSession();
+      if (activeSess && activeSess.access_token) {
+        await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/reverse-channel-sync', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${activeSess.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            action: 'notify_internal_rl_created',
+            rl_id: insertedRl.id
+          })
+        }).catch(() => {});
       }
-
-      const formatCLP = window.formatCLP || (v => '$' + Number(v || 0).toLocaleString('es-CL'));
-      const htmlBody = `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; color: #1a202c;">
-          <h2 style="color: #0284c7; margin-top: 0;">¡Nueva Solicitud de Logística Inversa (Cliente)!</h2>
-          <p>Se ha registrado un pedido de <strong>${newRecord.tipo_movimiento === 'CAMBIO' ? 'Cambio' : 'Devolución'}</strong> con los siguientes detalles:</p>
-          
-          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096; width: 180px;">N° de Pedido Referencia:</td>
-              <td style="padding: 6px 0; font-weight: bold; color: #1a202c;">${newRecord.referencia_pedido}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Comercio:</td>
-              <td style="padding: 6px 0; color: #1a202c;">${newRecord.comercio}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Destinatario/Cliente:</td>
-              <td style="padding: 6px 0; color: #1a202c;">${newRecord.customer_name}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Teléfono:</td>
-              <td style="padding: 6px 0; color: #1a202c;">${newRecord.customer_phone || 'No especificado'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Email:</td>
-              <td style="padding: 6px 0; color: #1a202c;">${newRecord.customer_email || 'No especificado'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Dirección Retorno/Envío:</td>
-              <td style="padding: 6px 0; color: #1a202c;">${newRecord.shipping_address}, ${newRecord.shipping_city}${newRecord.shipping_complement ? ' (' + newRecord.shipping_complement + ')' : ''}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Modo Entrega:</td>
-              <td style="padding: 6px 0; color: #1a202c;">${newRecord.transporte}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Responsable de Pago:</td>
-              <td style="padding: 6px 0; color: #1a202c;">${newRecord.responsable_pago === 'comercio' ? 'Comercio' : 'Usuario Final'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Costo de Envío:</td>
-              <td style="padding: 6px 0; font-weight: bold; color: #0284c7;">${newRecord.costo_envio > 0 ? formatCLP(Math.round(newRecord.costo_envio * 1.19)) + ' c/IVA' : 'Sin costo (o coordinado externo)'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Comentarios:</td>
-              <td style="padding: 6px 0; color: #1a202c;">${newRecord.comentarios || 'Ninguno'}</td>
-            </tr>
-          </table>
-
-          <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Productos Entrantes (Devueltos)</h3>
-          <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
-            <thead>
-              <tr style="background: #f7fafc; border-bottom: 1px solid #edf2f7;">
-                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">SKU</th>
-                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">Producto</th>
-                <th style="padding: 8px; text-align: center; font-weight: bold; color: #718096; width: 60px;">Cant</th>
-                <th style="padding: 8px; text-align: center; font-weight: bold; color: #718096; width: 80px;">Reingreso</th>
-                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">Motivo/Comentario</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${incomingHtml}
-            </tbody>
-          </table>
-
-          ${outgoingHtml}
-          
-          <div style="margin-top: 30px; font-size: 12px; color: #a0aec0; text-align: center; border-top: 1px solid #edf2f7; padding-top: 15px;">
-            Enviado automáticamente desde WMS STOCKA (Portal Cliente).
-          </div>
-        </div>
-      `;
-
-      await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'api-key': BREVO_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          sender: { name: 'STOCKA WMS', email: 'info@stocka.cl' },
-          to: [{ email: 'stockachile@gmail.com', name: 'STOCKA Chile' }],
-          subject: subject,
-          htmlContent: htmlBody
-        })
-      });
     } catch (mailErr) {
-      console.error('Error al enviar correo de notificación Brevo:', mailErr);
+      console.warn('Aviso enviando notificación de logística inversa:', mailErr);
     }
     
     Swal.fire({
@@ -32396,6 +32423,8 @@ window.WMS_FEATURE_CHANGE_TYPES = {
 
 window.isClientModuleAllowed = function(moduleKey) {
   if (!moduleKey || moduleKey === 'none' || moduleKey === 'general') return true;
+  if (moduleKey === 'returns_widget' && !window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED) return false;
+  if (moduleKey === 'incidencias' && !window.STOCKA_INCIDENCIAS_MODULE_ENABLED) return false;
   const normalizedKey = moduleKey === 'integrations_shopify' ? 'integrations' : moduleKey;
   const roleToUse = typeof userRole !== 'undefined' ? userRole : 'client';
   if (roleToUse === 'admin') return true;
@@ -43025,9 +43054,7 @@ async function renderPacksTab() {
 
       const isObserver = userRole === 'observer';
       const historyBtn = `<button class="btn btn-outline btn-pack-history" data-id="${item.id}" data-name="${escapeHtml(item.name || '')}" data-sku="${escapeHtml(item.sku || '')}" data-comercio="${escapeHtml(item.comercio || '')}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-primary); margin-left: 0.5rem;" title="Ver historial de auditoría y cambios del pack"><i class="ri-history-line" style="margin-right: 0.25rem;"></i>Historial</button>`;
-      const deleteBtn = isObserver 
-        ? '' 
-        : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
+      const deleteBtn = ''; // Fase 1 Gobernanza: eliminación de SKUs/Packs restringida a Admin
       
       const actionBtn = isObserver 
         ? historyBtn 
@@ -43411,10 +43438,9 @@ function renderMasterCatalogRows(products) {
          </div>`
       : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
 
+    window.catalogQuickEditMode = false;
     const isObserver = userRole === 'observer';
-    const deleteBtn = isObserver 
-      ? '' 
-      : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
+    const deleteBtn = ''; // Fase 1 Gobernanza: eliminación de SKUs restringida a Operaciones STOCKA
     
     const printBtn = isObserver
       ? ''
@@ -43844,8 +43870,10 @@ function openCreateManualEquivalenceModal(commerce) {
               <option value="WooCommerce">WooCommerce</option>
               <option value="Falabella">Falabella</option>
               <option value="Paris">Paris</option>
+              <option value="Ripley">Ripley</option>
               <option value="Jumpseller">Jumpseller</option>
               <option value="Walmart">Walmart</option>
+              <option value="Tiendanube">Tiendanube</option>
             </select>
           </div>
           <div class="form-group">
@@ -43872,15 +43900,17 @@ function openCreateManualEquivalenceModal(commerce) {
     e.preventDefault();
     const platform = document.getElementById('eq-manual-platform').value;
     const platformSku = document.getElementById('eq-manual-platform-sku').value.trim();
-    const masterSku = document.getElementById('eq-manual-master-sku').value.trim();
+    const masterSkuRaw = document.getElementById('eq-manual-master-sku').value.trim();
 
-    if (!platformSku || !masterSku) return;
+    if (!platformSku || !masterSkuRaw) return;
 
-    const masterSkus = window.currentMasterProducts.map(p => p.sku);
-    if (!masterSkus.includes(masterSku)) {
-      alert(`El SKU Maestro "${masterSku}" no existe en el catálogo master. Crea el producto master primero.`);
+    const normKey = (s) => String(s || '').trim().replace(/\s+/g, '').toUpperCase();
+    const matchedMaster = (window.currentMasterProducts || []).find(p => normKey(p.sku) === normKey(masterSkuRaw));
+    if (!matchedMaster) {
+      alert(`El SKU Maestro "${masterSkuRaw}" no existe en el catálogo master. Crea el producto master primero.`);
       return;
     }
+    const canonicalMasterSku = matchedMaster.sku;
 
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
@@ -43893,7 +43923,7 @@ function openCreateManualEquivalenceModal(commerce) {
           comercio: commerce,
           platform: platform,
           platform_sku: platformSku,
-          master_sku: masterSku
+          master_sku: canonicalMasterSku
         }, { onConflict: 'comercio,platform,platform_sku' });
 
       if (error) throw error;
@@ -44914,13 +44944,17 @@ function setupCatalogListeners(commerce, mainPlatform) {
           e.target.style.borderColor = 'var(--color-success)';
           renderCatalog();
         } else {
-          const masterSkus = window.currentMasterProducts.map(p => p.sku);
-          if (!masterSkus.includes(enteredValue)) {
+          const normKey = (s) => String(s || '').trim().replace(/\s+/g, '').toUpperCase();
+          const matchedMaster = (window.currentMasterProducts || []).find(p => normKey(p.sku) === normKey(enteredValue));
+          if (!matchedMaster) {
             e.target.style.borderColor = 'var(--color-danger)';
             alert(`El SKU "${enteredValue}" no existe en el catálogo master. Crea el producto master primero o selecciona uno válido.`);
             e.target.value = '';
             return;
           }
+
+          const canonicalMasterSku = matchedMaster.sku;
+          e.target.value = canonicalMasterSku;
 
           const { error } = await supabase
             .from('sku_equivalences')
@@ -44928,7 +44962,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
               comercio: commerce,
               platform: platform,
               platform_sku: platformSku,
-              master_sku: enteredValue
+              master_sku: canonicalMasterSku
             }, { onConflict: 'comercio,platform,platform_sku' });
 
           if (error) throw error;
@@ -45177,13 +45211,16 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
           const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
 
-          // Obtener lista de SKUs válidos del catálogo para validar
-          const { data: validProducts } = await supabase
-            .from('products')
-            .select('sku')
-            .eq('comercio', commerce);
-          
-          const validSkus = new Set((validProducts || []).map(p => p.sku));
+          // Obtener lista completa de SKUs válidos del catálogo para validar (normalizada, sin límite de 1000 filas)
+          const validProducts = typeof window.fetchAllSupabaseRows === 'function'
+            ? await window.fetchAllSupabaseRows('products', 'sku', q => q.eq('comercio', commerce))
+            : ((await supabase.from('products').select('sku').eq('comercio', commerce)).data || []);
+
+          const normSkuKey = (s) => String(s || '').trim().replace(/\s+/g, '').toUpperCase();
+          const validSkusMap = new Map();
+          (validProducts || []).forEach(p => {
+            if (p.sku) validSkusMap.set(normSkuKey(p.sku), p.sku);
+          });
 
           const previewData = [];
           const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'WooCommerce', 'Jumpseller', 'Walmart', 'Tiendanube'];
@@ -45199,17 +45236,18 @@ function setupCatalogListeners(commerce, mainPlatform) {
             }
 
             const platformSkuVal = r[colPlatformSku] !== undefined && r[colPlatformSku] !== null ? r[colPlatformSku].toString().trim() : '';
-            const masterSkuVal = r[colMasterSku] !== undefined && r[colMasterSku] !== null ? r[colMasterSku].toString().trim() : '';
+            const masterSkuRaw = r[colMasterSku] !== undefined && r[colMasterSku] !== null ? r[colMasterSku].toString().trim() : '';
+            const canonicalMasterSku = validSkusMap.get(normSkuKey(masterSkuRaw)) || masterSkuRaw;
 
             let status = 'Válido';
             let statusColor = '#10b981';
             let isValid = true;
 
-            if (!platformSkuVal || !masterSkuVal) {
+            if (!platformSkuVal || !masterSkuRaw) {
               status = 'Faltan datos (SKU)';
               statusColor = '#f59e0b';
               isValid = false;
-            } else if (!validSkus.has(masterSkuVal)) {
+            } else if (!validSkusMap.has(normSkuKey(masterSkuRaw))) {
               status = 'SKU Master no existe en Catálogo WMS';
               statusColor = '#ef4444';
               isValid = false;
@@ -45218,7 +45256,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
             previewData.push({
               platform: platformVal,
               platform_sku: platformSkuVal,
-              master_sku: masterSkuVal,
+              master_sku: canonicalMasterSku,
               status,
               statusColor,
               isValid
@@ -54239,36 +54277,39 @@ window.syncChannelProductsForDeclaration = async function() {
 async function updateClientBadges(userId, userComercio) {
   try {
     const badgeEl = document.getElementById('badge-incidencias');
-    if (!badgeEl) return;
+    if (badgeEl) {
+      if (window.STOCKA_INCIDENCIAS_MODULE_ENABLED) {
+        let query = supabase
+          .from('incidencias')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pendiente');
 
-    let query = supabase
-      .from('incidencias')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pendiente');
+        if (userComercio !== 'all') {
+          const commerceList = userComercio.split(',').map(s => s.trim()).filter(Boolean);
+          if (commerceList.length > 0) {
+            query = query.in('comercio', commerceList);
+          } else {
+            query = query.eq('comercio', 'no asignado');
+          }
+        }
 
-    if (userComercio !== 'all') {
-      const commerceList = userComercio.split(',').map(s => s.trim()).filter(Boolean);
-      if (commerceList.length > 0) {
-        query = query.in('comercio', commerceList);
+        const { count, error } = await query;
+        if (error) {
+          if (error.code === '42P01' || error.message.includes('does not exist')) {
+            badgeEl.style.display = 'none';
+          } else {
+            throw error;
+          }
+        } else if (count !== null && count > 0) {
+          badgeEl.textContent = count;
+          badgeEl.style.display = 'inline-flex';
+        } else {
+          badgeEl.style.display = 'none';
+        }
       } else {
-        query = query.eq('comercio', 'no asignado');
-      }
-    }
-
-    const { count, error } = await query;
-    if (error) {
-      if (error.code === '42P01' || error.message.includes('does not exist')) {
+        badgeEl.textContent = '0';
         badgeEl.style.display = 'none';
-        return;
       }
-      throw error;
-    }
-
-    if (count !== null && count > 0) {
-      badgeEl.textContent = count;
-      badgeEl.style.display = 'inline-flex';
-    } else {
-      badgeEl.style.display = 'none';
     }
 
     // Actualizar globo de encuestas pendientes
@@ -61943,39 +61984,8 @@ window.runQuoteCalculator = function() {
 window.renderCatalogBulkActionsBar = function(commerce) {
   const container = document.getElementById('catalog-bulk-actions-container');
   if (!container) return;
-
-  const selectedCount = window.catalogSelectedProductIds ? window.catalogSelectedProductIds.size : 0;
-  if (selectedCount === 0) {
-    container.innerHTML = '';
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2); animation: bulkSlideDown 0.2s ease; flex-wrap: wrap; gap: 1rem; border: 1px solid rgba(255, 255, 255, 0.2);">
-      <div style="display: flex; align-items: center; gap: 1rem;">
-        <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
-        <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} productos seleccionados</span>
-        <button onclick="window.clearCatalogSelection('${commerce}')" class="btn btn-outline" style="border-color: rgba(255,255,255,0.3); color: #ffffff; padding: 0.25rem 0.5rem; font-size: 0.75rem; background: transparent; cursor: pointer;">Limpiar</button>
-      </div>
-      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-        <button onclick="window.bulkSetDimensionsModal('${commerce}')" class="btn" style="background: #8b5cf6; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 4px rgba(139, 92, 246, 0.25);" title="Asignar Largo, Ancho, Alto o Volumen Masivo a los items seleccionados">
-          <i class="ri-ruler-2-line"></i> Asignar Medidas / Volumen
-        </button>
-        <button onclick="window.bulkSetVirtualStatus('${commerce}', true)" class="btn" style="background: #10b981; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-          <i class="ri-computer-line"></i> Marcar como Virtual
-        </button>
-        <button onclick="window.bulkSetVirtualStatus('${commerce}', false)" class="btn" style="background: #64748b; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-          <i class="ri-archive-line"></i> Marcar como Físico
-        </button>
-        <button onclick="window.bulkSetProductStatus('${commerce}', 'active')" class="btn" style="background: #3b82f6; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-          <i class="ri-check-line"></i> Activar Seleccionados
-        </button>
-        <button onclick="window.bulkSetProductStatus('${commerce}', 'archived')" class="btn" style="background: #ef4444; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-          <i class="ri-close-line"></i> Archivar Seleccionados
-        </button>
-      </div>
-    </div>
-  `;
+  // Fase 1 Gobernanza: las acciones masivas sobre medidas/volumen, estado virtual y archivado son exclusivas de Operaciones STOCKA
+  container.innerHTML = '';
 };
 
 window.clearCatalogSelection = function(commerce) {
@@ -61987,6 +61997,11 @@ window.clearCatalogSelection = function(commerce) {
 };
 
 window.bulkSetDimensionsModal = async function(commerce) {
+  alert('Acción restringida: La edición de medidas y volumen es administrada por Operaciones STOCKA.');
+  return;
+};
+
+window._legacyBulkSetDimensionsModalDisabled = async function(commerce) {
   const selectedIds = window.catalogSelectedProductIds ? Array.from(window.catalogSelectedProductIds) : [];
   if (selectedIds.length === 0) {
     Swal.fire({
@@ -62277,6 +62292,16 @@ window.bulkSetDimensionsModal = async function(commerce) {
 };
 
 window.bulkSetVirtualStatus = async function(commerce, isVirtual) {
+  alert('Acción restringida: La clasificación de productos virtuales/físicos es administrada por Operaciones STOCKA.');
+  return;
+};
+
+window.bulkSetProductStatus = async function(commerce, status) {
+  alert('Acción restringida: El archivado/activación masiva de productos es administrado por Operaciones STOCKA.');
+  return;
+};
+
+window._legacyBulkSetVirtualStatusDisabled = async function(commerce, isVirtual) {
   const selectedIds = window.catalogSelectedProductIds ? Array.from(window.catalogSelectedProductIds) : [];
   if (selectedIds.length === 0) return;
 
@@ -62335,7 +62360,7 @@ window.bulkSetVirtualStatus = async function(commerce, isVirtual) {
   }
 };
 
-window.bulkSetProductStatus = async function(commerce, status) {
+window._legacyBulkSetProductStatusDisabled = async function(commerce, status) {
   const selectedIds = window.catalogSelectedProductIds ? Array.from(window.catalogSelectedProductIds) : [];
   if (selectedIds.length === 0) return;
 

@@ -15,6 +15,21 @@
   Access-Control-Allow-Origin: *
   Cache-Control: no-cache, no-store, must-revalidate
 
+/cambios*
+  Content-Security-Policy: frame-ancestors *
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/devoluciones*
+  Content-Security-Policy: frame-ancestors *
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/reversa*
+  Content-Security-Policy: frame-ancestors *
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache, no-store, must-revalidate
+
 /admin*
   X-Frame-Options: SAMEORIGIN
   Cache-Control: no-cache, no-store, must-revalidate
@@ -26,6 +41,15 @@
 /dashboard*
   X-Frame-Options: SAMEORIGIN
   Cache-Control: no-cache, no-store, must-revalidate
+
+/sw.js
+  Content-Type: application/javascript; charset=utf-8
+  Service-Worker-Allowed: /
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/*.webmanifest
+  Content-Type: application/manifest+json; charset=utf-8
+  Cache-Control: no-cache, must-revalidate
 
 /*
   X-XSS-Protection: 1; mode=block

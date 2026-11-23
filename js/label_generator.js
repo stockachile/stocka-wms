@@ -9758,6 +9758,12 @@ import supabase from './supabase.js';
           })
           .eq('id', st.rlId);
         if (error) throw error;
+        if (typeof window.reconcileReverseLogisticsKardexAndStock === 'function') {
+          const { data: rlFull } = await supabase.from('reverse_logistics').select('*').eq('id', st.rlId).maybeSingle();
+          if (rlFull) {
+            await window.reconcileReverseLogisticsKardexAndStock(rlFull, productosPayload);
+          }
+        }
       } else {
         const { data: inserted, error } = await supabase
           .from('reverse_logistics')

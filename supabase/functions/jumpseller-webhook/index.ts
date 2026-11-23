@@ -291,10 +291,20 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     
     if (equivalences) {
       equivalences.filter((e: any) => e.platform === 'Todas').forEach((e: any) => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter((e: any) => e.platform === 'Jumpseller').forEach((e: any) => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -319,7 +329,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
       const prodIdRef = op.product_id || op.id;
       let sku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
       sku = sku.trim().replace(/\s+/g, '');
-      let mappedSku = skuMap[sku] || sku;
+      let mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
 
       itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(op.qty || op.quantity || 1);
       if (op.name && !itemNames.includes(op.name)) {
@@ -538,7 +548,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
         const prodIdRef = op.product_id || op.id;
         let opSku = op.sku || (prodIdRef ? `JS-${prodIdRef}${op.variant_id ? '-' + op.variant_id : ''}` : 'Sin-SKU');
         let cleanItemSku = opSku.trim().replace(/\s+/g, '');
-        let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+        let mappedItemSku = skuMap[cleanItemSku] || skuMap[cleanItemSku.toUpperCase()] || cleanItemSku;
         return mappedItemSku === sku;
       });
       const itemImageUrl = (typeof itemDetail?.image === 'string' ? itemDetail.image : itemDetail?.image?.url) || null;
@@ -751,10 +761,20 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
     
     if (equivalences) {
       equivalences.filter((e: any) => e.platform === 'Todas').forEach((e: any) => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter((e: any) => e.platform === 'Jumpseller').forEach((e: any) => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -805,7 +825,7 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
   if (!product.variants || product.variants.length === 0) {
     let variantSku = product.sku || `JS-${product.id}`;
     let cleanSku = getUniqueSku(variantSku);
-    let mappedSku = skuMap[cleanSku] || cleanSku;
+    let mappedSku = skuMap[cleanSku] || skuMap[cleanSku.toUpperCase()] || cleanSku;
 
     const productData: Record<string, any> = {
       merchant_id: merchantId,
@@ -833,7 +853,7 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
       if (!v) continue;
       let variantSku = v.sku || `JS-${product.id}-${v.id}`;
       let cleanSku = getUniqueSku(variantSku);
-      let mappedSku = skuMap[cleanSku] || cleanSku;
+      let mappedSku = skuMap[cleanSku] || skuMap[cleanSku.toUpperCase()] || cleanSku;
       const varImg = (typeof v.image === 'string' ? v.image : v.image?.url) || mainImageUrl;
 
       const productData: Record<string, any> = {

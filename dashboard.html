@@ -7,16 +7,24 @@
   <title>Dashboard - WMS STOCKA</title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/png" href="./favicon.png">
-  <link rel="apple-touch-icon" href="./favicon.png">
+  <link rel="apple-touch-icon" href="./img/pwa/icon-192.png">
+  <link rel="manifest" href="/manifest-panel.webmanifest">
+  <meta name="theme-color" content="#1800AD">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="STOCKA WMS">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
   <link rel="stylesheet" href="./css/style.css?v=1.0.10">
   <link rel="stylesheet" href="./css/layout.css?v=1.3.1">
   <link rel="stylesheet" href="./css/tour.css?v=1.0.0">
   <link rel="stylesheet" href="./css/workspace_panel.css?v=1.0.0">
   <link rel="stylesheet" href="./css/inventory_coverage.css?v=1.2.1">
+  <link rel="stylesheet" href="./css/pwa_setup.css?v=1.0.0">
   <!-- Quill Styles for Rich Content Rendering -->
   <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
-  <script src="./js/theme.js?v=1.2.10"></script>
+  <script src="./js/theme.js?v=1.2.11"></script>
+  <script src="./js/pwa_setup.js?v=1.0.0"></script>
 
   <!-- Immediate Shopify OAuth Detection (Enforces Shopify App Store Guideline 2.3.2) -->
   <script>
@@ -177,6 +185,7 @@
                 <li><a href="/panel/etiquetas" class="nav-item" data-view="label_generator"><i class="ri-printer-line"></i> <span class="nav-text">Etiquetas</span></a></li>
                 <li><a href="/panel/cotizador" class="nav-item" data-view="cotizador"><i class="ri-calculator-line"></i> <span class="nav-text">Cotizador de Envíos</span></a></li>
                 <li><a href="/panel/portal-tracking" class="nav-item" data-view="tracking_widget"><i class="ri-radar-line"></i> <span class="nav-text">Portal de Tracking</span> <span class="menu-badge" style="background-color: var(--color-primary, #5c24ff); color: white; font-size: 0.65rem;">Nuevo</span></a></li>
+                <li id="nav-li-returns-widget" style="display: none;"><a href="/panel/portal-cambios" class="nav-item" data-view="returns_widget" style="display: none;"><i class="ri-exchange-box-line"></i> <span class="nav-text">Portal de Cambios</span> <span class="menu-badge" style="background-color: #059669; color: white; font-size: 0.65rem;">Nuevo</span></a></li>
                 <li><a href="./cotizaciones.html" target="_blank" class="nav-item" data-view="cotizaciones_fulfillment" style="color: var(--color-primary);"><i class="ri-price-tag-3-line"></i> <span class="nav-text">Cotizador Fulfillment</span> <i class="ri-external-link-line" style="font-size: 0.75rem; margin-left: auto;"></i></a></li>
               </ul>
             </div>
@@ -198,7 +207,7 @@
               <ul class="flyout-panel-list">
                 <li><a href="/panel/facturacion" class="nav-item" data-view="billing"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span></a></li>
                 <li><a href="/panel/integraciones" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span></a></li>
-                <li><a href="/panel/incidencias" class="nav-item" data-view="incidencias"><i class="ri-alert-line"></i> <span class="nav-text">Incidencias</span> <span id="badge-incidencias" class="menu-badge" style="display: none;">0</span></a></li>
+                <li id="nav-li-incidencias-client" style="display: none;"><a href="/panel/incidencias" class="nav-item" data-view="incidencias" style="display: none;"><i class="ri-alert-line"></i> <span class="nav-text">Incidencias</span> <span id="badge-incidencias" class="menu-badge" style="display: none;">0</span></a></li>
                 <li><a href="/panel/encuestas" class="nav-item" data-view="surveys"><i class="ri-survey-line"></i> <span class="nav-text">Encuestas & Feedback</span> <span id="badge-surveys-client" class="menu-badge" style="display: none;">0</span></a></li>
                 <li class="hidden-ticket-li" style="display: none;"><a href="/panel/tickets" class="nav-item hidden-ticket-nav" data-view="tickets"></a></li>
                 <li><a href="/panel/documentacion" class="nav-item" data-view="documentation"><i class="ri-file-text-line"></i> <span class="nav-text">Documentación</span></a></li>
@@ -434,7 +443,7 @@
 
             <!-- 3A. Radar de Estado Operativo de Mi Tienda -->
             <div class="admin-ops-container" id="client-ops-container">
-              <button type="button" id="client-ops-btn" class="header-icon-btn dock-icon-btn ops-radar-btn" title="Estado Operativo de Mi Tienda (Incidencias, Conteos y Encuestas)" aria-label="Estado Operativo">
+              <button type="button" id="client-ops-btn" class="header-icon-btn dock-icon-btn ops-radar-btn" title="Estado Operativo de Mi Tienda (Conteos y Encuestas)" aria-label="Estado Operativo">
                 <i class="ri-alarm-warning-line"></i>
                 <span id="client-ops-badge" class="dock-badge badge-amber" style="display: none;">0</span>
               </button>
@@ -448,7 +457,7 @@
                   <span id="client-ops-total-label" class="ops-total-pill">Al día ✓</span>
                 </div>
                 <div class="admin-ops-list">
-                  <button type="button" class="admin-ops-item" data-client-nav="incidencias">
+                  <button type="button" id="client-ops-incidencias-btn" class="admin-ops-item" data-client-nav="incidencias" style="display: none;">
                     <span class="ops-item-icon ops-danger"><i class="ri-alert-line"></i></span>
                     <span class="ops-item-label">Incidencias de Envío</span>
                     <span class="ops-item-count" data-client-ops-count="incidencias">0</span>
@@ -504,6 +513,12 @@
                 </div>
               </div>
             </div>
+
+            <!-- 3B-2. Botón Instalar App y Configurar Avisos Push -->
+            <button id="pwa-setup-header-btn" class="header-icon-btn dock-icon-btn pwa-header-btn" type="button" aria-label="Instalar app y activar avisos" title="Configurar app en este dispositivo y activar avisos">
+              <i class="ri-smartphone-line"></i>
+              <span id="pwa-header-dot" class="pwa-header-dot" style="display: none;"></span>
+            </button>
 
             <!-- 3C. Botón Compacto de Tema (Claro / Oscuro) -->
             <button class="theme-toggle-btn admin-dock-theme-btn" type="button" aria-label="Cambiar tema" title="Cambiar entre modo claro y oscuro">
@@ -563,6 +578,10 @@
                 <button type="button" class="admin-profile-menu-item" data-client-nav="integrations">
                   <i class="ri-plug-line"></i>
                   <span>Mis Integraciones</span>
+                </button>
+                <button type="button" class="admin-profile-menu-item" data-open-pwa-setup="true">
+                  <i class="ri-smartphone-line"></i>
+                  <span>App y Avisos en Dispositivo</span>
                 </button>
               </div>
 
@@ -2076,18 +2095,18 @@
   <script src="./js/calendar.js"></script>
   <script src="./js/inventory_sheets.js?v=1.0.3"></script>
   <script src="./js/export_manager.js?v=1.0.3"></script>
-  <script type="module" src="./js/enviame_billing_importer.js?v=1.0.5"></script>
+  <script type="module" src="./js/enviame_billing_importer.js?v=1.0.7"></script>
   <script src="./js/manifests.js"></script>
   <script src="./js/toast_notifications.js?v=1.0.1"></script>
-  <script src="./js/inbound_notifications.js?v=1.0.6"></script>
-  <script src="./js/inventory_notifications.js?v=1.0.0"></script>
+  <script src="./js/inbound_notifications.js?v=1.0.7"></script>
+  <script src="./js/inventory_notifications.js?v=1.0.1"></script>
   <script src="./js/integration_notifications.js?v=1.0.1"></script>
   <script type="module" src="./js/billing_generator.js?v=1.3.15"></script>
   <script type="module" src="./js/split_orders.js?v=1.0.1"></script>
-  <script type="module" src="./js/consolidate_orders.js?v=1.0.4"></script>
+  <script type="module" src="./js/consolidate_orders.js?v=1.0.5"></script>
   <script type="module" src="./js/picking_requests.js?v=1.0.5"></script>
   <script type="module" src="./js/order_editor.js?v=1.0.3"></script>
-  <script type="module" src="./js/app.js?v=1.2.4"></script>
+  <script type="module" src="./js/app.js?v=1.2.5"></script>
   <script type="module" src="./js/inventory_coverage.js?v=1.2.2"></script>
   <script type="module" src="./js/tour.js?v=1.0.1"></script>
   <script type="module" src="./js/order_page.js?v=1.0.17"></script>

@@ -24,16 +24,34 @@
   }
 
   /**
-   * Obtiene correos de los usuarios asociados a un comercio
+   * Obtiene correos de los usuarios y contactos asociados a un comercio
+   * respetando las preferencias granulares (email_preferences.inventory) de billing_contacts.
    */
   async function getCommerceEmails(comercio) {
     if (!comercio || comercio === 'no asignado') return [];
     const emails = new Set();
+    const optedOutEmails = new Set();
+    const explicitlyAllowedEmails = new Set();
     const targetComercioLower = comercio.trim().toLowerCase();
 
     try {
       const client = getSupabaseClient();
       if (!client) return [];
+
+      // Alias / conglomerado desde billing_mappings (best-effort)
+      const aliasSet = new Set([targetComercioLower]);
+      try {
+        const { data: mappings } = await client
+          .from('billing_mappings')
+          .select('comercio_nombre, billing_name')
+          .or(`comercio_nombre.ilike."${comercio.trim()}",billing_name.ilike."${comercio.trim()}"`);
+        if (Array.isArray(mappings)) {
+          mappings.forEach(m => {
+            if (m.comercio_nombre) aliasSet.add(m.comercio_nombre.trim().toLowerCase());
+            if (m.billing_name) aliasSet.add(m.billing_name.trim().toLowerCase());
+          });
+        }
+      } catch (_) {}
 
       const { data: profiles } = await client
         .from('profiles')
@@ -71,6 +89,35 @@
           });
         }
       }
+
+      // Contactos del directorio y exclusiones granulares para Toma de Inventario
+      const { data: billingContacts, error: bcErr } = await client
+        .from('billing_contacts')
+        .select('comercio, email, activo, email_preferences');
+
+      if (!bcErr && Array.isArray(billingContacts)) {
+        billingContacts.forEach(c => {
+          if (!c?.comercio || !c?.email) return;
+          const bcCom = c.comercio.trim().toLowerCase();
+          if (!aliasSet.has(bcCom)) return;
+          const clean = c.email.trim().toLowerCase();
+          if (!clean.includes('@') || !clean.includes('.')) return;
+
+          const allowsInventory = c.activo !== false && (!c.email_preferences || c.email_preferences.inventory !== false);
+          if (allowsInventory) {
+            explicitlyAllowedEmails.add(clean);
+            emails.add(clean);
+          } else {
+            optedOutEmails.add(clean);
+          }
+        });
+      }
+
+      optedOutEmails.forEach(em => {
+        if (!explicitlyAllowedEmails.has(em)) {
+          emails.delete(em);
+        }
+      });
     } catch (err) {
       console.warn('[Inventory Notifications] Error al obtener correos del comercio:', err);
     }

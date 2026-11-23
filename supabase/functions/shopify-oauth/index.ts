@@ -814,6 +814,41 @@ async function syncShopifyOrders(integration: any): Promise<number> {
       const lineItems = order.line_items || [];
       const expectedQuantities = new Map<string, number>();
 
+      // Pre-cargar equivalencias de SKU del comercio (normalizadas, priorizando Shopify sobre Todas)
+      const shopifySkuMap: Record<string, string> = {};
+      try {
+        const { data: eqRows } = await supabase
+          .from("sku_equivalences")
+          .select("platform_sku, master_sku, platform")
+          .eq("comercio", integration.comercio)
+          .in("platform", ["Shopify", "Todas"]);
+
+        if (eqRows) {
+          eqRows.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
+            if (e.platform_sku && e.master_sku) {
+              const pTrim = e.platform_sku.trim();
+              const pClean = pTrim.replace(/\s+/g, "");
+              const mTrim = e.master_sku.trim();
+              shopifySkuMap[pTrim] = mTrim;
+              shopifySkuMap[pClean] = mTrim;
+              shopifySkuMap[pClean.toUpperCase()] = mTrim;
+            }
+          });
+          eqRows.filter((e: any) => e.platform === "Shopify").forEach((e: any) => {
+            if (e.platform_sku && e.master_sku) {
+              const pTrim = e.platform_sku.trim();
+              const pClean = pTrim.replace(/\s+/g, "");
+              const mTrim = e.master_sku.trim();
+              shopifySkuMap[pTrim] = mTrim;
+              shopifySkuMap[pClean] = mTrim;
+              shopifySkuMap[pClean.toUpperCase()] = mTrim;
+            }
+          });
+        }
+      } catch (eqErr) {
+        console.warn("Aviso cargando equivalencias SKU en shopify-oauth:", eqErr);
+      }
+
       for (const item of lineItems) {
         const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
         if (effectiveQty <= 0) continue;
@@ -822,21 +857,10 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         if (!targetSku) continue;
 
         const cleanSku = targetSku.replace(/\s+/g, "");
-        let mappedSku = targetSku;
-        let hasEquivalence = false;
-        const candidateEqSkus = targetSku !== cleanSku ? [targetSku, cleanSku] : [targetSku];
-        const { data: eqData } = await supabase
-          .from("sku_equivalences")
-          .select("master_sku, platform")
-          .eq("comercio", integration.comercio)
-          .in("platform_sku", candidateEqSkus)
-          .in("platform", ["Shopify", "Todas"]);
-
-        if (eqData && eqData.length > 0) {
-          const exactMatch = eqData.find((e: any) => e.platform === "Shopify");
-          mappedSku = (exactMatch ? exactMatch.master_sku : eqData[0].master_sku).trim();
-          hasEquivalence = true;
-        }
+        const upperSku = cleanSku.toUpperCase();
+        const matchedEqSku = shopifySkuMap[targetSku] || shopifySkuMap[cleanSku] || shopifySkuMap[upperSku];
+        let mappedSku = matchedEqSku || targetSku;
+        let hasEquivalence = Boolean(matchedEqSku);
 
         const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, "")
           ? [mappedSku, mappedSku.replace(/\s+/g, "")]

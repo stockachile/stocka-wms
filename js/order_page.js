@@ -1703,7 +1703,7 @@ function parseScannedItemsMap(historyLogs) {
  * Envíame, Blue Express, Starken, Optiroute (STOCKA X), Marketplaces (Mercado Libre, Falabella, Paris, Ripley, Walmart),
  * Fulfillments de Shopify y Retiros en Tienda (store_pickups).
  */
-function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, storePickupRows, pickerData) {
+function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, storePickupRows, pickerData, directWdRows = []) {
   const effCat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
     ? window.getOrderEffectiveCategoriaEntrega(orderData)
     : String(orderData?.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
@@ -1735,8 +1735,60 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
     };
   }
 
-  // Enriquecer o fusionar filas directas de lightdata_envios con envios_unificados
+  // Enriquecer o fusionar filas directas de woodelivery_envios y lightdata_envios con envios_unificados
   const mergedShipments = Array.isArray(rawShipments) ? [...rawShipments] : [];
+  if (Array.isArray(directWdRows) && directWdRows.length > 0) {
+    directWdRows.forEach(wd => {
+      if (!wd || !wd.external_key || wd.source_kind !== 'lightdata') return;
+      const unifiedId = `woodelivery_envios:${wd.external_key}`;
+      const existing = mergedShipments.find(s => s.id === unifiedId || (s.source_table === 'woodelivery_envios' && String(s.source_id) === String(wd.external_key)));
+      const wdRawObj = {
+        task_id: wd.task_id,
+        task_guid: wd.task_guid,
+        external_key: wd.external_key,
+        my_id: wd.my_id,
+        tracking_url: wd.tracking_url,
+        status_id: wd.status_id,
+        status_desc: wd.status_desc,
+        status_display: wd.status_display || wd.status_desc,
+        status_wms_normalized: wd.status_wms_normalized,
+        is_final: wd.is_final,
+        final_reason: wd.final_reason,
+        driver_name: wd.driver_name,
+        is_virtual_driver: wd.is_virtual_driver,
+        failed_reason_code: wd.failed_reason_code,
+        failed_reason_text: wd.failed_reason_text,
+        completed_recipient_name: wd.completed_recipient_name,
+        completed_notes: wd.completed_notes,
+        completed_coordinates: wd.completed_coordinates,
+        pod_images: wd.pod_images || [],
+        history_events: wd.history_events || [],
+        wd_completed_at: wd.wd_completed_at
+      };
+      if (existing) {
+        existing.raw_data = { ...(existing.raw_data || {}), ...wdRawObj };
+        if (wd.tracking_url) existing.tracking_url = wd.tracking_url;
+        if (wd.status_display || wd.status_desc) existing.status = wd.status_display || wd.status_desc;
+      } else {
+        mergedShipments.push({
+          id: unifiedId,
+          source_table: 'woodelivery_envios',
+          source_id: String(wd.external_key),
+          pedido_referencia: wd.my_id || orderData.external_order_number || String(wd.external_key),
+          tracking: String(wd.external_key),
+          tracking_url: wd.tracking_url || (wd.task_guid ? `https://app.woodelivery.com/t?q=${encodeURIComponent(wd.task_guid)}` : null),
+          courier: 'ALPHA',
+          status: wd.status_display || wd.status_desc || 'En tránsito',
+          global_status: wd.status_wms_normalized || null,
+          comuna_destino: wd.zone_name || orderData.shipping_city,
+          empresa_comercio_proveedor: wd.comercio || orderData.comercio,
+          created_at: wd.wd_created_at || wd.created_at,
+          updated_at: wd.wd_completed_at || wd.wd_modified_at || wd.updated_at || wd.created_at,
+          raw_data: wdRawObj
+        });
+      }
+    });
+  }
   if (Array.isArray(directLdRows) && directLdRows.length > 0) {
     directLdRows.forEach(ld => {
       if (!ld || !ld.id) return;
@@ -1771,6 +1823,12 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
   // Función interna para extraer el texto de estado real de un envío y clasificar su global_status
   const evaluateSingleShipment = (s) => {
     if (!s) return { globStatus: 'SIN MOVIMIENTO', statusText: '' };
+    if (s.source_table === 'woodelivery_envios' && s.raw_data?.status_wms_normalized) {
+      return {
+        globStatus: String(s.raw_data.status_wms_normalized).toUpperCase(),
+        statusText: String(s.raw_data.status_display || s.status || s.raw_data.status_wms_normalized).trim()
+      };
+    }
     let gStatus = String(s.global_status || '').trim().toUpperCase();
     let statusText = String(s.status || '').trim();
 
@@ -1898,8 +1956,9 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
     return { globStatus: gStatus, statusText: cleanDisplayStatus };
   };
 
-  // Filtrar operadores ignorados
+  // Filtrar operadores ignorados (nunca excluir woodelivery_envios de ALPHA)
   let validShipments = mergedShipments.filter(s => {
+    if (s.source_table === 'woodelivery_envios') return true;
     const cUp = String(s.courier || '').toUpperCase().trim();
     if (cUp.includes('RECIBELO') || cUp.includes('RECÍBELO') || cUp.includes('WELIVERY') || cUp.includes('WOODELIVERY') || cUp.includes('WODELY')) {
       return false;
@@ -2036,6 +2095,10 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
         if (aF && !bF) return -1;
         if (!aF && bF) return 1;
       }
+      // Autoridad ALPHA: WooDelivery SIEMPRE prevalece sobre LightData
+      if (a.source_table === 'woodelivery_envios' && b.source_table === 'lightdata_envios') return -1;
+      if (b.source_table === 'woodelivery_envios' && a.source_table === 'lightdata_envios') return 1;
+
       const evalA = evaluateSingleShipment(a);
       const evalB = evaluateSingleShipment(b);
       const isCanc = (txt) => {
@@ -2092,16 +2155,16 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
 
   const wmsStatusLow = String(orderData.status || '').toLowerCase().trim();
   const estadoWmsLow = String(orderData.estado_wms || '').toLowerCase().trim();
-  const ldStatusLow = String(orderData.lightdata_status || orderData.raw_lightdata_data?.status || orderData.raw_lightdata_data?.raw_data?.[23] || '').toLowerCase().trim();
+  const hasWooDelivery = primaryShipment?.source_table === 'woodelivery_envios' || Boolean(orderData.woodelivery_status || orderData.raw_woodelivery_data?.status_id);
+  const ldStatusLow = hasWooDelivery ? '' : String(orderData.lightdata_status || orderData.raw_lightdata_data?.status || orderData.raw_lightdata_data?.raw_data?.[23] || '').toLowerCase().trim();
 
-  // Si cualquier fuente oficial del pedido confirma entrega, asegurar globStatus = 'ENTREGADO'
+  // Si cualquier fuente oficial del pedido confirma entrega (sin permitir que LightData sobreescriba a WooDelivery), asegurar globStatus = 'ENTREGADO'
   if (
     wmsStatusLow === 'entregado' ||
     wmsStatusLow === 'delivered' ||
     wmsStatusLow === 'retirado' ||
     estadoWmsLow === 'entregado' ||
-    ldStatusLow.includes('entregad') ||
-    ldStatusLow.includes('delivered') ||
+    (!hasWooDelivery && (ldStatusLow.includes('entregad') || ldStatusLow.includes('delivered'))) ||
     shopifyFulfillmentDelivered
   ) {
     globStatus = 'ENTREGADO';
@@ -2124,18 +2187,20 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
   const orderCourierUpper = String(forcedInfo?.active && forcedInfo.courier ? forcedInfo.courier : (orderData.courier || '')).toUpperCase().trim();
   const orderOperadorUpper = String(orderData.operador || '').toUpperCase().trim();
   const isAlphaOrder = forcedInfo?.active
-    ? (forcedInfo.source_table === 'lightdata_envios' || ['ALPHA', 'LIGHTDATA', 'CARRIER EXTERNO'].includes(orderCourierUpper))
+    ? (forcedInfo.source_table === 'lightdata_envios' || forcedInfo.source_table === 'woodelivery_envios' || ['ALPHA', 'LIGHTDATA', 'CARRIER EXTERNO'].includes(orderCourierUpper))
     : (orderCourierUpper === 'LIGHTDATA' ||
        orderCourierUpper === 'PENDIENTE_LIGHTDATA' ||
+       orderCourierUpper === 'ALPHA' ||
+       primaryShipment?.source_table === 'woodelivery_envios' ||
        primaryShipment?.source_table === 'lightdata_envios' ||
-       (orderOperadorUpper === 'ALPHA' && (hasRealLd || !primaryShipment || primaryShipment.source_table === 'lightdata_envios')) ||
-       (orderCourierUpper === 'CARRIER EXTERNO' && (primaryShipment?.source_table === 'lightdata_envios' || hasRealLd)));
+       (orderOperadorUpper === 'ALPHA' && (hasRealLd || hasWooDelivery || !primaryShipment || primaryShipment.source_table === 'lightdata_envios' || primaryShipment.source_table === 'woodelivery_envios')) ||
+       (orderCourierUpper === 'CARRIER EXTERNO' && (primaryShipment?.source_table === 'lightdata_envios' || primaryShipment?.source_table === 'woodelivery_envios' || hasRealLd || hasWooDelivery)));
 
   let effectiveCourier = 'No asignado';
   if (forcedInfo?.active && forcedInfo.courier && !isAlphaOrder) {
     effectiveCourier = forcedInfo.courier;
   } else if (isAlphaOrder) {
-    effectiveCourier = 'ALPHA (LightData)';
+    effectiveCourier = primaryShipment?.source_table === 'woodelivery_envios' ? 'ALPHA (WooDelivery)' : 'ALPHA (LightData)';
   } else if (primaryShipment?.source_table === 'optiroute_orders' && (!primaryShipment.courier || primaryShipment.courier === 'CARRIER EXTERNO')) {
     effectiveCourier = 'STOCKA X (Optiroute)';
   } else if (primaryShipment?.courier && primaryShipment.courier !== 'CARRIER EXTERNO') {
@@ -2157,7 +2222,7 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
   // Resolver número de seguimiento y URL pública de tracking
   let effectiveTracking = String(
     (forcedInfo?.active && forcedInfo.tracking_number ? forcedInfo.tracking_number : '') ||
-    (isAlphaOrder ? (primaryShipment?.source_id || orderData.raw_lightdata_data?.did || orderData.raw_lightdata_data?.id || orderData.tracking_number) : '') ||
+    (isAlphaOrder ? (primaryShipment?.source_id || orderData.raw_woodelivery_data?.external_key || orderData.raw_lightdata_data?.did || orderData.raw_lightdata_data?.id || orderData.tracking_number) : '') ||
     orderData.tracking_number ||
     primaryShipment?.tracking ||
     (primaryShipment?.source_table === 'optiroute_orders' ? primaryShipment.raw_data?.uuid : '') ||
@@ -2167,10 +2232,18 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
     effectiveTracking = '';
   }
 
-  let effectiveTrackingUrl = String((forcedInfo?.active && forcedInfo.tracking_url ? forcedInfo.tracking_url : '') || primaryShipment?.tracking_url || orderData.tracking_url || '').trim();
-  if (orderData.raw_lightdata_data?.raw_data?.[31] && String(orderData.raw_lightdata_data.raw_data[31]).startsWith('http')) {
+  let effectiveTrackingUrl = String(
+    (forcedInfo?.active && forcedInfo.tracking_url ? forcedInfo.tracking_url : '') ||
+    (primaryShipment?.source_table === 'woodelivery_envios' ? primaryShipment.tracking_url : '') ||
+    orderData.raw_woodelivery_data?.tracking_url ||
+    primaryShipment?.tracking_url ||
+    orderData.tracking_url ||
+    ''
+  ).trim();
+  const hasWdUrl = effectiveTrackingUrl.toLowerCase().includes('app.woodelivery.com/t?q=');
+  if (!hasWdUrl && orderData.raw_lightdata_data?.raw_data?.[31] && String(orderData.raw_lightdata_data.raw_data[31]).startsWith('http')) {
     effectiveTrackingUrl = String(orderData.raw_lightdata_data.raw_data[31]).trim();
-  } else if (primaryShipment?.source_table === 'lightdata_envios' && primaryShipment?.raw_data?.[31] && String(primaryShipment.raw_data[31]).startsWith('http')) {
+  } else if (!hasWdUrl && primaryShipment?.source_table === 'lightdata_envios' && primaryShipment?.raw_data?.[31] && String(primaryShipment.raw_data[31]).startsWith('http')) {
     effectiveTrackingUrl = String(primaryShipment.raw_data[31]).trim();
   }
   if (window.resolveCourierPublicTrackingUrl) {
@@ -2616,6 +2689,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
 
     let orderShipments = [];
     let directLdRows = [];
+    let directWdRows = [];
     let storePickupRows = [];
     let stockByProductMap = {};
     const pickerData = {
@@ -2655,7 +2729,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
           if (refCandidates.length === 0) return;
           try {
             const csv = `(${refCandidates.map(r => `"${r.replace(/["(),]/g, '')}"`).join(',')})`;
-            const ldUnifiedIds = ldIdCandidates.map(id => `"lightdata_envios:${id}"`).join(',');
+            const ldUnifiedIds = ldIdCandidates.flatMap(id => [`"lightdata_envios:${id}"`, `"woodelivery_envios:${id}"`]).join(',');
             const orFilter = ldUnifiedIds
               ? `pedido_referencia.in.${csv},tracking.in.${csv},source_id.in.${csv},id.in.(${ldUnifiedIds})`
               : `pedido_referencia.in.${csv},tracking.in.${csv},source_id.in.${csv}`;
@@ -2694,6 +2768,21 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                   .order('created_at', { ascending: false })
                   .limit(5)
                   .then(({ data }) => { if (data) directLdRows = data; })
+                  .catch(() => {})
+              );
+              const wdOrParts = [`my_id.in.${refCsv}`];
+              if (ldIdCandidates.length > 0) {
+                wdOrParts.push(`external_key.in.(${ldIdCandidates.map(i => `"${i}"`).join(',')})`);
+              }
+              subPromises.push(
+                supabase
+                  .from('woodelivery_envios')
+                  .select('*')
+                  .eq('source_kind', 'lightdata')
+                  .or(wdOrParts.join(','))
+                  .order('updated_at', { ascending: false })
+                  .limit(5)
+                  .then(({ data }) => { if (data) directWdRows = data; })
                   .catch(() => {})
               );
             }
@@ -3018,7 +3107,7 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
         updatedAt: snap.delivered_at || orderData.delivered_at || orderData.closed_at || orderData.stock_descontado_at || null
       };
     } else {
-      trackingInfo = resolveOrderCourierTracking(orderData, orderShipments, directLdRows, storePickupRows, pickerData);
+      trackingInfo = resolveOrderCourierTracking(orderData, orderShipments, directLdRows, storePickupRows, pickerData, directWdRows);
     }
     const latestShipment = trackingInfo.shipment;
     const effectiveCourier = trackingInfo.effectiveCourier;
@@ -3862,12 +3951,36 @@ window.renderSingleOrderPage = async function(orderIdOrRef, options = {}) {
                   const snap = orderData.closed_snapshot || {};
                   const snapShip = snap.shipment || {};
                   const snapPickup = snap.pickup || {};
+                  const wdRaw = (latestShipment?.source_table === 'woodelivery_envios' ? latestShipment.raw_data : null) || orderData.raw_woodelivery_data || {};
                   const extraPills = [];
-                  if (snapShip.reception_name) {
-                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Receptor Registrado</span><span class="sop-mini-stat-val">${escapeHtmlSafe(snapShip.reception_name)}${snapShip.reception_rut ? ` (${escapeHtmlSafe(snapShip.reception_rut)})` : ''}</span></div>`);
+                  const recName = snapShip.reception_name || wdRaw.completed_recipient_name;
+                  if (recName) {
+                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Receptor Registrado</span><span class="sop-mini-stat-val">${escapeHtmlSafe(recName)}${snapShip.reception_rut ? ` (${escapeHtmlSafe(snapShip.reception_rut)})` : ''}</span></div>`);
                   }
-                  if (snapShip.gps_lat && snapShip.gps_lng) {
-                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Coordenadas Entrega</span><span class="sop-mini-stat-val" style="font-family: monospace; font-size: 0.72rem;">${escapeHtmlSafe(`${snapShip.gps_lat}, ${snapShip.gps_lng}`)}</span></div>`);
+                  const wdDriver = snapShip.driver_name || wdRaw.driver_name;
+                  if (wdDriver) {
+                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Chofer / Ruta (Alpha)</span><span class="sop-mini-stat-val">${escapeHtmlSafe(wdDriver)}</span></div>`);
+                  }
+                  const wdFail = wdRaw.failed_reason_text;
+                  if (wdFail) {
+                    extraPills.push(`<div class="sop-mini-stat" style="background: #fef2f2; border-color: #fecaca;"><span class="sop-mini-stat-label" style="color: #991b1b;">Motivo de Fallo (WooDelivery)</span><span class="sop-mini-stat-val" style="color: #b91c1c;">${escapeHtmlSafe(wdFail)}</span></div>`);
+                  }
+                  const wdNotes = snapShip.completed_notes || wdRaw.completed_notes;
+                  if (wdNotes) {
+                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Observación Chofer</span><span class="sop-mini-stat-val" style="font-size: 0.74rem;">${escapeHtmlSafe(wdNotes)}</span></div>`);
+                  }
+                  const gpsStr = (snapShip.gps_lat && snapShip.gps_lng) ? `${snapShip.gps_lat}, ${snapShip.gps_lng}` : (wdRaw.completed_coordinates || '');
+                  if (gpsStr) {
+                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Coordenadas Entrega</span><span class="sop-mini-stat-val" style="font-family: monospace; font-size: 0.72rem;">${escapeHtmlSafe(gpsStr)}</span></div>`);
+                  }
+                  const podImgs = Array.isArray(snapShip.pod_images) && snapShip.pod_images.length > 0
+                    ? snapShip.pod_images
+                    : (Array.isArray(wdRaw.pod_images) ? wdRaw.pod_images : []);
+                  if (podImgs.length > 0) {
+                    const thumbs = podImgs.slice(0, 6).map((imgUrl, idx) =>
+                      `<a href="${escapeHtmlSafe(imgUrl)}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.16rem 0.45rem; border-radius: 6px; background: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.7rem; font-weight: 700; text-decoration: none;"><i class="ri-image-line"></i> Foto ${idx + 1}</a>`
+                    ).join('');
+                    extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Evidencia de Entrega (POD)</span><span class="sop-mini-stat-val" style="display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.15rem;">${thumbs}</span></div>`);
                   }
                   if (snapPickup.pin_retiro) {
                     extraPills.push(`<div class="sop-mini-stat" style="background: var(--color-surface);"><span class="sop-mini-stat-label">Retiro en Sucursal</span><span class="sop-mini-stat-val" style="font-family: monospace;">PIN ${escapeHtmlSafe(snapPickup.pin_retiro)} · ${escapeHtmlSafe(snapPickup.sucursal || 'Sucursal')}</span></div>`);

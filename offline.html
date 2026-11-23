@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sin conexión — STOCKA WMS</title>
+  <meta name="theme-color" content="#1800AD">
+  <link rel="icon" type="image/png" href="/img/pwa/icon-192.png">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0b0f19;
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .offline-card {
+      max-width: 420px;
+      width: 100%;
+      background: #131b2e;
+      border: 1px solid #1e293b;
+      border-radius: 20px;
+      padding: 2.25rem 1.75rem;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+    }
+    .offline-icon {
+      width: 68px;
+      height: 68px;
+      border-radius: 16px;
+      margin: 0 auto 1.25rem auto;
+      display: block;
+      box-shadow: 0 8px 24px rgba(24, 0, 173, 0.4);
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 0.6rem;
+      letter-spacing: -0.01em;
+    }
+    p {
+      font-size: 0.92rem;
+      color: #94a3b8;
+      line-height: 1.55;
+      margin-bottom: 1.5rem;
+    }
+    .btn-retry {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background: #2563eb;
+      color: #ffffff;
+      border: none;
+      border-radius: 12px;
+      padding: 0.8rem 1.5rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: background 0.2s ease, transform 0.15s ease;
+    }
+    .btn-retry:hover { background: #1d4ed8; }
+    .btn-retry:active { transform: scale(0.98); }
+  </style>
+</head>
+<body>
+  <main class="offline-card">
+    <img src="/img/pwa/icon-192.png" alt="STOCKA WMS" class="offline-icon">
+    <h1>Sin conexión a internet</h1>
+    <p>No pudimos conectar con los servidores de STOCKA WMS. Verifica tu red Wi-Fi o datos móviles e intenta nuevamente.</p>
+    <button type="button" class="btn-retry" onclick="window.location.reload()">
+      Reintentar conexión
+    </button>
+  </main>
+</body>
+</html>

@@ -277,10 +277,20 @@ async function syncMerchantOrders(integration) {
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
       equivalences.filter(e => e.platform === 'Falabella').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+        if (e.platform_sku && e.master_sku) {
+          const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mTrim = e.master_sku.trim();
+          skuMap[clean] = mTrim;
+          skuMap[clean.toUpperCase()] = mTrim;
+        }
       });
     }
   } catch (err) {
@@ -383,9 +393,9 @@ async function syncMerchantOrders(integration) {
       for (const item of items) {
         let sku = item.Sku || item.SellerSku;
         if (sku) {
-          let cleanSku = sku.replace(/\s+/g, '');
-          // Aplicar equivalencia de SKU
-          let mappedSku = skuMap[cleanSku] || cleanSku;
+          let cleanSku = sku.trim().replace(/\s+/g, '');
+          // Aplicar equivalencia de SKU (case-insensitive)
+          let mappedSku = skuMap[cleanSku] || skuMap[cleanSku.toUpperCase()] || cleanSku;
           itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + 1;
         }
         if (item.Name && !itemNames.includes(item.Name)) {
@@ -568,21 +578,32 @@ async function syncMerchantOrders(integration) {
           const orderItemDetail = items.find(item => {
             let itemSku = item.Sku || item.SellerSku;
             if (!itemSku) return false;
-            let cleanItemSku = itemSku.replace(/\s+/g, '');
-            let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+            let cleanItemSku = itemSku.trim().replace(/\s+/g, '');
+            let mappedItemSku = skuMap[cleanItemSku] || skuMap[cleanItemSku.toUpperCase()] || cleanItemSku;
             return mappedItemSku === sku;
           });
 
           const fallbackFalaImg = orderItemDetail?.ProductMainImage
             || (orderItemDetail?.ShopSku ? `https://media.falabella.com/falabellaCL/${String(orderItemDetail.ShopSku).trim().split('_')[0]}_01` : null);
 
-          // Buscar producto por SKU en la base de datos
+          // Buscar producto por SKU en la base de datos (exacto o case-insensitive)
           let { data: product } = await supabase
             .from('products')
             .select('id, comercio, image_url')
             .eq('comercio', integration.comercio)
             .eq('sku', sku)
             .maybeSingle();
+
+          if (!product && sku) {
+            const { data: ilikeProd } = await supabase
+              .from('products')
+              .select('id, comercio, image_url')
+              .eq('comercio', integration.comercio)
+              .ilike('sku', sku)
+              .limit(1)
+              .maybeSingle();
+            if (ilikeProd) product = ilikeProd;
+          }
 
           if (product && product.comercio !== integration.comercio) {
             await supabase

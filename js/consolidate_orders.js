@@ -1099,7 +1099,7 @@ export async function openConsolidateOrdersModal(orderId) {
           <span>¿Qué hará el sistema al confirmar la consolidación?</span>
         </div>
         <ul style="margin: 0; padding-left: 1.15rem; font-size: 0.76rem; color: #1e293b; display: flex; flex-direction: column; gap: 0.28rem;">
-          <li><strong>Picker (Pedidos separados con Solicitud Especial):</strong> Cada pedido se mantiene independiente en Picker, pero ambos recibirán una <strong>Solicitud Especial de Picking obligatoria</strong> indicando empacarlos juntos en un único bulto con la etiqueta del Pedido Principal.</li>
+          <li><strong>Picker (1 Pedido Principal con Productos Separados por Pedido):</strong> Se envía al Picker en el <strong>Pedido Principal</strong> la totalidad de artículos de los ${group.orders.length} pedidos (sumados en el contador total y separados visualmente por pedido en pantalla). Al completarse en Picker, <strong>todos los pedidos consolidados cambiarán de estado automáticamente</strong>.</li>
           <li><strong>Sincronización de Guía y Courier:</strong> El pedido secundario heredará automáticamente la sucursal, agenda, operador y número de seguimiento del Pedido Principal.</li>
           <li><strong>Facturación Automática (1 Envío + ${group.orders.length} Preparaciones):</strong> En el Gestor de Facturación se cobrarán las <strong>${group.orders.length} preparaciones (Pick & Pack)</strong> y <strong>1 solo flete de envío</strong> (el pedido secundario queda con Flete = <strong>$0</strong>).</li>
         </ul>
@@ -1446,6 +1446,17 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
     primaryOrder.is_consolidated = true;
     primaryOrder.consolidated_into_order_id = null;
 
+    // Si alguno de los pedidos del grupo ya está 'En preparación', alinear todos a 'En preparación' para que se preparen y cambien de estado juntos
+    const anyInPreparation = orders.some(o => o.estado_wms === 'En preparación' || String(o.status || '').toLowerCase() === 'en preparación');
+    if (anyInPreparation && primaryOrder.estado_wms !== 'En preparación') {
+      await updateOrderConsolidationDbRow(primaryOrder.id, {
+        estado_wms: 'En preparación',
+        status: 'en preparación'
+      });
+      primaryOrder.estado_wms = 'En preparación';
+      primaryOrder.status = 'en preparación';
+    }
+
     // 2. Actualizar cada Pedido Secundario y propagar datos logísticos del Principal si existen
     for (const secOrder of secondaryOrders) {
       const secRaw = {
@@ -1473,24 +1484,39 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
       if (primaryOrder.courier) secUpdatePayload.courier = primaryOrder.courier;
       if (primaryOrder.tracking_number) secUpdatePayload.tracking_number = primaryOrder.tracking_number;
       if (primaryOrder.tracking_url) secUpdatePayload.tracking_url = primaryOrder.tracking_url;
+      if (anyInPreparation && secOrder.estado_wms !== 'En preparación') {
+        secUpdatePayload.estado_wms = 'En preparación';
+        secUpdatePayload.status = 'en preparación';
+      }
 
       await updateOrderConsolidationDbRow(secOrder.id, secUpdatePayload);
 
       Object.assign(secOrder, secUpdatePayload);
     }
 
-    // 3. Crear Solicitud Especial de Picking en CADA pedido por separado (para que el Picker vea ambos con alerta obligatoria)
+    // 3. Crear Solicitud Especial de Picking y retirar los pedidos secundarios sueltos de active_orders en Picker
     const customerLabel = `${group.customerName} (${group.displayAddress})`;
-    const primaryChecklistText = `📦 CONSOLIDAR ENVÍO: Empacar junto con pedido(s) hermano(s) ${secondaryFolios.join(', ')} [${customerLabel}] en UN SOLO PAQUETE FÍSICO usando la etiqueta de este pedido (${primaryFolio}).`;
-    const primaryNoteText = `CONSOLIDADO PRINCIPAL: Unificar paquete físico con ${secondaryFolios.join(', ')}`;
+    const allFoliosList = [primaryFolio, ...secondaryFolios];
+    const primaryChecklistText = `📦 CONSOLIDADO UNIFICADO (${orders.length} PEDIDOS EN 1 PAQUETE: ${allFoliosList.join(' + ')}): Este pedido principal concentra los artículos de todos los pedidos consolidados [${customerLabel}], separados visualmente por pedido en pantalla. Escanear el 100% de las unidades y empacar todo en UN SOLO PAQUETE FÍSICO con la etiqueta de ${primaryFolio}.`;
+    const primaryNoteText = `CONSOLIDADO PRINCIPAL (${orders.length} pedidos: ${allFoliosList.join(' + ')}): Unificar todos los productos en 1 paquete físico`;
 
     await upsertConsolidationPickingRequest(primaryOrder, primaryChecklistText, primaryNoteText);
 
     for (const secOrder of secondaryOrders) {
       const secFolio = getOrderDisplayFolio(secOrder);
-      const secChecklistText = `📦 CONSOLIDAR ENVÍO: Incluir todos los productos de este pedido (${secFolio}) dentro de la bolsa/caja del Pedido Principal ${primaryFolio} [${customerLabel}]. NO despachar en paquete separado; usar etiqueta de ${primaryFolio}.`;
-      const secNoteText = `CONSOLIDADO SECUNDARIO: Empacar dentro del Pedido Principal ${primaryFolio}`;
+      const secChecklistText = `🔗 CONSOLIDADO EN ${primaryFolio}: Los artículos de este pedido (${secFolio}) se envían y escanean dentro del Pedido Principal ${primaryFolio} en el Picker [${customerLabel}].`;
+      const secNoteText = `CONSOLIDADO SECUNDARIO: Unificado en Picker dentro del Pedido Principal ${primaryFolio}`;
       await upsertConsolidationPickingRequest(secOrder, secChecklistText, secNoteText);
+      await removeStandaloneSecondaryFromPicker(secOrder);
+    }
+
+    // 3b. Si el grupo está 'En preparación' (o ya estaba activo en Picker), enviar/actualizar en Picker un ÚNICO pedido (el Principal) con los productos de todos los pedidos separados visualmente por pedido
+    if ((anyInPreparation || primaryOrder.estado_wms === 'En preparación') && typeof window.sendSingleOrderToPicker === 'function') {
+      try {
+        await window.sendSingleOrderToPicker(primaryOrder, { ignoreMissingTracking: true, forceTemporaryLabel: true });
+      } catch (pickerSyncErr) {
+        console.warn('[ConsolidateOrders] Aviso sincronizando pedido principal consolidado al Picker:', pickerSyncErr);
+      }
     }
 
     // 4. Registrar en historial de auditoría (`order_audit_logs`)
@@ -1575,7 +1601,7 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
           <ul style="margin: 0; padding-left: 1.15rem;">
             <li><strong>Pedido Principal (1 Envío + 1 Prep.):</strong> ${escapeHtmlSafe(primaryFolio)}</li>
             <li><strong>Pedido(s) Secundario(s) ($0 Envío + 1 Prep.):</strong> ${escapeHtmlSafe(secondaryFolios.join(', '))}</li>
-            <li><strong>Alerta enviada al Picker:</strong> Se activó una <em>Solicitud Especial de Picking</em> en cada pedido para que el operador los empaque juntos.</li>
+            <li><strong>Unificado en Picker:</strong> Se envía al Picker en el Pedido Principal (${escapeHtmlSafe(primaryFolio)}) el total de productos de todos los pedidos separados visualmente por pedido en pantalla. Al completarse, todos cambiarán de estado juntos.</li>
           </ul>
         </div>
       `,
@@ -1678,6 +1704,19 @@ export async function undoOrderConsolidation(orderId) {
 
       // Limpiar el ítem automático de consolidación en order_picking_requests
       await removeConsolidationPickingRequestItem(ord.id);
+    }
+
+    // Si los pedidos desvinculados estaban 'En preparación', reenviarlos por separado al Picker con sus propios artículos y su propio totu
+    if (typeof window.sendSingleOrderToPicker === 'function') {
+      for (const ord of ordersToReset) {
+        if (ord && ord.estado_wms === 'En preparación') {
+          try {
+            await window.sendSingleOrderToPicker(ord, { ignoreMissingTracking: true, forceTemporaryLabel: true });
+          } catch (reSendErr) {
+            console.warn('[ConsolidateOrders] Aviso re-separando pedido en Picker tras deshacer consolidado:', reSendErr);
+          }
+        }
+      }
     }
 
     try {
@@ -1805,12 +1844,28 @@ export async function syncConsolidatedChildrenFromPrimary(primaryOrderId, fields
   const childIds = info.childrenIds || [];
   if (childIds.length === 0) return;
 
-  const allowedKeys = ['tracking_number', 'tracking_url', 'courier', 'agenda', 'operador', 'sucursal_pickeo', 'estado_wms'];
+  const allowedKeys = [
+    'tracking_number', 'tracking_url', 'courier', 'agenda', 'operador', 'sucursal_pickeo',
+    'estado_wms', 'status', 'picker_status', 'picker_operator', 'stock_descontado',
+    'ready_for_pickup_at', 'delivered_at', 'closed_at'
+  ];
   const cleanPayload = {};
   for (const k of allowedKeys) {
     if (fieldsToSync[k] !== undefined && fieldsToSync[k] !== null && fieldsToSync[k] !== '') {
       cleanPayload[k] = fieldsToSync[k];
     }
+  }
+  if (cleanPayload.estado_wms && !cleanPayload.status) {
+    const stMap = {
+      'Pendiente': 'pendiente',
+      'En preparación': 'en preparación',
+      'Pickeado': 'preparado',
+      'Listo para retiro': 'listo para retiro',
+      'Despachado': 'despachado',
+      'Entregado': 'entregado',
+      'Cancelado': 'cancelado'
+    };
+    if (stMap[cleanPayload.estado_wms]) cleanPayload.status = stMap[cleanPayload.estado_wms];
   }
 
   if (Object.keys(cleanPayload).length === 0) return;
@@ -1825,6 +1880,8 @@ export async function syncConsolidatedChildrenFromPrimary(primaryOrderId, fields
       const childOrd = allOrders.find(o => String(o.id) === String(cId));
       if (childOrd) {
         Object.assign(childOrd, cleanPayload);
+        delete childOrd._wmsTags;
+        delete childOrd._wmsSearchIndex;
       }
     });
   } catch (err) {
@@ -1832,3 +1889,150 @@ export async function syncConsolidatedChildrenFromPrimary(primaryOrderId, fields
   }
 }
 window.syncConsolidatedChildrenFromPrimary = syncConsolidatedChildrenFromPrimary;
+
+/**
+ * Elimina de `active_orders` en Picker cualquier fila suelta de un Pedido Secundario Consolidado,
+ * ya que sus productos se preparan unificados dentro del Pedido Principal.
+ */
+export async function removeStandaloneSecondaryFromPicker(secondaryOrder) {
+  if (!secondaryOrder) return;
+  const ordNum = String(secondaryOrder.external_order_number || secondaryOrder.numero_orden || secondaryOrder.id || '').trim();
+  if (!ordNum) return;
+
+  try {
+    if (typeof window._deletePickerActiveOrderRowsForOrder === 'function') {
+      await window._deletePickerActiveOrderRowsForOrder(ordNum, secondaryOrder.comercio);
+      return;
+    }
+    const PICKER_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
+    const PICKER_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
+    const pClient = window.pickerSupabase || (window.supabase && typeof window.supabase.createClient === 'function' ? window.supabase.createClient(PICKER_URL, PICKER_KEY) : null);
+    if (!pClient) return;
+
+    const cleanNum = ordNum.replace(/^#/, '');
+    const searchKeys = Array.from(new Set([ordNum, '#' + cleanNum, cleanNum, ordNum.toUpperCase(), cleanNum.toUpperCase()]));
+    let q = pClient.from('active_orders').delete().in('order_number', searchKeys);
+    if (secondaryOrder.comercio) q = q.eq('comercio', secondaryOrder.comercio);
+    await q;
+  } catch (err) {
+    console.warn('[ConsolidateOrders] Aviso limpiando pedido secundario suelto en Picker:', err);
+  }
+}
+window.removeStandaloneSecondaryFromPicker = removeStandaloneSecondaryFromPicker;
+
+/**
+ * Resuelve el grupo completo de pedidos consolidados (Principal + Secundarios) para enviar
+ * como un único pedido al Picker con todos sus productos separados visualmente por pedido.
+ */
+export async function resolveConsolidatedGroupForPicker(order, supaClient = null) {
+  if (!order) return { isConsolidated: false, role: 'none', primaryOrder: null, secondaryOrders: [], allOrders: [] };
+
+  const info = getOrderConsolidationInfo(order);
+  if (!info.isConsolidated) {
+    return {
+      isConsolidated: false,
+      role: 'none',
+      primaryOrder: order,
+      secondaryOrders: [],
+      allOrders: [order]
+    };
+  }
+
+  const db = supaClient || supabase;
+  const loaded = window.loadedOrders || [];
+
+  let primaryOrder = null;
+  if (info.role === 'primary') {
+    primaryOrder = order;
+  } else if (info.role === 'secondary' && info.primaryOrderId) {
+    primaryOrder = loaded.find(o => String(o.id) === String(info.primaryOrderId)) || null;
+    if (!primaryOrder && db) {
+      try {
+        const { data: fetchedPrimary } = await db
+          .from('orders')
+          .select('id, external_order_number, external_platform, origen, status, estado_wms, payment_status, categoria_entrega, comercio, tracking_number, operador, courier, agenda, sucursal_pickeo, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, raw_lightdata_data, raw_shopify_data, raw_meli_data, raw_woocommerce_data, raw_jumpseller_data, raw_tiendanube_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_walmart_data, cantidad, item, sku, shipping_method, is_consolidated, consolidated_into_order_id')
+          .eq('id', info.primaryOrderId)
+          .maybeSingle();
+        if (fetchedPrimary) primaryOrder = fetchedPrimary;
+      } catch (e) {
+        console.warn('[ConsolidateOrders] Aviso consultando Pedido Principal para Picker:', e);
+      }
+    }
+  }
+
+  if (!primaryOrder) {
+    return {
+      isConsolidated: false,
+      role: 'none',
+      primaryOrder: order,
+      secondaryOrders: [],
+      allOrders: [order]
+    };
+  }
+
+  const pInfo = getOrderConsolidationInfo(primaryOrder);
+  const childIdSet = new Set((pInfo.childrenIds || []).map(id => String(id)));
+
+  // También incluir cualquier pedido en memoria que apunte a este primaryOrder
+  loaded.forEach(o => {
+    if (!o || !o.id || String(o.id) === String(primaryOrder.id)) return;
+    const oInfo = getOrderConsolidationInfo(o);
+    if (oInfo.isConsolidated && oInfo.role === 'secondary' && String(oInfo.primaryOrderId) === String(primaryOrder.id)) {
+      childIdSet.add(String(o.id));
+    }
+  });
+
+  if (info.role === 'secondary' && order.id && String(order.id) !== String(primaryOrder.id)) {
+    childIdSet.add(String(order.id));
+  }
+
+  const secondaryOrders = [];
+  const missingIds = [];
+
+  for (const cId of childIdSet) {
+    if (String(cId) === String(order.id) && info.role === 'secondary') {
+      secondaryOrders.push(order);
+      continue;
+    }
+    const foundInMem = loaded.find(o => String(o.id) === String(cId));
+    if (foundInMem) {
+      secondaryOrders.push(foundInMem);
+    } else {
+      missingIds.push(cId);
+    }
+  }
+
+  if (missingIds.length > 0 && db) {
+    try {
+      const { data: fetchedChildren } = await db
+        .from('orders')
+        .select('id, external_order_number, external_platform, origen, status, estado_wms, payment_status, categoria_entrega, comercio, tracking_number, operador, courier, agenda, sucursal_pickeo, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, raw_lightdata_data, raw_shopify_data, raw_meli_data, raw_woocommerce_data, raw_jumpseller_data, raw_tiendanube_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_walmart_data, cantidad, item, sku, shipping_method, is_consolidated, consolidated_into_order_id')
+        .in('id', missingIds);
+      if (Array.isArray(fetchedChildren)) {
+        fetchedChildren.forEach(fc => {
+          if (fc && fc.id && !secondaryOrders.some(s => String(s.id) === String(fc.id))) {
+            secondaryOrders.push(fc);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('[ConsolidateOrders] Aviso cargando pedidos secundarios para Picker:', e);
+    }
+  }
+
+  // Ordenar secundarios por created_at o por número de folio para orden visual determinista (Pedido 2/N, 3/N...)
+  secondaryOrders.sort((a, b) => {
+    const fA = String(a.external_order_number || a.id || '');
+    const fB = String(b.external_order_number || b.id || '');
+    return fA.localeCompare(fB, undefined, { numeric: true });
+  });
+
+  return {
+    isConsolidated: secondaryOrders.length > 0 || info.isConsolidated,
+    role: info.role,
+    primaryOrder,
+    secondaryOrders,
+    allOrders: [primaryOrder, ...secondaryOrders]
+  };
+}
+window.resolveConsolidatedGroupForPicker = resolveConsolidatedGroupForPicker;
