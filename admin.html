@@ -10,19 +10,27 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <link rel="icon" type="image/png" href="./favicon.png">
-  <link rel="apple-touch-icon" href="./favicon.png">
+  <link rel="apple-touch-icon" href="./img/pwa/icon-192.png">
+  <link rel="manifest" href="/manifest-admin.webmanifest">
+  <meta name="theme-color" content="#1800AD">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="STOCKA Admin">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
   <link rel="stylesheet" href="./css/style.css?v=1.0.8">
   <link rel="stylesheet" href="./css/layout.css?v=1.2.9">
   <link rel="stylesheet" href="./css/inventory_count.css?v=1.0.6">
-  <link rel="stylesheet" href="./css/agendas_grid.css?v=1.0.1">
+  <link rel="stylesheet" href="./css/agendas_grid.css?v=1.0.2">
   <link rel="stylesheet" href="./css/merchants_radar.css?v=1.7.0">
   <link rel="stylesheet" href="./css/workspace_panel.css?v=1.0.0">
   <link rel="stylesheet" href="./css/inventory_coverage.css?v=1.2.1">
+  <link rel="stylesheet" href="./css/pwa_setup.css?v=1.0.0">
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
   <!-- Quill Rich Text Editor CDN -->
   <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
-  <script src="./js/theme.js?v=1.2.10"></script>
+  <script src="./js/theme.js?v=1.2.11"></script>
+  <script src="./js/pwa_setup.js?v=1.0.0"></script>
   <style>
     @keyframes pulse-warning {
       0% {
@@ -531,9 +539,10 @@
                 <li><a href="/admin/consolidados" class="nav-item" data-view="consolidated_shipments"><i class="ri-clipboard-line"></i> <span class="nav-text">Envíos Consolidados</span></a></li>
                 <li><a href="/admin/manifiestos" class="nav-item" data-view="manifests_admin"><i class="ri-file-paper-2-line"></i> <span class="nav-text">Centro de Manifiestos</span></a></li>
                 <li><a href="/admin/optiroute" class="nav-item" data-view="optiroute_support"><i class="ri-route-line"></i> <span class="nav-text">Optiroute</span></a></li>
-                <li><a href="/admin/incidencias" class="nav-item" data-view="incidencias_admin"><i class="ri-alert-line"></i> <span class="nav-text">Gestión de Incidencias</span> <span id="badge-incidencias-admin" class="menu-badge" style="display: none;">0</span></a></li>
+                <li id="nav-li-incidencias-admin" style="display: none;"><a href="/admin/incidencias" class="nav-item" data-view="incidencias_admin" style="display: none;"><i class="ri-alert-line"></i> <span class="nav-text">Gestión de Incidencias</span> <span id="badge-incidencias-admin" class="menu-badge" style="display: none;">0</span></a></li>
                 <li><a href="/admin/volumen-diario" class="nav-item" data-view="volumen_diario_admin"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
                 <li><a href="/admin/logistica-inversa" class="nav-item" data-view="returns_admin"><i class="ri-arrow-go-back-line"></i> <span class="nav-text">Logística Inversa</span></a></li>
+                <li><a href="/admin/portales-cambios" class="nav-item" data-view="returns_widget"><i class="ri-exchange-box-line"></i> <span class="nav-text">Portales de Cambios</span> <span class="menu-badge" style="background-color: #059669; color: white; font-size: 0.65rem;">Nuevo</span></a></li>
                 <li><a href="/admin/punto-ventas" class="nav-item" data-view="pos_admin"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Punto de Ventas</span></a></li>
               </ul>
             </div>
@@ -995,7 +1004,7 @@
                   <span id="admin-ops-total-label" class="ops-total-pill">Al día</span>
                 </div>
                 <div class="admin-ops-list" id="admin-ops-list">
-                  <button type="button" class="admin-ops-item" data-admin-nav="incidencias_admin">
+                  <button type="button" id="admin-ops-incidencias-btn" class="admin-ops-item" data-admin-nav="incidencias_admin" style="display: none;">
                     <span class="ops-item-icon ops-danger"><i class="ri-alert-line"></i></span>
                     <span class="ops-item-label">Incidencias Pendientes</span>
                     <span class="ops-item-count" data-ops-count="incidencias">0</span>
@@ -1067,6 +1076,12 @@
               </div>
             </div>
 
+            <!-- 3C-2. Botón Instalar App Admin y Configurar Avisos Push -->
+            <button id="pwa-setup-header-btn" class="header-icon-btn dock-icon-btn pwa-header-btn" type="button" aria-label="Instalar app y activar avisos" title="Configurar app en este dispositivo y activar avisos">
+              <i class="ri-smartphone-line"></i>
+              <span id="pwa-header-dot" class="pwa-header-dot" style="display: none;"></span>
+            </button>
+
             <!-- 3D. Botón Compacto de Tema (Claro / Oscuro) en el Dock -->
             <button class="theme-toggle-btn admin-dock-theme-btn" type="button" aria-label="Cambiar tema" title="Cambiar entre modo claro y oscuro">
               <i class="ri-sun-line sun-icon"></i>
@@ -1123,6 +1138,10 @@
                 <button type="button" class="admin-profile-menu-item" data-admin-nav="documentation_admin">
                   <i class="ri-folder-shield-2-line"></i>
                   <span>Documentación Interna</span>
+                </button>
+                <button type="button" class="admin-profile-menu-item" data-open-pwa-setup="true">
+                  <i class="ri-smartphone-line"></i>
+                  <span>App y Avisos en Dispositivo</span>
                 </button>
               </div>
 
@@ -5065,20 +5084,20 @@
   <script src="./js/inventory_sheets.js?v=1.0.3"></script>
   <script src="./js/export_manager.js?v=1.0.3"></script>
   <script src="./js/toast_notifications.js?v=1.0.1"></script>
-  <script src="./js/inbound_notifications.js?v=1.0.6"></script>
-  <script src="./js/inventory_notifications.js?v=1.0.0"></script>
+  <script src="./js/inbound_notifications.js?v=1.0.7"></script>
+  <script src="./js/inventory_notifications.js?v=1.0.1"></script>
   <script src="./js/integration_notifications.js?v=1.0.0"></script>
   <script type="module" src="./js/split_orders.js?v=1.0.1"></script>
-  <script type="module" src="./js/consolidate_orders.js?v=1.0.4"></script>
+  <script type="module" src="./js/consolidate_orders.js?v=1.0.5"></script>
   <script type="module" src="./js/picking_requests.js?v=1.0.5"></script>
-  <script src="./js/agendas_grid.js?v=1.0.8"></script>
-  <script type="module" src="./js/merchants_radar.js?v=1.7.2"></script>
+  <script src="./js/agendas_grid.js?v=1.0.9"></script>
+  <script type="module" src="./js/merchants_radar.js?v=1.7.3"></script>
   <script src="./js/db-cache.js?v=1.0.1"></script>
-  <script type="module" src="./js/admin.js?v=1.5.82"></script>
-  <script type="module" src="./js/lioren_invoicing.js?v=1.1.5"></script>
+  <script type="module" src="./js/admin.js?v=1.5.87"></script>
+  <script type="module" src="./js/lioren_invoicing.js?v=1.1.6"></script>
   <script type="module" src="./js/stock_transfers.js?v=1.1.2"></script>
   <script type="module" src="./js/order_editor.js?v=1.0.3"></script>
-  <script type="module" src="./js/enviame_billing_importer.js?v=1.0.6"></script>
+  <script type="module" src="./js/enviame_billing_importer.js?v=1.0.7"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.3.16"></script>
   <script src="./js/manifests.js?v=1.0.2"></script>

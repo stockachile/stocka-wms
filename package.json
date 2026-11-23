@@ -12,15 +12,20 @@
     "session:starken": "node save_starken_session.js",
     "schedule:starken": "node scheduler_sync_starken.js",
     "sync:lightdata": "node sync_lightdata.js",
-    "sync:enviame": "node sync_enviame.js"
+    "sync:woodelivery": "node sync_woodelivery.js",
+    "sync:enviame": "node sync_enviame.js",
+    "bridge:leads": "node stocka_leads_bridge.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "bwip-js": "^4.11.4",
     "html-to-docx": "^1.8.0",
     "pdfkit": "^0.20.2",
     "pg": "^8.22.0",
+    "pino": "^10.4.0",
     "playwright": "^1.60.0",
+    "qrcode": "^1.5.4",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
