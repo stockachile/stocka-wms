@@ -28,7 +28,6 @@ DECLARE
   v_caller_uid UUID := auth.uid();
   v_is_privileged BOOLEAN := FALSE;
   v_profile_comercio TEXT := '';
-  v_actor_name TEXT := 'Usuario';
   v_wh_exists BOOLEAN := FALSE;
   v_item RECORD;
   v_prod RECORD;
@@ -67,7 +66,6 @@ BEGIN
   IF COALESCE(current_setting('request.jwt.claim.role', true), '') = 'service_role'
      OR current_user IN ('postgres', 'service_role') THEN
     v_is_privileged := TRUE;
-    v_actor_name := 'Sistema';
   ELSE
     IF v_caller_uid IS NULL THEN
       RAISE EXCEPTION 'NO_AUTENTICADO: Debes iniciar sesión para ajustar el stock.';
@@ -85,18 +83,6 @@ BEGIN
     IF LOWER(TRIM(COALESCE(v_profile_comercio, ''))) = 'all' THEN
       v_is_privileged := TRUE;
     END IF;
-
-    SELECT COALESCE(
-      NULLIF(TRIM(raw_user_meta_data->>'full_name'), ''),
-      NULLIF(TRIM(raw_user_meta_data->>'name'), ''),
-      email,
-      'Usuario'
-    )
-    INTO v_actor_name
-    FROM auth.users
-    WHERE id = v_caller_uid;
-
-    v_actor_name := COALESCE(v_actor_name, 'Usuario');
   END IF;
 
   -- 3. Recorrer ítems en orden determinista por product_id para evitar deadlocks
@@ -139,8 +125,8 @@ BEGIN
     END IF;
 
     -- Asegurar fila en inventory y bloquearla atómicamente (FOR UPDATE)
-    INSERT INTO public.inventory (product_id, warehouse_id, quantity, committed_quantity, reserved_quantity)
-    VALUES (v_prod.id, p_warehouse_id, 0, 0, 0)
+    INSERT INTO public.inventory (product_id, warehouse_id, quantity)
+    VALUES (v_prod.id, p_warehouse_id, 0)
     ON CONFLICT (product_id, warehouse_id) DO NOTHING;
 
     SELECT id, COALESCE(quantity, 0)
@@ -193,16 +179,14 @@ BEGIN
       type,
       quantity,
       date,
-      reference_doc,
-      created_by_name
+      reference_doc
     ) VALUES (
       v_prod.id,
       p_warehouse_id,
       v_mov_type,
       ABS(v_delta),
       NOW(),
-      'Ajuste: ' || v_clean_comment,
-      v_actor_name
+      'Ajuste: ' || v_clean_comment
     )
     RETURNING id INTO v_mov_id;
 
