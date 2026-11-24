@@ -151,11 +151,21 @@ async function syncWalmartData() {
         syncError = `Pedidos: ${err.message}`;
       }
 
-      try {
-        await syncMerchantProducts(integration);
-      } catch (err) {
-        console.error(`❌ Error al sincronizar catálogo de ${integration.comercio}:`, err.message);
-        syncError = syncError ? `${syncError} | Catálogo: ${err.message}` : `Catálogo: ${err.message}`;
+      const nowUtc = new Date();
+      const isScheduledCatalogWindow = (nowUtc.getUTCHours() === 6 || nowUtc.getUTCHours() === 18) && nowUtc.getUTCMinutes() < 30;
+      const shouldSyncProducts =
+        process.env.SKIP_PRODUCTS_SYNC !== 'true' &&
+        (process.env.FORCE_PRODUCTS_SYNC === 'true' || !!process.env.TARGET_COMERCIO || isScheduledCatalogWindow);
+
+      if (shouldSyncProducts) {
+        try {
+          await syncMerchantProducts(integration);
+        } catch (err) {
+          console.error(`❌ Error al sincronizar catálogo de ${integration.comercio}:`, err.message);
+          syncError = syncError ? `${syncError} | Catálogo: ${err.message}` : `Catálogo: ${err.message}`;
+        }
+      } else {
+        console.log(`⏭️ Omitiendo catálogo Walmart de ${integration.comercio} en esta corrida (ventana 2x/día para optimizar Disk IO).`);
       }
 
       // Escribir estado en la base de datos

@@ -195,13 +195,21 @@ async function syncShopifyData() {
       syncError = `Pedidos: ${ordErr.message}`;
     }
     
-    // 3. Extraer y Guardar Productos (Opcional por ahora, pero recomendado)
-    if (process.env.SKIP_PRODUCTS_SYNC !== 'true') {
+    // 3. Extraer y Guardar Productos (2 veces al día por defecto para evitar saturar Disk IO; forzar con FORCE_PRODUCTS_SYNC=true)
+    const nowUtc = new Date();
+    const isScheduledCatalogWindow = (nowUtc.getUTCHours() === 6 || nowUtc.getUTCHours() === 18) && nowUtc.getUTCMinutes() < 30;
+    const shouldSyncProducts =
+      process.env.SKIP_PRODUCTS_SYNC !== 'true' &&
+      (process.env.FORCE_PRODUCTS_SYNC === 'true' || !!process.env.TARGET_COMERCIO || isScheduledCatalogWindow);
+
+    if (shouldSyncProducts) {
       try {
         await syncProducts(integration);
       } catch (prodErr) {
         syncError = syncError ? `${syncError} | Productos: ${prodErr.message}` : `Productos: ${prodErr.message}`;
       }
+    } else {
+      console.log('⏭️ Omitiendo syncProducts en esta corrida (ventana de catálogo 2x/día para optimizar Disk IO).');
     }
 
     try {
@@ -220,7 +228,12 @@ async function syncShopifyData() {
 
 async function syncOrders(integration) {
   console.log('--> Extrayendo pedidos...');
-  const url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any&limit=250`;
+  const lookbackHours = Number(process.env.SHOPIFY_LOOKBACK_HOURS || 6);
+  const isFullSync = process.env.FULL_SYNC === 'true';
+  const updatedAtMinParam = (!isFullSync && lookbackHours > 0)
+    ? `&updated_at_min=${encodeURIComponent(new Date(Date.now() - lookbackHours * 60 * 60 * 1000).toISOString())}`
+    : '';
+  const url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any&limit=250${updatedAtMinParam}`;
 
   // Obtener sigla del comercio y configuración de prefijos por plataforma
   let siglaComercio = '';
@@ -417,13 +430,32 @@ async function syncOrders(integration) {
           continue;
         }
         const existingRaw = existingOrder.raw_shopify_data || {};
+        const currentExtNum = (existingOrder.external_order_number || '').toString().trim();
+        const hasPrefixToFix = (
+          currentExtNum === (order.name || '').toString().trim() ||
+          currentExtNum === orderNumber
+        ) && currentExtNum !== finalOrderNumber;
+        const isAlreadyCancelled = (existingOrder.status || '').toLowerCase().trim() === 'cancelado';
+        const needsCancelSync = isCancelledInShopify && !isAlreadyCancelled;
+        const hasItems = (existingOrder.cantidad || 0) > 0;
+
+        if (
+          order.updated_at &&
+          existingRaw.updated_at &&
+          order.updated_at === existingRaw.updated_at &&
+          !hasPrefixToFix &&
+          !needsCancelSync &&
+          hasItems
+        ) {
+          continue;
+        }
+
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         const orderDataToUpdate = { ...orderDataToSave };
 
         // Preservar external_order_number existente si ya tiene prefijo o sufijo (ej. split -1),
         // actualizándolo a finalOrderNumber únicamente si había quedado sin prefijo (igual a order.name / orderNumber).
-        const currentExtNum = (existingOrder.external_order_number || '').toString().trim();
         if (currentExtNum && currentExtNum !== (order.name || '').toString().trim() && currentExtNum !== orderNumber) {
           delete orderDataToUpdate.external_order_number;
         }
@@ -844,10 +876,12 @@ async function syncOrders(integration) {
       for (const qty of expectedQuantities.values()) {
         totalUpdatedUnits += qty;
       }
-      await supabase
-        .from('orders')
-        .update({ cantidad: totalUpdatedUnits })
-        .eq('id', orderId);
+      if (!existingOrder || existingOrder.cantidad !== totalUpdatedUnits) {
+        await supabase
+          .from('orders')
+          .update({ cantidad: totalUpdatedUnits })
+          .eq('id', orderId);
+      }
     }
   } catch (error) {
     console.error(`Error sincronizando pedidos para ${integration.shop_url}:`, error.message);

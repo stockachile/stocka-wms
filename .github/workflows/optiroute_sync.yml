@@ -3,7 +3,7 @@ name: Optiroute Sync
 on:
   schedule:
     # Se ejecuta automáticamente cada 30 minutos
-    - cron: '*/30 * * * *'
+    - cron: '1,31 * * * *'
   workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub
 
 jobs:

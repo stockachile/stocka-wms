@@ -208,9 +208,17 @@ async function syncMerchantJumpseller(integration) {
     'Content-Type': 'application/json'
   };
 
-  // C. Sincronizar Productos primero (para asegurar mapeos en órdenes)
-  if (process.env.SKIP_PRODUCTS_SYNC !== 'true') {
+  // C. Sincronizar Productos (ventana 2x/día para optimizar Disk IO; forzar con FORCE_PRODUCTS_SYNC=true)
+  const nowUtc = new Date();
+  const isScheduledCatalogWindow = (nowUtc.getUTCHours() === 6 || nowUtc.getUTCHours() === 18) && nowUtc.getUTCMinutes() < 15;
+  const shouldSyncProducts =
+    process.env.SKIP_PRODUCTS_SYNC !== 'true' &&
+    (process.env.FORCE_PRODUCTS_SYNC === 'true' || !!process.env.TARGET_COMERCIO || isScheduledCatalogWindow);
+
+  if (shouldSyncProducts) {
     await syncProducts(integration, headers);
+  } else {
+    console.log('⏭️ Omitiendo syncProducts en esta corrida (ventana de catálogo 2x/día para optimizar Disk IO).');
   }
 
   // D. Sincronizar Pedidos

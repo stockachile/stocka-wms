@@ -265,9 +265,17 @@ async function syncMerchantTiendanube(integration) {
   // 0. Asegurar que los webhooks de pedidos y productos estén registrados en Tiendanube
   await ensureTiendanubeWebhooks(integration, storeId, headers);
 
-  // 1. Sincronizar Productos primero (recomendado para mapear SKUs correctamente)
-  if (process.env.SKIP_PRODUCTS_SYNC !== 'true') {
+  // 1. Sincronizar Productos (ventana 2x/día para optimizar Disk IO; forzar con FORCE_PRODUCTS_SYNC=true)
+  const nowUtc = new Date();
+  const isScheduledCatalogWindow = (nowUtc.getUTCHours() === 6 || nowUtc.getUTCHours() === 18) && nowUtc.getUTCMinutes() < 30;
+  const shouldSyncProducts =
+    process.env.SKIP_PRODUCTS_SYNC !== 'true' &&
+    (process.env.FORCE_PRODUCTS_SYNC === 'true' || !!process.env.TARGET_COMERCIO || isScheduledCatalogWindow);
+
+  if (shouldSyncProducts) {
     await syncProducts(integration, storeId, headers);
+  } else {
+    console.log('⏭️ Omitiendo syncProducts en esta corrida (ventana de catálogo 2x/día para optimizar Disk IO).');
   }
 
   // 2. Sincronizar Pedidos (Orders)

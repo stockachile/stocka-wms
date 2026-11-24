@@ -220,13 +220,21 @@ async function syncMerchantWooCommerce(integration) {
 
   let syncErrors = [];
 
-  // 1. Sincronizar Productos primero (recomendado para mapear SKUs correctamente)
-  if (process.env.SKIP_PRODUCTS_SYNC !== 'true') {
+  // 1. Sincronizar Productos (ventana 2x/día para optimizar Disk IO; forzar con FORCE_PRODUCTS_SYNC=true)
+  const nowUtc = new Date();
+  const isScheduledCatalogWindow = (nowUtc.getUTCHours() === 6 || nowUtc.getUTCHours() === 18) && nowUtc.getUTCMinutes() < 30;
+  const shouldSyncProducts =
+    process.env.SKIP_PRODUCTS_SYNC !== 'true' &&
+    (process.env.FORCE_PRODUCTS_SYNC === 'true' || !!process.env.TARGET_COMERCIO || isScheduledCatalogWindow);
+
+  if (shouldSyncProducts) {
     try {
       await syncProducts(integration, baseUrl, headers);
     } catch (prodErr) {
       syncErrors.push(`Productos: ${prodErr.message}`);
     }
+  } else {
+    console.log('⏭️ Omitiendo syncProducts en esta corrida (ventana de catálogo 2x/día para optimizar Disk IO).');
   }
 
   // 2. Sincronizar Pedidos (Orders)
