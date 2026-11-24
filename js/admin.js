@@ -38956,6 +38956,41 @@ function resolveExactAdminKardexProductId(products, rawInput) {
   return '';
 }
 
+function isMissingMovementColumnError(err) {
+  if (!err) return false;
+  const code = String(err.code || '').toUpperCase();
+  const msg = String(err.message || '');
+  return code === '42703' || code === 'PGRST204' || /does not exist|schema cache/i.test(msg);
+}
+
+function getAdminMovementSelectTiers(includeProducts = false) {
+  const base = ['id', 'date', 'type', 'quantity', 'reference_doc', 'warehouse_id'];
+  if (includeProducts) base.push('product_id');
+  const joins = includeProducts
+    ? ['products (id, sku, name, comercio)', 'warehouses (id, name)']
+    : ['warehouses (id, name)'];
+  const reversalCols = [
+    'created_by_name',
+    'reversed_at',
+    'reversed_by_name',
+    'reversal_reason',
+    'reversal_movement_id',
+    'reversed_from_movement_id'
+  ];
+  return [
+    // Tier 0: Esquema completo (stock_transfers + kardex_reversals)
+    [...base, 'order_id', 'transfer_id', ...reversalCols, ...joins].join(', '),
+    // Tier 1: Con reversos pero sin transfer_id
+    [...base, 'order_id', ...reversalCols, ...joins].join(', '),
+    // Tier 2: Con transfer_id pero sin columnas de reverso
+    [...base, 'order_id', 'transfer_id', 'created_by_name', ...joins].join(', '),
+    // Tier 3: Esquema base actual (con order_id)
+    [...base, 'order_id', ...joins].join(', '),
+    // Tier 4: Esquema mínimo legacy
+    [...base, ...joins].join(', ')
+  ];
+}
+
 window.adminMovementsState = {
   allMovements: [],
   filteredMovements: [],
@@ -39147,42 +39182,13 @@ async function renderAdminMovements() {
         targetProductIds = (prods || []).map(p => p.id);
       }
 
-      let useExtendedCols = true;
+      const selectTiers = getAdminMovementSelectTiers(true);
+      let tierIdx = Number.isInteger(window._adminMovementsSelectTierIdx)
+        ? Math.min(window._adminMovementsSelectTierIdx, selectTiers.length - 1)
+        : 0;
       if (targetProductIds === null || targetProductIds.length > 0) {
         while (from < maxCap) {
-          const selectCols = useExtendedCols
-            ? `
-              id,
-              date,
-              type,
-              quantity,
-              reference_doc,
-              warehouse_id,
-              product_id,
-              order_id,
-              transfer_id,
-              created_by_name,
-              reversed_at,
-              reversed_by_name,
-              reversal_reason,
-              reversal_movement_id,
-              reversed_from_movement_id,
-              products (id, sku, name, comercio),
-              warehouses (id, name)
-            `
-            : `
-              id,
-              date,
-              type,
-              quantity,
-              reference_doc,
-              warehouse_id,
-              product_id,
-              order_id,
-              transfer_id,
-              products (id, sku, name, comercio),
-              warehouses (id, name)
-            `;
+          const selectCols = selectTiers[tierIdx];
           let query = supabase.from('movements').select(selectCols);
 
           if (targetProductIds !== null) {
@@ -39202,11 +39208,12 @@ async function renderAdminMovements() {
             .order('date', { ascending: false })
             .range(from, from + step - 1);
 
-          if (movsErr && useExtendedCols && String(movsErr.message || '').includes('reversed_at')) {
-            useExtendedCols = false;
+          if (movsErr && isMissingMovementColumnError(movsErr) && tierIdx + 1 < selectTiers.length) {
+            tierIdx += 1;
             continue;
           }
           if (movsErr) throw movsErr;
+          window._adminMovementsSelectTierIdx = tierIdx;
           if (!movsChunk || movsChunk.length === 0) break;
           rawMovements = rawMovements.concat(movsChunk);
           if (movsChunk.length < step) break;
@@ -41413,45 +41420,29 @@ async function openAdminProductMovementsModal(productId, sku, name) {
   try {
     // 1. Obtener movimientos cronológicamente y ubicaciones físicas del SKU en paralelo
     const fetchSkuMovs = async () => {
-      const extRes = await supabase
-        .from('movements')
-        .select(`
-          id,
-          date,
-          type,
-          quantity,
-          reference_doc,
-          warehouse_id,
-          order_id,
-          transfer_id,
-          created_by_name,
-          reversed_at,
-          reversed_by_name,
-          reversal_reason,
-          reversal_movement_id,
-          reversed_from_movement_id,
-          warehouses (id, name)
-        `)
-        .eq('product_id', productId)
-        .order('date', { ascending: true });
-      if (extRes.error && String(extRes.error.message || '').includes('reversed_at')) {
-        return supabase
+      const selectTiers = getAdminMovementSelectTiers(false);
+      let tierIdx = Number.isInteger(window._adminMovementsSelectTierIdx)
+        ? Math.min(window._adminMovementsSelectTierIdx, selectTiers.length - 1)
+        : 0;
+      let lastRes = null;
+      while (tierIdx < selectTiers.length) {
+        const res = await supabase
           .from('movements')
-          .select(`
-            id,
-            date,
-            type,
-            quantity,
-            reference_doc,
-            warehouse_id,
-            order_id,
-            transfer_id,
-            warehouses (id, name)
-          `)
+          .select(selectTiers[tierIdx])
           .eq('product_id', productId)
           .order('date', { ascending: true });
+        if (!res.error) {
+          window._adminMovementsSelectTierIdx = tierIdx;
+          return res;
+        }
+        lastRes = res;
+        if (isMissingMovementColumnError(res.error) && tierIdx + 1 < selectTiers.length) {
+          tierIdx += 1;
+          continue;
+        }
+        return res;
       }
-      return extRes;
+      return lastRes;
     };
 
     const [movsResult, initialLocations, prodMetaResult] = await Promise.all([

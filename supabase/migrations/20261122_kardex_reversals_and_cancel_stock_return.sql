@@ -22,6 +22,7 @@ BEGIN;
 -- 1. COLUMNAS E ÍNDICES DE TRAZABILIDAD DE REVERSOS EN public.movements
 -- =========================================================================================
 ALTER TABLE public.movements
+  ADD COLUMN IF NOT EXISTS transfer_id UUID,
   ADD COLUMN IF NOT EXISTS created_by_name TEXT,
   ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS reversed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
