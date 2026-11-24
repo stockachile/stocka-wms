@@ -239,6 +239,23 @@ window.openEditOrderItemsModal = async function(orderId) {
       return;
     }
 
+    if (!isAdmin && order?.comercio && typeof window.checkIsCommercePaused === 'function') {
+      const isCommercePaused = await window.checkIsCommercePaused(order.comercio);
+      if (isCommercePaused) {
+        if (window.Swal) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Edición bloqueada (Servicio Pausado)',
+            text: 'No es posible editar pedidos mientras el comercio tenga su servicio pausado por facturación o desactivado. Por favor regulariza tus pagos pendientes en la sección de Facturación.',
+            confirmButtonColor: '#ef4444'
+          });
+        } else {
+          alert('No es posible editar pedidos mientras el comercio tenga su servicio pausado por facturación o desactivado.');
+        }
+        return;
+      }
+    }
+
     const estadoWmsLower = String(order.estado_wms || order.status || '').toLowerCase().trim();
     const isEnProcesamiento = estadoWmsLower === 'en procesamiento';
 
@@ -1431,6 +1448,13 @@ window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedSto
     if (userRoleLower === 'observer') {
       Swal.fire('Acceso denegado', 'Tu perfil de Observador es de solo lectura y no puede editar pedidos.', 'warning');
       return;
+    }
+    if (!isAdmin && commerceName && typeof window.checkIsCommercePaused === 'function') {
+      const isCommercePaused = await window.checkIsCommercePaused(commerceName);
+      if (isCommercePaused) {
+        Swal.fire('Edición bloqueada (Servicio Pausado)', 'No es posible guardar cambios en el pedido mientras el comercio tenga su servicio pausado por facturación o desactivado.', 'warning');
+        return;
+      }
     }
     const estadoWmsLower = String(orderData.estado_wms || orderData.status || '').toLowerCase().trim();
     if (!isAdmin && estadoWmsLower !== 'en procesamiento') {

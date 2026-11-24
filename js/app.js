@@ -13827,6 +13827,10 @@ async function renderOrders() {
       </div>
       `;
 
+      if (typeof window.syncManualOrderButtonPauseState === 'function') {
+        window.syncManualOrderButtonPauseState();
+      }
+
       // Listeners para filtros
       const searchInput = document.getElementById('search-client-orders');
       const origenSelect = document.getElementById('filter-client-origen');
@@ -15409,8 +15413,22 @@ window.applyClientWmsFiltersAndRender = function() {
               <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
                 <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-basket-2-line"></i> Ítems del Pedido</span>
                 <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-                  ${((order.estado_wms || order.status || '').trim().toLowerCase() === 'en procesamiento') ? `<button type="button" onclick="event.stopPropagation(); window.openEditOrderItemsModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: var(--color-primary); border-color: rgba(99, 102, 241, 0.45); background: rgba(99, 102, 241, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Editar los productos de este pedido en WMS"><i class="ri-edit-line"></i> Editar Ítems</button>` : ''}
-                  ${(window.canSplitOrder && window.canSplitOrder(order)) ? `<button type="button" onclick="event.stopPropagation(); window.openSplitOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: #7c3aed; border-color: #c4b5fd; background: rgba(124, 58, 237, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Dividir este pedido para realizar un envío parcial de los productos disponibles"><i class="ri-scissors-2-line"></i> Dividir Pedido</button>` : ''}
+                  ${(() => {
+                    const ordCommLow = String(order.comercio || '').trim().toLowerCase();
+                    const pausedNamesLow = (window.pausedBillingComercioNames || window.pausedBillingComercios || []).map(c => c.trim().toLowerCase());
+                    const deactNamesLow = (window.deactivatedComercios || []).map(c => c.trim().toLowerCase());
+                    const isOrderCommerceBlocked = Boolean(ordCommLow && (pausedNamesLow.includes(ordCommLow) || deactNamesLow.includes(ordCommLow)));
+                    const isEnProc = (order.estado_wms || order.status || '').trim().toLowerCase() === 'en procesamiento';
+                    const editBtn = isEnProc
+                      ? (isOrderCommerceBlocked
+                          ? `<button type="button" disabled class="btn btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: #ffffff; border: 1px solid #94a3b8; background: #94a3b8; opacity: 0.78; cursor: not-allowed; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm);" title="Edición bloqueada: El servicio del comercio se encuentra pausado por facturación"><i class="ri-lock-line"></i> Editar Ítems (Bloqueado)</button>`
+                          : `<button type="button" onclick="event.stopPropagation(); window.openEditOrderItemsModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: var(--color-primary); border-color: rgba(99, 102, 241, 0.45); background: rgba(99, 102, 241, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Editar los productos de este pedido en WMS"><i class="ri-edit-line"></i> Editar Ítems</button>`)
+                      : '';
+                    const splitBtn = (window.canSplitOrder && window.canSplitOrder(order) && !isOrderCommerceBlocked)
+                      ? `<button type="button" onclick="event.stopPropagation(); window.openSplitOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: #7c3aed; border-color: #c4b5fd; background: rgba(124, 58, 237, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Dividir este pedido para realizar un envío parcial de los productos disponibles"><i class="ri-scissors-2-line"></i> Dividir Pedido</button>`
+                      : '';
+                    return editBtn + splitBtn;
+                  })()}
                 </div>
               </h4>
               <div style="overflow-x: auto;">
@@ -15797,6 +15815,43 @@ async function renderIntegrations() {
         </div>
       `;
       document.getElementById('select-integration-commerce-deactivated')?.addEventListener('change', (e) => {
+        window.activeIntegrationCommerce = e.target.value;
+        renderIntegrations();
+      });
+      return;
+    }
+
+    const isCurrentIntegrationCommercePaused = typeof window.checkIsCommercePaused === 'function'
+      ? await window.checkIsCommercePaused(window.activeIntegrationCommerce)
+      : !!(window.pausedBillingComercios && window.pausedBillingComercios.length > 0);
+
+    if (isCurrentIntegrationCommercePaused) {
+      const pausedSwitcher = assignedComercios.length > 1 ? `
+        <div style="margin: 1.5rem auto 0 auto; max-width: 680px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <label style="font-weight: 600; color: var(--color-text-main); font-size: 0.92rem;"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Cambiar Comercio del Conglomerado:</label>
+          <select id="select-integration-commerce-paused" class="form-input" style="max-width: 260px; font-weight: 600; cursor: pointer;">
+            ${assignedComercios.map(c => `<option value="${window.escapeHtml(c)}" ${c === window.activeIntegrationCommerce ? 'selected' : ''}>${window.escapeHtml(c)}</option>`).join('')}
+          </select>
+        </div>
+      ` : '';
+      appContent.innerHTML = getObserverBanner() + pausedSwitcher + `
+        <div class="card" style="margin: 1.5rem auto 2rem auto; max-width: 680px; border: 1.5px solid #ef4444; border-radius: var(--radius-lg); padding: 2rem; text-align: center; background: linear-gradient(180deg, rgba(239, 68, 68, 0.04) 0%, var(--color-surface) 100%);">
+          <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(239, 68, 68, 0.12); color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 1.75rem; margin: 0 auto 1rem auto;">
+            <i class="ri-lock-2-line"></i>
+          </div>
+          <div style="margin-bottom: 0.65rem;">
+            <span style="font-size: 0.72rem; background: #ef4444; color: #ffffff; padding: 0.18rem 0.6rem; border-radius: 99px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">Servicio Pausado</span>
+          </div>
+          <h3 style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: var(--color-text-main);">Integraciones Bloqueadas (${window.escapeHtml(window.activeIntegrationCommerce)})</h3>
+          <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.55;">
+            El comercio se encuentra con <strong>servicio pausado por facturación</strong>. La conexión, modificación y gestión de integraciones de tiendas está temporalmente bloqueada hasta regularizar los pagos pendientes.
+          </p>
+          <button type="button" class="btn btn-primary" onclick="window.navigateToBilling()" style="background: #dc2626; border-color: #dc2626; color: #ffffff; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;">
+            <i class="ri-bill-line"></i> Ir a Facturación
+          </button>
+        </div>
+      `;
+      document.getElementById('select-integration-commerce-paused')?.addEventListener('change', (e) => {
         window.activeIntegrationCommerce = e.target.value;
         renderIntegrations();
       });
@@ -19539,7 +19594,7 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
     }
     
     // Abrir modal de nuevo pedido
-    if (e.target && e.target.id === 'btn-new-order') {
+    if (e.target && (e.target.id === 'btn-new-order' || e.target.closest('#btn-new-order'))) {
       if (userRole === 'observer') {
         alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
         return;
@@ -19551,6 +19606,29 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
         alert('Modo Solo Lectura: Tu comercio se encuentra desactivado y no puede crear nuevos pedidos.');
         return;
       }
+
+      // Verificar si el/los comercio(s) activo(s) tienen servicio pausado por facturación
+      let availableCompanies = activeCompanies;
+      if (activeCompanies.length > 0 && typeof window.checkIsCommercePaused === 'function') {
+        const pauseChecks = await Promise.all(
+          activeCompanies.map(async (c) => ({
+            commerce: c,
+            paused: await window.checkIsCommercePaused(c)
+          }))
+        );
+        availableCompanies = pauseChecks.filter(item => !item.paused).map(item => item.commerce);
+        if (availableCompanies.length === 0) {
+          if (typeof window.syncManualOrderButtonPauseState === 'function') {
+            window.syncManualOrderButtonPauseState();
+          }
+          alert('La creación de pedidos manuales se encuentra bloqueada debido a que el comercio tiene su servicio pausado por facturación. Por favor regulariza tus pagos pendientes en la sección de Facturación.');
+          return;
+        }
+      } else if (window.isCurrentCommerceSuspended) {
+        alert('La creación de pedidos manuales se encuentra bloqueada debido a que el comercio tiene su servicio pausado por facturación. Por favor regulariza tus pagos pendientes en la sección de Facturación.');
+        return;
+      }
+
       const modalOrder = document.getElementById('modal-order');
       const dropdownListEl = document.getElementById('order-product-dropdown-list');
       if (dropdownListEl) {
@@ -19580,8 +19658,8 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
       if (hiddenInput) hiddenInput.value = '';
       window.renderClientNewOrderItemsTable();
 
-      // Configurar selector de comercio (solo comercios activos)
-      const companies = activeCompanies.length > 0 ? activeCompanies : rawCompanies;
+      // Configurar selector de comercio (solo comercios activos y no pausados)
+      const companies = availableCompanies.length > 0 ? availableCompanies : (activeCompanies.length > 0 ? activeCompanies : rawCompanies);
       const commerceSelectContainer = document.getElementById('order-commerce-select-container');
       const commerceSelect = document.getElementById('order-select-commerce');
       if (commerceSelectContainer && commerceSelect) {
@@ -19945,6 +20023,20 @@ window.openRequestNewStoreModal = function({ merchantId, assignedComercios = [],
     // Si no estamos en el paso 4, este listener no debería enviar el formulario
     if (window.currentWizardStep !== 4) {
       return;
+    }
+
+    const preCheckCommerce = document.getElementById('order-select-commerce')?.value?.trim() || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+    if (preCheckCommerce) {
+      const isPausedForOrder = typeof window.checkIsCommercePaused === 'function'
+        ? await window.checkIsCommercePaused(preCheckCommerce)
+        : !!(window.pausedBillingComercios && window.pausedBillingComercios.length > 0);
+      if (isPausedForOrder) {
+        if (typeof window.syncManualOrderButtonPauseState === 'function') {
+          window.syncManualOrderButtonPauseState();
+        }
+        alert('No es posible crear el pedido manual porque el comercio tiene su servicio pausado por facturación o desactivado. Por favor regulariza tus pagos pendientes en la sección de Facturación.');
+        return;
+      }
     }
 
     const items = window.tempClientNewOrderItems || [];
@@ -26407,8 +26499,38 @@ function getLocalDateIsoStringClient(d) {
 
 window.renderReturns = async function() {
   const content = document.getElementById('app-content');
+  const rawReturnCommerces = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+  let isReturnsCreationBlocked = false;
+  if (rawReturnCommerces.length > 0 && typeof window.checkIsCommercePaused === 'function') {
+    const pauseResults = await Promise.all(rawReturnCommerces.map(c => window.checkIsCommercePaused(c)));
+    isReturnsCreationBlocked = pauseResults.every(Boolean);
+  } else {
+    isReturnsCreationBlocked = !!(window.isCurrentCommerceSuspended || (window.pausedBillingComercios && window.pausedBillingComercios.length > 0));
+  }
+
+  const returnsPausedBannerHtml = isReturnsCreationBlocked ? `
+    <div class="alert alert-danger" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(220, 38, 38, 0.12) 100%); border: 1.5px solid #ef4444; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1.15rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 0.85rem; flex: 1; min-width: 260px;">
+        <div style="width: 36px; height: 36px; border-radius: 8px; background: #ef4444; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;">
+          <i class="ri-lock-2-line"></i>
+        </div>
+        <div>
+          <div style="font-weight: 700; color: #b91c1c; font-size: 0.92rem; margin-bottom: 0.15rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span>Creación de Pedidos de Devolución y Cambio Bloqueada</span>
+            <span style="font-size: 0.68rem; background: #ef4444; color: white; padding: 0.1rem 0.45rem; border-radius: 4px; font-weight: 700; text-transform: uppercase;">Servicio Pausado</span>
+          </div>
+          <div style="font-size: 0.8rem; color: #475569; line-height: 1.4;">
+            El comercio se encuentra con servicio pausado por facturación. No es posible registrar nuevos pedidos de devolución o cambio hasta regularizar la cuenta.
+          </div>
+        </div>
+      </div>
+      <button type="button" class="btn btn-sm" onclick="window.navigateToBilling()" style="background: #ffffff; color: #b91c1c; border: 1.5px solid #ef4444; border-radius: 6px; padding: 0.4rem 0.85rem; font-weight: 700; font-size: 0.8rem; white-space: nowrap; cursor: pointer; display: flex; align-items: center; gap: 0.35rem;">
+        <i class="ri-bill-line"></i> Ir a Facturación
+      </button>
+    </div>
+  ` : '';
   
-  content.innerHTML = getObserverBanner() + `
+  content.innerHTML = getObserverBanner() + returnsPausedBannerHtml + `
     <div style="margin-bottom: 1.25rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
       <div>
         <h2 style="font-size: 1.65rem; font-weight: 700; margin-bottom: 0.35rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
@@ -26430,12 +26552,21 @@ window.renderReturns = async function() {
         <button id="btn-quick-branch-receipt" onclick="window.openQuickBranchExchangeReceiptModal()" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; box-shadow: 0 3px 8px rgba(79, 70, 229, 0.25);" title="Crear o imprimir Comprobante de Cambio o Recepción en Sucursal Ñuñoa">
           <i class="ri-file-list-3-line"></i> Comprobante Sucursal
         </button>
-        <button id="btn-create-order-return" class="btn btn-primary" style="background-color: var(--color-danger, #ef4444); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de devolución con destinatario, courier y orden WMS">
-          <i class="ri-shopping-bag-3-line"></i> Pedido Devolución
-        </button>
-        <button id="btn-create-order-exchange" class="btn btn-primary" style="background-color: var(--color-success, #10b981); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de cambio con destinatario, courier y orden WMS">
-          <i class="ri-repeat-2-line"></i> Pedido Cambio
-        </button>
+        ${isReturnsCreationBlocked ? `
+          <button id="btn-create-order-return" class="btn" style="background: #94a3b8; color: #ffffff; border: 1px solid #94a3b8; opacity: 0.78; cursor: not-allowed; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" disabled title="Bloqueado: El servicio del comercio se encuentra pausado por facturación">
+            <i class="ri-lock-line"></i> Pedido Devolución (Bloqueado)
+          </button>
+          <button id="btn-create-order-exchange" class="btn" style="background: #94a3b8; color: #ffffff; border: 1px solid #94a3b8; opacity: 0.78; cursor: not-allowed; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" disabled title="Bloqueado: El servicio del comercio se encuentra pausado por facturación">
+            <i class="ri-lock-line"></i> Pedido Cambio (Bloqueado)
+          </button>
+        ` : `
+          <button id="btn-create-order-return" class="btn btn-primary" style="background-color: var(--color-danger, #ef4444); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de devolución con destinatario, courier y orden WMS">
+            <i class="ri-shopping-bag-3-line"></i> Pedido Devolución
+          </button>
+          <button id="btn-create-order-exchange" class="btn btn-primary" style="background-color: var(--color-success, #10b981); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de cambio con destinatario, courier y orden WMS">
+            <i class="ri-repeat-2-line"></i> Pedido Cambio
+          </button>
+        `}
         <button id="btn-info-export" class="btn" style="background-color: rgba(59, 130, 246, 0.15); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.45rem 0.85rem; display: flex; align-items: center; gap: 0.35rem; border-radius: 99px; font-weight: 700; cursor: pointer;" title="¿Cómo exportar?">
           <i class="ri-information-line"></i> Info
         </button>
@@ -29617,6 +29748,36 @@ async function handleRloSearchOrder() {
 
 window.openReverseLogisticsOrderModal = async function(type) {
   window.openReverseLogisticsModal = window.openReverseLogisticsOrderModal;
+  if (userRole === 'observer') {
+    alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+    return;
+  }
+
+  const rawCompanies = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+  let availableRloCompanies = rawCompanies;
+  if (rawCompanies.length > 0 && typeof window.checkIsCommercePaused === 'function') {
+    const pauseChecks = await Promise.all(
+      rawCompanies.map(async (c) => ({ commerce: c, paused: await window.checkIsCommercePaused(c) }))
+    );
+    availableRloCompanies = pauseChecks.filter(item => !item.paused).map(item => item.commerce);
+    if (availableRloCompanies.length === 0) {
+      if (window.Swal) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Acción bloqueada (Servicio Pausado)',
+          text: 'No es posible crear pedidos de devolución o cambio porque el servicio del comercio se encuentra pausado por facturación o desactivado. Por favor regulariza tus pagos pendientes en la sección de Facturación.',
+          confirmButtonColor: '#ef4444'
+        });
+      } else {
+        alert('No es posible crear pedidos de devolución o cambio porque el servicio del comercio se encuentra pausado por facturación o desactivado.');
+      }
+      return;
+    }
+  } else if (window.isCurrentCommerceSuspended) {
+    alert('No es posible crear pedidos de devolución o cambio porque el servicio del comercio se encuentra pausado por facturación.');
+    return;
+  }
+
   const modal = document.getElementById('modal-reverse-logistics-order');
   const form = document.getElementById('form-reverse-logistics-order');
   if (!modal || !form) return;
@@ -29658,11 +29819,11 @@ window.openReverseLogisticsOrderModal = async function(type) {
     window.rloCatalogProducts = [];
     
     try {
-      const userCompanies = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+      const userCompanies = availableRloCompanies.length > 0 ? availableRloCompanies : (currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : []);
       userCompanies.forEach(c => {
         selectCommerce.innerHTML += `<option value="${c}">${c}</option>`;
       });
-      const defaultComm = window.activeIntegrationCommerce || userCompanies[0] || '';
+      const defaultComm = userCompanies.includes(window.activeIntegrationCommerce) ? window.activeIntegrationCommerce : (userCompanies[0] || '');
       if (defaultComm) {
         selectCommerce.value = defaultComm;
       }
@@ -29830,6 +29991,25 @@ async function handleRloFormSubmit(e) {
   const form = document.getElementById('form-reverse-logistics-order');
   const type = document.getElementById('rlo-type').value;
   const commerce = document.getElementById('rlo-select-commerce').value;
+
+  if (commerce) {
+    const isRloCommercePaused = typeof window.checkIsCommercePaused === 'function'
+      ? await window.checkIsCommercePaused(commerce)
+      : !!(window.pausedBillingComercios && window.pausedBillingComercios.length > 0);
+    if (isRloCommercePaused) {
+      if (window.Swal) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Acción bloqueada (Servicio Pausado)',
+          text: 'No es posible registrar pedidos de devolución o cambio porque el comercio tiene su servicio pausado por facturación o desactivado.',
+          confirmButtonColor: '#ef4444'
+        });
+      } else {
+        alert('No es posible registrar pedidos de devolución o cambio porque el comercio tiene su servicio pausado por facturación o desactivado.');
+      }
+      return;
+    }
+  }
   const refPedido = document.getElementById('rlo-ref-pedido').value.trim();
   const responsablePago = document.getElementById('rlo-responsable-pago').value;
   const modoEntrega = document.getElementById('rlo-modo-entrega').value;
@@ -41639,8 +41819,18 @@ async function checkBillingSuspension(companyStr) {
     if (error) throw error;
     
     const pausedComercios = statuses?.filter(s => !s.al_dia).map(s => s.comercio) || [];
+    const pausedSetLower = new Set(pausedComercios.map(c => c.trim().toLowerCase()));
+    const pausedOriginalNames = list.filter(c => {
+      const match = mappings?.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
+      const resolved = (match ? match.billing_name : c).trim().toLowerCase();
+      return pausedSetLower.has(resolved) || pausedSetLower.has(c.toLowerCase());
+    });
     window.pausedBillingComercios = pausedComercios;
+    window.pausedBillingComercioNames = Array.from(new Set([...pausedComercios, ...pausedOriginalNames]));
     window.isCurrentCommerceSuspended = pausedComercios.length > 0;
+    if (typeof window.syncManualOrderButtonPauseState === 'function') {
+      window.syncManualOrderButtonPauseState();
+    }
     if (pausedComercios.length > 0) {
       const existingWarning = document.getElementById('billing-overdue-warning-banner');
       if (existingWarning) existingWarning.remove();
@@ -41780,8 +41970,39 @@ async function checkIsCommercePaused(commerceName) {
   }
 }
 
+function syncManualOrderButtonPauseState() {
+  const btn = document.getElementById('btn-new-order');
+  if (!btn) return;
+  const rawCompanies = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+  if (rawCompanies.length === 0) return;
+
+  const deactivatedSet = new Set((window.deactivatedComercios || []).map(c => c.trim().toLowerCase()));
+  const pausedSet = new Set((window.pausedBillingComercioNames || window.pausedBillingComercios || []).map(c => c.trim().toLowerCase()));
+
+  const nonDeactivated = rawCompanies.filter(c => !deactivatedSet.has(c.toLowerCase()));
+  const availableCompanies = nonDeactivated.filter(c => !pausedSet.has(c.toLowerCase()));
+
+  if (availableCompanies.length === 0) {
+    const isOnlyDeactivated = nonDeactivated.length === 0;
+    btn.disabled = true;
+    btn.classList.remove('btn-primary');
+    btn.style.cssText = 'background: #94a3b8; color: #ffffff; border: 1px solid #94a3b8; opacity: 0.78; cursor: not-allowed; display: inline-flex; align-items: center; gap: 0.35rem;';
+    btn.title = isOnlyDeactivated
+      ? 'Modo Solo Lectura: Tu comercio se encuentra desactivado y no puede crear nuevos pedidos'
+      : 'Creación de pedidos bloqueada: El servicio del comercio se encuentra pausado por facturación';
+    btn.innerHTML = '<i class="ri-lock-line"></i> Crear Pedido (Bloqueado)';
+  } else {
+    btn.disabled = false;
+    btn.classList.add('btn-primary');
+    btn.style.cssText = '';
+    btn.title = 'Crear nuevo pedido manual';
+    btn.innerHTML = '<i class="ri-add-line"></i> Crear Pedido';
+  }
+}
+
 window.checkBillingSuspension = checkBillingSuspension;
 window.checkIsCommercePaused = checkIsCommercePaused;
+window.syncManualOrderButtonPauseState = syncManualOrderButtonPauseState;
 
 function injectSuspensionBannerStyles() {
   if (document.getElementById('billing-suspension-banner-style')) return;

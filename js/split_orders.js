@@ -219,6 +219,25 @@ window.openSplitOrderModal = async function(orderId) {
       throw new Error('El pedido no tiene artículos asociados.');
     }
 
+    const splitUserRoleLower = String(window.currentUserProfile?.role || window.userRole || '').toLowerCase().trim();
+    const isSplitAdmin = splitUserRoleLower !== 'observer' && Boolean(
+      document.getElementById('admin-cmd-container') ||
+      window.location.pathname.includes('admin') ||
+      splitUserRoleLower === 'admin'
+    );
+    if (!isSplitAdmin && targetOrder.comercio && typeof window.checkIsCommercePaused === 'function') {
+      const isCommercePaused = await window.checkIsCommercePaused(targetOrder.comercio);
+      if (isCommercePaused) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Acción bloqueada (Servicio Pausado)',
+          text: 'No es posible dividir ni modificar pedidos mientras el comercio tenga su servicio pausado por facturación o desactivado.',
+          confirmButtonColor: '#ef4444'
+        });
+        return;
+      }
+    }
+
     // 2. Consultar inventario real de los productos involucrados
     const productIds = targetOrder.order_items.map(oi => oi.product_id).filter(Boolean);
     const { data: invList, error: invErr } = await client
