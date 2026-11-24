@@ -136,47 +136,128 @@ window.fetchOrderPickingRequest = async function(orderId) {
       .maybeSingle();
 
     if (!error && data) {
-      // Auto-reconciliación resiliente con active_orders de Picker si en WMS no figura completada
-      if (data.status !== 'completada' && data.external_order_number) {
+      // Auto-reconciliación resiliente con active_orders de Picker (y con Pedido Principal si es consolidado) si en WMS no figura completada
+      if (data.status !== 'completada') {
         try {
+          const allLoaded = window.loadedOrders || window.allOrders || window.clientOrders || [];
+          const ordObj = allLoaded.find(o => String(o.id) === String(orderId)) || null;
+          const consInfo = (ordObj && typeof window.getOrderConsolidationInfo === 'function')
+            ? window.getOrderConsolidationInfo(ordObj)
+            : null;
+          const primaryOrd = (consInfo && consInfo.isConsolidated && consInfo.role === 'secondary' && consInfo.primaryOrderId)
+            ? (allLoaded.find(o => String(o.id) === String(consInfo.primaryOrderId)) || null)
+            : ordObj;
+
+          const searchOrderNums = new Set();
+          const addNumVariants = (numStr) => {
+            const c = String(numStr || '').replace(/^#/, '').trim();
+            if (!c) return;
+            searchOrderNums.add(c);
+            searchOrderNums.add('#' + c);
+            searchOrderNums.add(c.toUpperCase());
+            searchOrderNums.add('#' + c.toUpperCase());
+          };
+          addNumVariants(data.external_order_number);
+          if (ordObj?.external_order_number) addNumVariants(ordObj.external_order_number);
+          if (consInfo?.primaryFolio) addNumVariants(consInfo.primaryFolio);
+          if (primaryOrd?.external_order_number) addNumVariants(primaryOrd.external_order_number);
+
           const PICKER_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
           const PICKER_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
           const pClient = window.pickerSupabase || (window.supabase && typeof window.supabase.createClient === 'function' ? window.supabase.createClient(PICKER_URL, PICKER_KEY) : null);
-          if (pClient) {
-            const cleanNum = String(data.external_order_number).replace(/^#/, '').trim();
+
+          let act = null;
+          if (pClient && searchOrderNums.size > 0) {
             const { data: actRows } = await pClient
               .from('active_orders')
-              .select('id, order_number, picking_requests_json, picking_requests_confirmed, picking_requests_operator, picking_requests_confirmed_at')
-              .in('order_number', [cleanNum, '#' + cleanNum, data.external_order_number])
+              .select('id, order_number, sheet_status, operator, picking_requests_json, picking_requests_confirmed, picking_requests_operator, picking_requests_confirmed_at')
+              .in('order_number', Array.from(searchOrderNums))
               .limit(1);
-
             if (actRows && actRows.length > 0) {
-              const act = actRows[0];
-              const actItems = Array.isArray(act.picking_requests_json) ? act.picking_requests_json : [];
-              const isActConfirmed = Boolean(act.picking_requests_confirmed);
-              const anyCheckedOrDiscarded = actItems.some(i => i.checked || i.discarded);
+              act = actRows[0];
+            }
+          }
 
-              if (isActConfirmed || anyCheckedOrDiscarded) {
-                const newStatus = isActConfirmed ? 'completada' : 'en_preparacion';
-                data.items = actItems;
-                data.status = newStatus;
-                data.completed_by_operator = act.picking_requests_operator || data.completed_by_operator;
-                data.completed_at = act.picking_requests_confirmed_at || data.completed_at;
-                data.updated_at = new Date().toISOString();
+          const pickerSt = (ordObj && typeof window.getPickerStatusForOrder === 'function')
+            ? window.getPickerStatusForOrder(ordObj)
+            : null;
+          const completedWmsStates = ['Pickeado', 'Listo para retiro', 'Despachado', 'Entregado'];
+          const isOrderCompletedInWmsOrPicker =
+            Boolean(act && (act.picking_requests_confirmed || act.picking_requests_confirmed_at || ['completado', 'listo para retiro', 'retirado'].includes(String(act.sheet_status || '').trim().toLowerCase()))) ||
+            Boolean(pickerSt && pickerSt.isCompleted) ||
+            Boolean(ordObj && (completedWmsStates.includes(ordObj.estado_wms) || ordObj.picker_status === 'Completado')) ||
+            Boolean(primaryOrd && (completedWmsStates.includes(primaryOrd.estado_wms) || primaryOrd.picker_status === 'Completado'));
 
-                // Persistir en WMS en segundo plano
-                supa.from('order_picking_requests').update({
-                  items: actItems,
-                  status: newStatus,
-                  completed_by_operator: data.completed_by_operator,
-                  completed_at: data.completed_at,
-                  updated_at: data.updated_at
-                }).eq('id', data.id).then(() => {}).catch(e => console.warn('Error reconciliando WMS con Picker:', e));
+          const actItems = (act && Array.isArray(act.picking_requests_json)) ? act.picking_requests_json : [];
+          const anyCheckedOrDiscarded = actItems.some(i => i && (i.checked || i.discarded));
 
-                supa.from('orders').update({
-                  picking_request_status: newStatus
-                }).eq('id', orderId).then(() => {}).catch(() => {});
+          if (isOrderCompletedInWmsOrPicker || anyCheckedOrDiscarded) {
+            const resolvedOperator =
+              act?.picking_requests_operator ||
+              act?.operator ||
+              pickerSt?.operator ||
+              ordObj?.picker_operator ||
+              primaryOrd?.picker_operator ||
+              data.completed_by_operator ||
+              'Picker Bodega';
+            const resolvedAt =
+              act?.picking_requests_confirmed_at ||
+              ordObj?.picker_last_synced_at ||
+              primaryOrd?.picker_last_synced_at ||
+              data.completed_at ||
+              new Date().toISOString();
+
+            const baseItems = Array.isArray(data.items) && data.items.length > 0 ? data.items : actItems;
+            const reconciledItems = baseItems.map((it, idx) => {
+              const matchAct = actItems.find(a => a && ((a.id && a.id === it.id) || a.text === it.text)) || actItems[idx];
+              if (matchAct && (matchAct.checked || matchAct.discarded)) {
+                return {
+                  ...it,
+                  checked: Boolean(matchAct.checked),
+                  checked_by: matchAct.checked_by || resolvedOperator,
+                  checked_at: matchAct.checked_at || resolvedAt,
+                  discarded: Boolean(matchAct.discarded),
+                  discarded_by: matchAct.discarded_by || null,
+                  discarded_at: matchAct.discarded_at || null,
+                  discard_reason: matchAct.discard_reason || null
+                };
               }
+              if (isOrderCompletedInWmsOrPicker && !it.discarded) {
+                return {
+                  ...it,
+                  checked: true,
+                  checked_by: it.checked_by || resolvedOperator,
+                  checked_at: it.checked_at || resolvedAt,
+                  discarded: false
+                };
+              }
+              return it;
+            });
+
+            const allNowResolved = reconciledItems.length > 0 && reconciledItems.every(i => i.checked || i.discarded);
+            const newStatus = (isOrderCompletedInWmsOrPicker || allNowResolved) ? 'completada' : 'en_preparacion';
+            data.items = reconciledItems;
+            data.status = newStatus;
+            data.completed_by_operator = resolvedOperator;
+            data.completed_at = resolvedAt;
+            data.updated_at = new Date().toISOString();
+
+            // Persistir en WMS en segundo plano
+            supa.from('order_picking_requests').update({
+              items: reconciledItems,
+              status: newStatus,
+              completed_by_operator: data.completed_by_operator,
+              completed_at: data.completed_at,
+              updated_at: data.updated_at
+            }).eq('id', data.id).then(() => {}).catch(e => console.warn('Error reconciliando WMS con Picker:', e));
+
+            supa.from('orders').update({
+              picking_request_status: newStatus
+            }).eq('id', orderId).then(() => {}).catch(() => {});
+
+            if (ordObj) {
+              ordObj.has_picking_request = true;
+              ordObj.picking_request_status = newStatus;
             }
           }
         } catch (reconcileErr) {
@@ -185,6 +266,12 @@ window.fetchOrderPickingRequest = async function(orderId) {
       }
 
       window.pickingRequestsCache.set(orderId, data);
+      const cardEl = document.getElementById(`picking-req-card-${orderId}`);
+      const allLoaded = window.loadedOrders || window.allOrders || window.clientOrders || [];
+      const ordObj = allLoaded.find(o => String(o.id) === String(orderId));
+      if (cardEl && ordObj && typeof window.renderOrderPickingRequestCard === 'function') {
+        cardEl.outerHTML = window.renderOrderPickingRequestCard(ordObj);
+      }
       return data;
     }
   } catch (_) {}
@@ -1754,6 +1841,18 @@ window.renderOrderPickingRequestCard = function(order) {
   const req = window.pickingRequestsCache.get(order.id);
   const hasRequest = Boolean(req && req.items && req.items.length > 0);
 
+  // Si la solicitud en caché aún figura como pendiente, disparar reconciliación en segundo plano con Picker
+  if ((!hasRequest && order.has_picking_request) || (hasRequest && req.status !== 'completada')) {
+    window._reconcilingPickingReqIds = window._reconcilingPickingReqIds || new Set();
+    const recKey = String(order.id);
+    if (!window._reconcilingPickingReqIds.has(recKey) && typeof window.fetchOrderPickingRequest === 'function') {
+      window._reconcilingPickingReqIds.add(recKey);
+      window.fetchOrderPickingRequest(order.id).finally(() => {
+        setTimeout(() => window._reconcilingPickingReqIds.delete(recKey), 10000);
+      });
+    }
+  }
+
   let statusBadgeHtml = '';
   let itemsContentHtml = '';
 
@@ -2092,14 +2191,14 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
     // Consultar active_orders
     let { data: activeRows, error: actErr } = await pClient
       .from('active_orders')
-      .select('id, order_number, observation, sheet_status')
+      .select('id, order_number, observation, sheet_status, picking_requests_confirmed, picking_requests_confirmed_at, picking_requests_operator, picking_requests_json')
       .in('order_number', searchKeys);
 
     // Fallback por sufijo numérico + comercio (ej: #11049953 en WMS vs BIT11049953 en Picker)
     if ((!activeRows || activeRows.length === 0) && digitsOnly.length >= 4) {
       let fallbackQuery = pClient
         .from('active_orders')
-        .select('id, order_number, observation, sheet_status')
+        .select('id, order_number, observation, sheet_status, picking_requests_confirmed, picking_requests_confirmed_at, picking_requests_operator, picking_requests_json')
         .ilike('order_number', `%${digitsOnly}`);
       const comercioName = order.comercio || request?.comercio;
       if (comercioName && comercioName !== 'Sin Comercio') {
@@ -2120,9 +2219,30 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
     // Construir nuevo tag de picking
     let tag = '';
     const hasReq = Boolean(request && Array.isArray(request.items) && request.items.length > 0);
-    const allChecked = hasReq && request.items.every(i => i.checked);
-    const allResolved = hasReq && request.items.every(i => i.checked || i.discarded);
+    let allChecked = hasReq && request.items.every(i => i.checked);
+    let allResolved = hasReq && request.items.every(i => i.checked || i.discarded);
     const discardedCount = hasReq ? request.items.filter(i => i.discarded).length : 0;
+
+    // Protección anti-sobreescritura: si en Picker el pedido ya fue Completado o confirmado por el operario,
+    // no permitir que una sincronización tardía desde WMS lo regrese a "pendiente"
+    const alreadyConfirmedInPicker = activeRows.some(r =>
+      r.picking_requests_confirmed === true ||
+      Boolean(r.picking_requests_confirmed_at) ||
+      ['completado', 'listo para retiro', 'retirado'].includes(String(r.sheet_status || '').trim().toLowerCase())
+    );
+    if (hasReq && !allResolved && alreadyConfirmedInPicker) {
+      const pickerOp = activeRows.find(r => r.picking_requests_operator)?.picking_requests_operator || 'Picker Bodega';
+      const pickerAt = activeRows.find(r => r.picking_requests_confirmed_at)?.picking_requests_confirmed_at || new Date().toISOString();
+      request.items = request.items.map(it => it.discarded ? it : ({
+        ...it,
+        checked: true,
+        checked_by: it.checked_by || pickerOp,
+        checked_at: it.checked_at || pickerAt
+      }));
+      request.status = 'completada';
+      allChecked = request.items.every(i => i.checked);
+      allResolved = true;
+    }
 
     if (hasReq) {
       if (allChecked) {
@@ -2340,56 +2460,86 @@ window.initPickerActiveOrdersRealtimeListener = function() {
           });
 
           const items = Array.isArray(newRow.picking_requests_json) ? newRow.picking_requests_json : [];
-          const isConfirmed = Boolean(newRow.picking_requests_confirmed);
+          const isConfirmed = Boolean(newRow.picking_requests_confirmed) || Boolean(newRow.picking_requests_confirmed_at) || ['completado', 'listo para retiro', 'retirado'].includes(String(newRow.sheet_status || '').trim().toLowerCase());
           const newStatus = isConfirmed ? 'completada' : (items.some(i => i.checked || i.discarded) ? 'en_preparacion' : 'pendiente');
 
+          // Determinar si el pedido tiene hermanos consolidados que también deben actualizar su Solicitud Especial
+          const targetOrdersToUpdate = [];
           if (foundOrder) {
-            foundOrder.has_picking_request = true;
-            foundOrder.picking_request_status = newStatus;
+            targetOrdersToUpdate.push(foundOrder);
+            if (typeof window.getOrderConsolidationInfo === 'function') {
+              const cInfo = window.getOrderConsolidationInfo(foundOrder);
+              if (cInfo && cInfo.isConsolidated && Array.isArray(cInfo.childrenIds)) {
+                cInfo.childrenIds.forEach(cId => {
+                  const childOrd = orderList.find(o => String(o.id) === String(cId));
+                  if (childOrd && !targetOrdersToUpdate.includes(childOrd)) {
+                    targetOrdersToUpdate.push(childOrd);
+                  }
+                });
+              }
+            }
+          }
 
-            // Actualizar caché en memoria
-            const cached = window.pickingRequestsCache.get(foundOrder.id) || {};
-            cached.order_id = foundOrder.id;
-            cached.external_order_number = foundOrder.external_order_number || orderNum;
-            cached.items = items;
-            cached.status = newStatus;
-            cached.completed_by_operator = newRow.picking_requests_operator || cached.completed_by_operator;
-            cached.completed_at = newRow.picking_requests_confirmed_at || cached.completed_at;
-            cached.updated_at = new Date().toISOString();
-            window.pickingRequestsCache.set(foundOrder.id, cached);
+          for (const targetOrd of targetOrdersToUpdate) {
+            targetOrd.has_picking_request = true;
+            targetOrd.picking_request_status = newStatus;
 
-            // Re-renderizar tarjeta o vista en WMS
-            const cardEl = document.getElementById(`picking-req-card-${foundOrder.id}`);
+            const existingCached = window.pickingRequestsCache.get(targetOrd.id) || {};
+            const targetItems = (targetOrd === foundOrder || !Array.isArray(existingCached.items) || existingCached.items.length === 0)
+              ? items
+              : existingCached.items.map(it => isConfirmed && !it.discarded ? ({
+                  ...it,
+                  checked: true,
+                  checked_by: it.checked_by || newRow.picking_requests_operator || newRow.operator || 'Picker',
+                  checked_at: it.checked_at || newRow.picking_requests_confirmed_at || new Date().toISOString()
+                }) : it);
+
+            existingCached.order_id = targetOrd.id;
+            existingCached.external_order_number = targetOrd.external_order_number || orderNum;
+            existingCached.items = targetItems;
+            existingCached.status = newStatus;
+            existingCached.completed_by_operator = newRow.picking_requests_operator || newRow.operator || existingCached.completed_by_operator;
+            existingCached.completed_at = newRow.picking_requests_confirmed_at || existingCached.completed_at;
+            existingCached.updated_at = new Date().toISOString();
+            window.pickingRequestsCache.set(targetOrd.id, existingCached);
+
+            const cardEl = document.getElementById(`picking-req-card-${targetOrd.id}`);
             if (cardEl) {
-              cardEl.outerHTML = window.renderOrderPickingRequestCard(foundOrder);
+              cardEl.outerHTML = window.renderOrderPickingRequestCard(targetOrd);
             }
-            if (typeof window.applyWmsFiltersAndRender === 'function') {
-              window.applyWmsFiltersAndRender();
-            }
+          }
+
+          if (targetOrdersToUpdate.length > 0 && typeof window.applyWmsFiltersAndRender === 'function') {
+            window.applyWmsFiltersAndRender();
           }
 
           // Persistir en order_picking_requests de WMS si el usuario actual tiene sesión
           const wmsSupa = getPickingSupabase();
           if (wmsSupa) {
             try {
-              let q = wmsSupa.from('order_picking_requests').update({
-                items: items,
-                status: newStatus,
-                completed_by_operator: newRow.picking_requests_operator || null,
-                completed_at: newRow.picking_requests_confirmed_at || null,
-                updated_at: new Date().toISOString()
-              });
-              if (foundOrder && foundOrder.id) {
-                q = q.eq('order_id', foundOrder.id);
-              } else {
-                q = q.in('external_order_number', [orderNum, '#' + cleanNum, cleanNum]);
-              }
-              await q;
+              if (targetOrdersToUpdate.length > 0) {
+                for (const targetOrd of targetOrdersToUpdate) {
+                  const cachedForTarget = window.pickingRequestsCache.get(targetOrd.id);
+                  await wmsSupa.from('order_picking_requests').update({
+                    items: cachedForTarget ? cachedForTarget.items : items,
+                    status: newStatus,
+                    completed_by_operator: newRow.picking_requests_operator || newRow.operator || null,
+                    completed_at: newRow.picking_requests_confirmed_at || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                  }).eq('order_id', targetOrd.id);
 
-              if (foundOrder && foundOrder.id) {
-                await wmsSupa.from('orders').update({
-                  picking_request_status: newStatus
-                }).eq('id', foundOrder.id);
+                  await wmsSupa.from('orders').update({
+                    picking_request_status: newStatus
+                  }).eq('id', targetOrd.id);
+                }
+              } else {
+                await wmsSupa.from('order_picking_requests').update({
+                  items: items,
+                  status: newStatus,
+                  completed_by_operator: newRow.picking_requests_operator || null,
+                  completed_at: newRow.picking_requests_confirmed_at || null,
+                  updated_at: new Date().toISOString()
+                }).in('external_order_number', [orderNum, '#' + cleanNum, cleanNum]);
               }
             } catch (errDb) {
               console.warn("⚠️ No se pudo persistir en order_picking_requests desde realtime:", errDb);

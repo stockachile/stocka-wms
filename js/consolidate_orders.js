@@ -468,12 +468,19 @@ function autoHealConsolidatedOrdersPickingRequests(orders) {
     if (!info.isConsolidated) continue;
     if (_healedConsolidationOrderIds.has(String(order.id))) continue;
 
+    // Si el pedido ya tiene solicitud registrada en BD o ya fue pickeado/completado, no sobreescribir
+    const completedWmsStates = ['Pickeado', 'Listo para retiro', 'Despachado', 'Entregado', 'Cancelado'];
+    if (order.has_picking_request || order.picking_request_status === 'completada' || completedWmsStates.includes(order.estado_wms) || order.picker_status === 'Completado') {
+      _healedConsolidationOrderIds.add(String(order.id));
+      continue;
+    }
+
     const cachedReq = window.pickingRequestsCache && typeof window.pickingRequestsCache.get === 'function'
       ? window.pickingRequestsCache.get(order.id)
       : null;
     const hasConsItemInCache = cachedReq && Array.isArray(cachedReq.items) && cachedReq.items.some(it => it && (it.id === 'consolidate_shipping_alert' || String(it.text || '').includes('CONSOLIDAR ENVÍO')));
 
-    if (!order.has_picking_request || !hasConsItemInCache) {
+    if (!hasConsItemInCache) {
       _healedConsolidationOrderIds.add(String(order.id));
       const folio = getOrderDisplayFolio(order);
       const custLabel = `${order.customer_name || 'Cliente'} (${getOrderDisplayAddress(order)})`;
@@ -1190,17 +1197,30 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
     let savedReq = null;
 
     if (existingReq) {
+      const isOrderAlreadyPicked = ['Pickeado', 'Listo para retiro', 'Despachado', 'Entregado'].includes(order.estado_wms) || order.picker_status === 'Completado' || existingReq.status === 'completada';
+      const fallbackOp = existingReq.completed_by_operator || order.picker_operator || 'Picker';
+      const fallbackAt = existingReq.completed_at || new Date().toISOString();
+
       const currentItems = Array.isArray(existingReq.items) ? [...existingReq.items] : [];
       const existingIdx = currentItems.findIndex(it => it && (it.id === itemId || String(it.text || '').includes('CONSOLIDAR ENVÍO')));
 
       if (existingIdx >= 0) {
+        const wasChecked = Boolean(currentItems[existingIdx].checked) || isOrderAlreadyPicked;
         currentItems[existingIdx] = {
           ...currentItems[existingIdx],
           id: itemId,
-          text: checklistText
+          text: checklistText,
+          checked: wasChecked,
+          checked_by: wasChecked ? (currentItems[existingIdx].checked_by || fallbackOp) : null,
+          checked_at: wasChecked ? (currentItems[existingIdx].checked_at || fallbackAt) : null
         };
       } else {
-        currentItems.unshift(baseNewItem);
+        currentItems.unshift({
+          ...baseNewItem,
+          checked: isOrderAlreadyPicked,
+          checked_by: isOrderAlreadyPicked ? fallbackOp : null,
+          checked_at: isOrderAlreadyPicked ? fallbackAt : null
+        });
       }
 
       const prevNotes = String(existingReq.general_notes || '').trim();
@@ -1208,8 +1228,8 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
         ? prevNotes
         : [generalNoteText, prevNotes].filter(Boolean).join(' | ');
 
-      const allChecked = currentItems.length > 0 && currentItems.every(i => i && i.checked);
-      const nextStatus = allChecked ? 'completada' : 'pendiente';
+      const allChecked = currentItems.length > 0 && currentItems.every(i => i && (i.checked || i.discarded));
+      const nextStatus = (allChecked || isOrderAlreadyPicked) ? 'completada' : 'pendiente';
 
       finalReqObj = {
         ...existingReq,
