@@ -1322,6 +1322,19 @@ serve(async (req) => {
       emailSubject = `¡Tu cuenta de Fulfillment 360 está activa! - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #10b981, #059669)';
       emailTitle = 'Alta de Comercio Aprobada';
+
+      const approvedContractUrl = payload.contratoUrl || payload.contrato_url || '';
+      const approvedContractHtml = approvedContractUrl ? `
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 15px 18px; margin-bottom: 20px; font-size: 13.5px; color: #166534; line-height: 1.6;">
+          <strong style="color: #14532d; display: block; margin-bottom: 6px; font-size: 14px;">
+            📄 Contrato Definitivo de Servicio Fulfillment 360
+          </strong>
+          Tu contrato definitivo firmado por ambas partes ya se encuentra registrado en tu cuenta. Puedes descargarlo directamente aquí (y siempre estará disponible en tu portal WMS):<br>
+          <a href="${approvedContractUrl}" target="_blank" style="display: inline-block; margin-top: 8px; color: #2563eb; font-weight: 700; text-decoration: underline;">
+            📥 Descargar Contrato Definitivo (PDF)
+          </a>
+        </div>
+      ` : '';
       
       emailBodyHtml = `
         <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
@@ -1336,6 +1349,8 @@ serve(async (req) => {
         <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
           Tu comercio ha sido configurado y activado en el WMS de Stocka. A partir de ahora puedes acceder a tu cuenta utilizando tu correo electrónico y la contraseña que definiste al registrarte.
         </div>
+
+        ${approvedContractHtml}
 
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 13.5px; color: #334155; line-height: 1.6;">
           💡 <strong>¡Sigue tu Guía de Inicio interactiva!</strong><br>
@@ -3143,28 +3158,40 @@ serve(async (req) => {
       ];
     }
 
-    // Si es onboarding_approved y viene contratoUrl, descargar y adjuntar
+    // Si es onboarding_approved y viene contratoUrl, descargar y adjuntar solo si pesa < 4MB (para evitar rechazo de Brevo / límite de cómputo; el enlace directo siempre va en el cuerpo del correo)
     const contratoUrl = payload.contratoUrl || payload.contrato_url;
     if (emailType === 'onboarding_approved' && contratoUrl) {
       try {
         console.log(`[send-billing-email] Intentando descargar contrato definitivo desde: ${contratoUrl}`);
         const fileRes = await fetch(contratoUrl);
         if (fileRes.ok) {
-          const arrayBuffer = await fileRes.arrayBuffer();
-          const uint8 = new Uint8Array(arrayBuffer);
-          const base64Content = btoa(new TextDecoder('latin1').decode(uint8));
+          const contentLenHeader = Number(fileRes.headers.get('content-length') || 0);
+          if (contentLenHeader > 0 && (contentLenHeader / (1024 * 1024)) >= 4.0) {
+            console.log(`[send-billing-email] Omitiendo adjunto físico de contrato definitivo por superar 4MB (${(contentLenHeader / (1024 * 1024)).toFixed(2)} MB); incluido mediante enlace directo en el correo.`);
+            try { await fileRes.body?.cancel(); } catch (_) {}
+          } else {
+            const arrayBuffer = await fileRes.arrayBuffer();
+            const sizeInMB = arrayBuffer.byteLength / (1024 * 1024);
 
-          if (!brevoPayload.attachment) {
-            brevoPayload.attachment = [];
+            if (sizeInMB < 4.0) {
+              const uint8 = new Uint8Array(arrayBuffer);
+              const base64Content = btoa(new TextDecoder('latin1').decode(uint8));
+
+              if (!brevoPayload.attachment) {
+                brevoPayload.attachment = [];
+              }
+
+              // Nombre del archivo sanitizado
+              const sanitizedCommerceName = (commerceName || 'Comercio').replace(/[^a-zA-Z0-9]/g, '_');
+              brevoPayload.attachment.push({
+                content: base64Content,
+                name: `Contrato_Definitivo_${sanitizedCommerceName}.pdf`
+              });
+              console.log(`[send-billing-email] Contrato definitivo adjuntado con éxito (${sizeInMB.toFixed(2)} MB)!`);
+            } else {
+              console.log(`[send-billing-email] Omitiendo adjunto físico de contrato definitivo por superar 4MB (${sizeInMB.toFixed(2)} MB); incluido mediante enlace directo en el correo.`);
+            }
           }
-
-          // Nombre del archivo sanitizado
-          const sanitizedCommerceName = (commerceName || 'Comercio').replace(/[^a-zA-Z0-9]/g, '_');
-          brevoPayload.attachment.push({
-            content: base64Content,
-            name: `Contrato_Definitivo_${sanitizedCommerceName}.pdf`
-          });
-          console.log(`[send-billing-email] Contrato definitivo adjuntado con éxito!`);
         } else {
           console.error(`[send-billing-email] Error al descargar contrato: HTTP ${fileRes.status}`);
         }

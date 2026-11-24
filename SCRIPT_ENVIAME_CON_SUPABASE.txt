@@ -126,8 +126,10 @@ function procesarEntrada(ss, d, idMaestro) {
     }
   }
 
-  var trackingReal = (d.tracking_number || d.carrier_tracking_number || idMaestro).toString().trim();
-  var tUrl = (sellerId && trackingReal) ? "https://api.enviame.io/s2/companies/" + sellerId + "/deliveries/" + trackingReal + "/tracking" : "N/A";
+  var trackingRaw = (d.tracking_number || d.carrier_tracking_number || "").toString().trim();
+  var isInvalidTrack = !trackingRaw || /^(no informado|noinformado|null|undefined|n\/a|-)$/i.test(trackingRaw);
+  var trackingReal = isInvalidTrack ? "No informado" : trackingRaw;
+  var tUrl = (!isInvalidTrack && sellerId) ? "https://api.enviame.io/s2/companies/" + sellerId + "/deliveries/" + trackingReal + "/tracking" : "N/A";
 
   var vendedor = buscarNombreVendedorEnDB(ss, sellerId);
   var idPedido = d.imported_id || d.order_number || "N/A";
@@ -137,7 +139,8 @@ function procesarEntrada(ss, d, idMaestro) {
   var ciudad = d.shipping_address ? (d.shipping_address.place || d.shipping_address.city) : "N/A";
   var direccion = d.shipping_address ? d.shipping_address.full_address : "N/A";
   var comuna = d.shipping_address ? (d.shipping_address.county || d.shipping_address.commune) : "N/A";
-  var lUrl = d.label ? (d.label.PDF || d.label) : "N/A";
+  var lUrlRaw = d.label ? (typeof d.label === "object" ? (d.label.PDF || d.label.PNG || "") : d.label) : "";
+  var lUrl = (typeof lUrlRaw === "string" && lUrlRaw.indexOf("http") === 0) ? lUrlRaw : "N/A";
 
   var tipoServicio = d.shipping_service || (d.carrier ? (d.carrier.service || d.carrier.service_name || d.carrier.name) : null) || d.service || "N/A";
   var clienteNombre = d.customer ? (d.customer.full_name || d.customer.name || "N/A") : "N/A";
@@ -302,8 +305,8 @@ function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, label
     "id": enviameId || null,
     "order_id": idPedido || null,
     "tracking_number": trackingNumber || null,
-    "tracking_url": trackingUrl || null,
-    "label_url": labelUrl || null,
+    "tracking_url": (trackingUrl && trackingUrl !== "N/A" && trackingUrl.indexOf("No informado") === -1) ? trackingUrl : null,
+    "label_url": (labelUrl && labelUrl !== "N/A" && labelUrl.indexOf("http") === 0) ? labelUrl : null,
     "courier": courier || null,
     "status": status || null,
     "seller_name": (extraData && extraData.seller_name) ? extraData.seller_name : null,

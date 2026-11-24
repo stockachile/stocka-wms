@@ -118682,6 +118682,12 @@ function showOnboardingDetailModal(req) {
     </button>
   `;
 
+  const btnResendApprovedHtml = isApproved ? `
+    <button class="btn btn-outline" style="border-color: #10b981; color: #059669; display: inline-flex; align-items: center; gap: 0.35rem;" id="btn-onboarding-resend-approved" title="Reenviar correo de cuenta activa y contrato definitivo al cliente">
+      <i class="ri-mail-check-line"></i> Reenviar Bienvenida
+    </button>
+  ` : '';
+
   const btnDeleteModalHtml = `
     <button class="btn btn-outline" style="border-color: var(--color-danger); color: var(--color-danger); display: inline-flex; align-items: center; gap: 0.35rem;" id="btn-onboarding-delete-detail">
       <i class="ri-delete-bin-line"></i> Eliminar Solicitud
@@ -118894,6 +118900,7 @@ function showOnboardingDetailModal(req) {
         <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
           <button class="btn btn-outline" id="btn-close-onboarding-modal-footer">Cerrar</button>
           ${btnSendE1Html}
+          ${btnResendApprovedHtml}
           ${actionButtonsHtml}
         </div>
       </div>
@@ -118931,6 +118938,13 @@ function showOnboardingDetailModal(req) {
         commerceName: req.nombre_fantasia || req.razon_social || '',
         cc: (req.email_facturacion && req.email_facturacion !== req.email) ? req.email_facturacion : ''
       });
+    }
+  });
+
+  // Botón para reenviar correo de cuenta activa (onboarding_approved) con contrato definitivo
+  document.getElementById('btn-onboarding-resend-approved')?.addEventListener('click', () => {
+    if (typeof window.resendOnboardingApprovedEmail === 'function') {
+      window.resendOnboardingApprovedEmail(req);
     }
   });
 
@@ -119095,7 +119109,9 @@ function showOnboardingApproveConfigModal(req) {
           al_dia: true
         }]);
 
-      // 4. Inicializar configuraciones adicionales
+      // 4. Inicializar configuraciones adicionales (incluyendo datos de facturación y contrato)
+      const effectiveContractUrl = definitiveContractUrl || req.contrato_url || null;
+      const effectiveStoragePath = definitiveStoragePath || req.contrato_storage_path || null;
       await supabase
         .from('comercios_adicional_config')
         .insert([{
@@ -119105,12 +119121,16 @@ function showOnboardingApproveConfigModal(req) {
           inventario_seguimiento: enableInventory,
           rut: req.rut_empresa || null,
           razon_social: req.razon_social || null,
+          giro_facturacion: req.giro_comercio || null,
+          direccion_facturacion: req.direccion_facturacion || null,
+          comuna_facturacion: req.comuna || null,
+          email_facturacion: req.email_facturacion || req.email || null,
           rep_legal_nombre: req.rep_legal_nombre || null,
           rep_legal_rut: req.rep_legal_rut || null,
           rep_legal_telefono: req.rep_legal_telefono || null,
           rep_legal_email: req.rep_legal_email || null,
-          contrato_url: definitiveContractUrl,
-          contrato_storage_path: definitiveStoragePath,
+          contrato_url: effectiveContractUrl,
+          contrato_storage_path: effectiveStoragePath,
           onboarding_checklist: {
             wms_account: true,
             integrations: false,
@@ -119122,6 +119142,33 @@ function showOnboardingApproveConfigModal(req) {
             dismissed: false
           }
         }]);
+
+      // 4b. Registrar contacto principal en billing_contacts si aún no existe para el comercio
+      try {
+        const primaryBillingEmail = (req.email_facturacion || req.email || '').trim().toLowerCase();
+        if (primaryBillingEmail && primaryBillingEmail.includes('@')) {
+          const { data: existingContacts } = await supabase
+            .from('billing_contacts')
+            .select('id')
+            .ilike('comercio', commerceName)
+            .ilike('email', primaryBillingEmail)
+            .limit(1);
+
+          if (!existingContacts || existingContacts.length === 0) {
+            await supabase
+              .from('billing_contacts')
+              .insert([{
+                comercio: commerceName,
+                nombre: req.full_name || req.rep_legal_nombre || commerceName,
+                email: primaryBillingEmail,
+                rol: 'Principal / Onboarding',
+                activo: true
+              }]);
+          }
+        }
+      } catch (bcErr) {
+        console.warn('Aviso creando contacto de facturación al aprobar onboarding:', bcErr);
+      }
 
       // 5. Promover al usuario de 'observer' a 'client' y asociar el comercio con módulos habilitados
       const { error: updateProfileErr } = await supabase
@@ -119143,7 +119190,7 @@ function showOnboardingApproveConfigModal(req) {
       });
 
       // 7. Modificar la solicitud a 'approved' en onboarding_requests (e incluir contrato definitivo)
-      const updateData = { status: 'approved' };
+      const updateData = { status: 'approved', updated_at: new Date().toISOString() };
       if (definitiveContractUrl) {
         updateData.contrato_url = definitiveContractUrl;
         updateData.contrato_storage_path = definitiveStoragePath;
@@ -119156,8 +119203,25 @@ function showOnboardingApproveConfigModal(req) {
 
       if (onboardingErr) throw onboardingErr;
 
+      // 7b. Actualizar estado de quote_leads asociados a 'convertido' (best-effort)
+      try {
+        const leadEmails = Array.from(new Set(
+          [req.email, req.email_facturacion, req.rep_legal_email]
+            .map(e => (e || '').trim().toLowerCase())
+            .filter(Boolean)
+        ));
+        for (const em of leadEmails) {
+          await supabase.from('quote_leads').update({ status: 'convertido' }).ilike('email', em);
+        }
+        if (req.nombre_fantasia && req.nombre_fantasia.trim().length >= 3) {
+          await supabase.from('quote_leads').update({ status: 'convertido' }).ilike('company_name', req.nombre_fantasia.trim());
+        }
+      } catch (leadSyncErr) {
+        console.warn('Aviso actualizando quote_leads a convertido:', leadSyncErr);
+      }
+
       // Éxito total
-      alert(`¡Solicitud aprobada con éxito!\\nSe ha creado el comercio "${commerceName}" (${commerceSigla}) y se ha activado la cuenta del usuario.`);
+      alert(`¡Solicitud aprobada con éxito!\nSe ha creado el comercio "${commerceName}" (${commerceSigla}) y se ha activado la cuenta del usuario.\nEl correo de bienvenida se despacha automáticamente (y puedes reenviarlo en cualquier momento desde el detalle de la solicitud).`);
       closeModal();
       window.renderOnboardingAdmin();
       window.updateAdminBadges();
@@ -119170,6 +119234,127 @@ function showOnboardingApproveConfigModal(req) {
     }
   });
 }
+
+// Reenviar correo de cuenta activa (onboarding_approved) con enlace/adjunto del contrato definitivo
+window.resendOnboardingApprovedEmail = async function(req) {
+  if (!req) return;
+  const defaultEmail = (req.email || req.rep_legal_email || '').trim();
+  const defaultCc = (req.email_facturacion && req.email_facturacion.trim().toLowerCase() !== defaultEmail.toLowerCase())
+    ? req.email_facturacion.trim()
+    : '';
+  const commerceLabel = (req.nombre_fantasia || req.razon_social || 'Comercio').trim();
+  const hasContract = !!req.contrato_url;
+
+  if (typeof Swal === 'undefined') {
+    if (!confirm(`¿Reenviar correo de cuenta activa a ${defaultEmail}?`)) return;
+  }
+
+  let targetEmail = defaultEmail;
+  let ccEmails = defaultCc;
+
+  if (typeof Swal !== 'undefined') {
+    const { value: formValues, isConfirmed } = await Swal.fire({
+      title: 'Reenviar Correo de Bienvenida',
+      html: `
+        <div style="text-align: left; font-size: 0.88rem; color: #334155; display: flex; flex-direction: column; gap: 0.75rem;">
+          <p style="margin: 0; line-height: 1.45;">
+            Se enviará el correo <strong>¡Tu cuenta de Fulfillment 360 está activa!</strong> para <strong>${commerceLabel}</strong>${hasContract ? ' incluyendo el contrato definitivo (adjunto si pesa < 4 MB y siempre con enlace de descarga directa)' : ''}.
+          </p>
+          <div>
+            <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.82rem;">Correo Destinatario *</label>
+            <input id="swal-onb-approved-email" type="email" class="swal2-input" style="margin: 0; width: 100%; box-sizing: border-box; font-size: 0.9rem; height: 2.5rem;" value="${defaultEmail}">
+          </div>
+          <div>
+            <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.82rem;">Copia (CC) opcional (separados por coma)</label>
+            <input id="swal-onb-approved-cc" type="text" class="swal2-input" style="margin: 0; width: 100%; box-sizing: border-box; font-size: 0.9rem; height: 2.5rem;" value="${defaultCc}" placeholder="ejemplo@correo.cl">
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-mail-send-line"></i> Enviar Bienvenida',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#10b981',
+      focusConfirm: false,
+      preConfirm: () => {
+        const em = (document.getElementById('swal-onb-approved-email')?.value || '').trim();
+        const cc = (document.getElementById('swal-onb-approved-cc')?.value || '').trim();
+        if (!em || !em.includes('@') || !em.includes('.')) {
+          Swal.showValidationMessage('Por favor ingresa un correo destinatario válido.');
+          return false;
+        }
+        return { email: em, cc };
+      }
+    });
+
+    if (!isConfirmed || !formValues) return;
+    targetEmail = formValues.email;
+    ccEmails = formValues.cc;
+  }
+
+  try {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        title: 'Enviando correo de bienvenida...',
+        text: `Despachando a ${targetEmail} vía Brevo...`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+    }
+
+    const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
+    if (sessionErr || !session) {
+      throw new Error('Sesión no válida. Por favor recarga la página.');
+    }
+
+    const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        emailType: 'onboarding_approved',
+        commerceName: commerceLabel,
+        emails: [targetEmail],
+        cc: ccEmails || undefined,
+        contratoUrl: req.contrato_url || null
+      })
+    });
+
+    const resJson = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(resJson?.error || `Error del servidor: HTTP ${res.status}`);
+    }
+
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        title: '¡Correo de Bienvenida Enviado!',
+        html: `
+          <div style="text-align: left; font-size: 0.88rem; color: #334155; line-height: 1.5;">
+            <p>El correo de <strong>cuenta activa</strong> fue despachado exitosamente por Brevo.</p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem; font-size: 0.82rem;">
+              <div><strong>Comercio:</strong> ${commerceLabel}</div>
+              <div><strong>Destinatario:</strong> ${targetEmail}</div>
+              ${ccEmails ? `<div><strong>Copia (CC):</strong> ${ccEmails}</div>` : ''}
+              ${resJson?.messageId ? `<div><strong>Message ID:</strong> <code>${resJson.messageId}</code></div>` : ''}
+            </div>
+          </div>
+        `,
+        icon: 'success',
+        confirmButtonColor: '#10b981'
+      });
+    } else {
+      alert(`¡Correo de bienvenida enviado a ${targetEmail}!`);
+    }
+  } catch (err) {
+    console.error('Error reenviando correo onboarding_approved:', err);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Error al enviar', err.message || 'No se pudo reenviar el correo.', 'error');
+    } else {
+      alert('Error al enviar: ' + err.message);
+    }
+  }
+};
 
 // Modal estructurado de observaciones para la solicitud de onboarding
 function showOnboardingObservationsModal(req) {
