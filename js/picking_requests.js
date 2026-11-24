@@ -29,6 +29,34 @@ window.pickingRequestsCache = window.pickingRequestsCache || new Map();
 window._loadedPickingRequestOrderIds = window._loadedPickingRequestOrderIds || new Set();
 window.currentPickingRequestState = null;
 
+function isPickingRequestAdminContext() {
+  const roleLower = String(window.currentUserProfile?.role || window.userRole || '').toLowerCase().trim();
+  if (roleLower === 'observer') return false;
+  return Boolean(
+    document.getElementById('admin-cmd-container') ||
+    window.location.pathname.includes('admin') ||
+    roleLower === 'admin'
+  );
+}
+
+function isPickingRequestCommerceBlockedSync(commerceName) {
+  if (isPickingRequestAdminContext()) return false;
+  const commLow = String(commerceName || '').trim().toLowerCase();
+  if (!commLow) return false;
+  const pausedNamesLow = (window.pausedBillingComercioNames || window.pausedBillingComercios || []).map(c => String(c || '').trim().toLowerCase());
+  const deactNamesLow = (window.deactivatedComercios || []).map(c => String(c || '').trim().toLowerCase());
+  return pausedNamesLow.includes(commLow) || deactNamesLow.includes(commLow);
+}
+
+async function isPickingRequestCommerceBlockedAsync(commerceName) {
+  if (isPickingRequestAdminContext()) return false;
+  if (!commerceName) return false;
+  if (typeof window.checkIsCommercePaused === 'function') {
+    return await window.checkIsCommercePaused(commerceName);
+  }
+  return isPickingRequestCommerceBlockedSync(commerceName);
+}
+
 /**
  * Valida si un pedido es elegible para crear o procesar solicitudes de picking.
  * Estados permitidos: en procesamiento, en preparación, pickeado.
@@ -416,7 +444,22 @@ window.openClientPickingRequestModal = async function(orderIdOrObj) {
       };
     }
 
-    // 5. Validar elegibilidad según reglas de negocio
+    // 5. Validar estado de servicio pausado / desactivado (solo para portal cliente)
+    if (order.comercio && await isPickingRequestCommerceBlockedAsync(order.comercio)) {
+      if (window.Swal) {
+        window.Swal.fire({
+          icon: 'warning',
+          title: 'Solicitud de Picking bloqueada (Servicio Pausado)',
+          text: 'No es posible crear ni gestionar solicitudes de picking mientras el comercio tenga su servicio pausado por facturación o desactivado. Por favor regulariza tus pagos pendientes en la sección de Facturación.',
+          confirmButtonColor: '#ef4444'
+        });
+      } else {
+        alert('No es posible crear ni gestionar solicitudes de picking mientras el comercio tenga su servicio pausado por facturación o desactivado.');
+      }
+      return;
+    }
+
+    // 6. Validar elegibilidad según reglas de negocio
     const eligibility = window.canCreatePickingRequest(order);
     if (!eligibility.eligible) {
       if (window.Swal) {
@@ -1619,6 +1662,24 @@ window.savePickingRequestFromModal = async function() {
   }
 
   try {
+    if (state.comercio && await isPickingRequestCommerceBlockedAsync(state.comercio)) {
+      if (window.Swal) {
+        window.Swal.fire({
+          icon: 'warning',
+          title: 'Solicitud de Picking bloqueada (Servicio Pausado)',
+          text: 'No es posible guardar solicitudes de picking mientras el comercio tenga su servicio pausado por facturación o desactivado.',
+          confirmButtonColor: '#ef4444'
+        });
+      } else {
+        alert('No es posible guardar solicitudes de picking mientras el comercio tenga su servicio pausado por facturación o desactivado.');
+      }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ri-save-line"></i> Guardar Solicitud';
+      }
+      return;
+    }
+
     if (state.items.length === 0) {
       alert("Por favor agrega al menos una indicación o necesidad para este pedido.");
       if (btn) {
@@ -1934,12 +1995,21 @@ window.renderOrderPickingRequestCard = function(order) {
 
   // Botón de acción según estado
   let actionBtnHtml = '';
+  const isOrderCommerceBlocked = isPickingRequestCommerceBlockedSync(order.comercio);
   if (eligibility.eligible) {
-    actionBtnHtml = `
-      <button type="button" onclick="event.stopPropagation(); window.openClientPickingRequestModal('${safeOrderId}')" class="btn btn-outline btn-sm" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; font-weight: 700; color: #4f46e5; border-color: #818cf8; background: rgba(99, 102, 241, 0.08); border-radius: var(--radius-sm, 6px); cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
-        <i class="${hasRequest ? 'ri-edit-line' : 'ri-add-line'}"></i> ${hasRequest ? 'Gestionar Solicitud' : 'Crear Solicitud de Picking'}
-      </button>
-    `;
+    if (isOrderCommerceBlocked) {
+      actionBtnHtml = `
+        <button type="button" disabled class="btn btn-sm" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; font-weight: 700; color: #ffffff; border: 1px solid #94a3b8; background: #94a3b8; opacity: 0.78; cursor: not-allowed; border-radius: var(--radius-sm, 6px); display: inline-flex; align-items: center; gap: 0.3rem;" title="Bloqueado: El servicio del comercio se encuentra pausado por facturación">
+          <i class="ri-lock-line"></i> ${hasRequest ? 'Gestionar Solicitud (Bloqueado)' : 'Solicitud de Picking (Bloqueado)'}
+        </button>
+      `;
+    } else {
+      actionBtnHtml = `
+        <button type="button" onclick="event.stopPropagation(); window.openClientPickingRequestModal('${safeOrderId}')" class="btn btn-outline btn-sm" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; font-weight: 700; color: #4f46e5; border-color: #818cf8; background: rgba(99, 102, 241, 0.08); border-radius: var(--radius-sm, 6px); cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+          <i class="${hasRequest ? 'ri-edit-line' : 'ri-add-line'}"></i> ${hasRequest ? 'Gestionar Solicitud' : 'Crear Solicitud de Picking'}
+        </button>
+      `;
+    }
   } else {
     actionBtnHtml = `
       <span style="font-size: 0.72rem; color: var(--color-text-muted, #475569); font-style: italic;" title="${eligibility.reason || 'No editable'}">
@@ -1996,6 +2066,24 @@ window.toggleModalItemCheck = function(index) {
  */
 window.deletePickingRequest = async function(orderId) {
   if (!orderId) return;
+
+  const cachedReq = window.pickingRequestsCache?.get(orderId);
+  const orderListPre = window.clientLoadedOrders || window.loadedOrders || window.allOrders || window.clientOrders || [];
+  const foundPre = orderListPre.find(o => o.id === orderId);
+  const targetCommerce = window.currentPickingRequestState?.comercio || cachedReq?.comercio || foundPre?.comercio || '';
+  if (targetCommerce && await isPickingRequestCommerceBlockedAsync(targetCommerce)) {
+    if (window.Swal) {
+      window.Swal.fire({
+        icon: 'warning',
+        title: 'Acción bloqueada (Servicio Pausado)',
+        text: 'No es posible modificar ni eliminar solicitudes de picking mientras el comercio tenga su servicio pausado por facturación o desactivado.',
+        confirmButtonColor: '#ef4444'
+      });
+    } else {
+      alert('No es posible modificar ni eliminar solicitudes de picking mientras el comercio tenga su servicio pausado por facturación o desactivado.');
+    }
+    return;
+  }
 
   const conf = confirm("¿Estás seguro de que deseas eliminar esta solicitud de picking? Las indicaciones se descartarán y el pedido volverá a su estado normal.");
   if (!conf) return;
