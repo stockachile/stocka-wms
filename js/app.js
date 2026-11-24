@@ -56370,33 +56370,64 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
   modal.id = 'modal-direct-stock-adjust';
   modal.className = 'modal-overlay active';
   modal.style.zIndex = '9998';
-  
+
+  let adjustMode = 'delta'; // 'delta' (Por Movimiento +/-) | 'set' (Nivel Fijo)
+  const currentStockByProd = {};
+  selectedProducts.forEach(p => { currentStockByProd[String(p.id)] = 0; });
+
   const trs = selectedProducts.map(p => `
     <tr style="border-bottom: 1px solid var(--color-border);" data-prod-id="${p.id}">
       <td style="padding: 0.75rem; font-weight: 600;">${p.sku}</td>
-      <td style="padding: 0.75rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
-      <td style="padding: 0.75rem; text-align: center;" class="direct-current-stock-label" data-prod-id="${p.id}">0</td>
+      <td style="padding: 0.75rem; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${(p.name || '').replace(/"/g, '&quot;')}">${p.name}</td>
+      <td style="padding: 0.75rem; text-align: center; font-weight: 600;" class="direct-current-stock-label" data-prod-id="${p.id}">0</td>
       <td style="padding: 0.75rem; text-align: center;">
-        <input type="number" class="direct-stock-input form-input" data-prod-id="${p.id}" min="0" value="0" style="width: 100px; text-align: center; height: 32px; padding: 0.25rem; font-weight: 600; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main);">
+        <div style="display: inline-flex; align-items: center; gap: 4px;">
+          <button type="button" class="direct-step-btn" data-prod-id="${p.id}" data-step="-1" title="Restar 1" style="width: 28px; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">−</button>
+          <input type="number" step="1" class="direct-stock-input form-input" data-prod-id="${p.id}" data-edited="0" value="0" style="width: 82px; text-align: center; height: 32px; padding: 0.25rem; font-weight: 600; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main);">
+          <button type="button" class="direct-step-btn" data-prod-id="${p.id}" data-step="1" title="Sumar 1" style="width: 28px; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">+</button>
+        </div>
+      </td>
+      <td style="padding: 0.75rem; text-align: center; font-size: 0.82rem; font-weight: 600;" class="direct-stock-preview" data-prod-id="${p.id}">
+        <span style="color: var(--color-text-muted);">0</span>
       </td>
     </tr>
   `).join('');
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 650px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
+    <div class="modal-content" style="max-width: 760px; width: 95%; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
       <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);"><i class="ri-equalizer-line" style="color: var(--color-accent);"></i> Ajustar Stock de Bodega</h3>
         <button type="button" class="modal-close" onclick="document.getElementById('modal-direct-stock-adjust').remove()">&times;</button>
       </div>
-      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.15rem;">
         <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">1. Seleccionar Bodega Destino</label>
           <select id="direct-warehouse-select" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem;">
             <option value="">-- Selecciona una Bodega --</option>
           </select>
         </div>
+
         <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">2. Definir Stock para los Productos Seleccionados</label>
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">2. Tipo de Ajuste</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+            <button type="button" id="btn-adjust-mode-delta" data-mode="delta" style="text-align: left; padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 2px solid var(--color-accent); background: rgba(124, 58, 237, 0.08); cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem; transition: all 0.15s ease;">
+              <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; font-size: 0.88rem; color: var(--color-accent);">
+                <i class="ri-arrow-up-down-line"></i> Por Movimiento (+/-)
+                <span style="font-size: 0.68rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 999px; background: var(--color-accent); color: #fff; margin-left: auto;">Recomendado</span>
+              </span>
+              <span style="font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.3;">Suma o resta unidades (ej: +2, -1 por falla). Seguro ante movimientos simultáneos.</span>
+            </button>
+            <button type="button" id="btn-adjust-mode-set" data-mode="set" style="text-align: left; padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem; transition: all 0.15s ease;">
+              <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; font-size: 0.88rem; color: var(--color-text-main);">
+                <i class="ri-edit-box-line"></i> Establecer Nivel Fijo
+              </span>
+              <span style="font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.3;">Define el stock exacto final (ej: cuadratura de inventario físico).</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label id="direct-adjust-table-label" class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Indicar Variación (+/-) para los Productos Seleccionados</label>
           <div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
             <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
               <thead>
@@ -56404,7 +56435,8 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
                   <th style="padding: 0.75rem;">SKU</th>
                   <th style="padding: 0.75rem;">Nombre</th>
                   <th style="padding: 0.75rem; text-align: center;">Stock Actual</th>
-                  <th style="padding: 0.75rem; text-align: center;">Nuevo Stock</th>
+                  <th id="direct-adjust-input-col-header" style="padding: 0.75rem; text-align: center;">Ajuste (+/-)</th>
+                  <th id="direct-adjust-preview-col-header" style="padding: 0.75rem; text-align: center;">Stock Estimado</th>
                 </tr>
               </thead>
               <tbody>
@@ -56412,14 +56444,19 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
               </tbody>
             </table>
           </div>
+          <div id="direct-adjust-set-mode-note" style="display: none; margin-top: 0.45rem; font-size: 0.76rem; color: var(--color-text-muted); align-items: center; gap: 0.35rem;">
+            <i class="ri-information-line" style="color: #d97706;"></i>
+            <span>Si se ejecutan despachos o ingresos en paralelo, usa <strong>Por Movimiento (+/-)</strong> para evitar sobrescribir el stock.</span>
+          </div>
         </div>
+
         <div class="form-group" style="margin-bottom: 0;">
           <div class="alert alert-warning" style="background: rgba(217, 119, 6, 0.1); border: 1px solid #d97706; color: #d97706; padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; box-sizing: border-box;">
             <i class="ri-error-warning-line" style="font-size: 1.1rem; flex-shrink: 0;"></i>
             <span><strong>Importante:</strong> Dejar un comentario de referencia detallado es fundamental para ayudar a la trazabilidad y auditoría de los movimientos del inventario.</span>
           </div>
-          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Comentario de Referencia (Obligatorio)</label>
-          <input type="text" id="direct-adjust-comment" class="form-input" placeholder="Ej: Ajuste por inventario físico mensual, merma de stock, etc." required style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">4. Comentario de Referencia (Obligatorio)</label>
+          <input type="text" id="direct-adjust-comment" class="form-input" placeholder="Ej: +2 unidades encontradas en bodega, -1 unidad por falla, inventario físico, etc." required style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
         </div>
       </div>
       <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
@@ -56433,29 +56470,164 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
 
   document.body.appendChild(modal);
 
+  const selectEl = document.getElementById('direct-warehouse-select');
+  const btnModeDelta = document.getElementById('btn-adjust-mode-delta');
+  const btnModeSet = document.getElementById('btn-adjust-mode-set');
+  const tableLabelEl = document.getElementById('direct-adjust-table-label');
+  const inputColHeaderEl = document.getElementById('direct-adjust-input-col-header');
+  const previewColHeaderEl = document.getElementById('direct-adjust-preview-col-header');
+  const setModeNoteEl = document.getElementById('direct-adjust-set-mode-note');
+
+  const updateRowPreview = (prodId) => {
+    const key = String(prodId);
+    const currentStock = currentStockByProd[key] || 0;
+    const input = modal.querySelector(`.direct-stock-input[data-prod-id="${prodId}"]`);
+    const preview = modal.querySelector(`.direct-stock-preview[data-prod-id="${prodId}"]`);
+    if (!input || !preview) return;
+
+    const rawVal = parseInt(input.value, 10);
+    const val = Number.isNaN(rawVal) ? 0 : rawVal;
+
+    if (adjustMode === 'delta') {
+      const resulting = currentStock + val;
+      if (val === 0) {
+        preview.innerHTML = `<span style="color: var(--color-text-muted);">${currentStock}</span>`;
+        input.style.borderColor = 'var(--color-border)';
+        input.style.color = 'var(--color-text-main)';
+      } else if (resulting < 0) {
+        preview.innerHTML = `<span style="color: #dc2626; background: rgba(220, 38, 38, 0.12); padding: 0.15rem 0.45rem; border-radius: 6px;">${resulting} (Insuf.)</span>`;
+        input.style.borderColor = '#dc2626';
+        input.style.color = '#dc2626';
+      } else if (val > 0) {
+        preview.innerHTML = `<span style="color: #059669; background: rgba(5, 150, 105, 0.12); padding: 0.15rem 0.45rem; border-radius: 6px;">${resulting} (+${val})</span>`;
+        input.style.borderColor = '#059669';
+        input.style.color = '#059669';
+      } else {
+        preview.innerHTML = `<span style="color: #d97706; background: rgba(217, 119, 6, 0.12); padding: 0.15rem 0.45rem; border-radius: 6px;">${resulting} (${val})</span>`;
+        input.style.borderColor = '#d97706';
+        input.style.color = '#d97706';
+      }
+    } else {
+      const diff = val - currentStock;
+      if (val < 0) {
+        preview.innerHTML = `<span style="color: #dc2626; background: rgba(220, 38, 38, 0.12); padding: 0.15rem 0.45rem; border-radius: 6px;">Inválido</span>`;
+        input.style.borderColor = '#dc2626';
+        input.style.color = '#dc2626';
+      } else if (diff === 0) {
+        preview.innerHTML = `<span style="color: var(--color-text-muted);">Sin cambio</span>`;
+        input.style.borderColor = 'var(--color-border)';
+        input.style.color = 'var(--color-text-main)';
+      } else if (diff > 0) {
+        preview.innerHTML = `<span style="color: #059669; background: rgba(5, 150, 105, 0.12); padding: 0.15rem 0.45rem; border-radius: 6px;">+${diff}</span>`;
+        input.style.borderColor = '#059669';
+        input.style.color = '#059669';
+      } else {
+        preview.innerHTML = `<span style="color: #d97706; background: rgba(217, 119, 6, 0.12); padding: 0.15rem 0.45rem; border-radius: 6px;">${diff}</span>`;
+        input.style.borderColor = '#d97706';
+        input.style.color = '#d97706';
+      }
+    }
+  };
+
+  const applyAdjustMode = (newMode) => {
+    adjustMode = newMode === 'set' ? 'set' : 'delta';
+    const isDelta = adjustMode === 'delta';
+
+    btnModeDelta.style.border = isDelta ? '2px solid var(--color-accent)' : '1px solid var(--color-border)';
+    btnModeDelta.style.background = isDelta ? 'rgba(124, 58, 237, 0.08)' : 'var(--color-bg)';
+    btnModeDelta.querySelector('span').style.color = isDelta ? 'var(--color-accent)' : 'var(--color-text-main)';
+
+    btnModeSet.style.border = !isDelta ? '2px solid var(--color-accent)' : '1px solid var(--color-border)';
+    btnModeSet.style.background = !isDelta ? 'rgba(124, 58, 237, 0.08)' : 'var(--color-bg)';
+    btnModeSet.querySelector('span').style.color = !isDelta ? 'var(--color-accent)' : 'var(--color-text-main)';
+
+    tableLabelEl.textContent = isDelta
+      ? '3. Indicar Variación (+/-) para los Productos Seleccionados'
+      : '3. Definir Stock Exacto para los Productos Seleccionados';
+    inputColHeaderEl.textContent = isDelta ? 'Ajuste (+/-)' : 'Nuevo Stock';
+    previewColHeaderEl.textContent = isDelta ? 'Stock Estimado' : 'Diferencia';
+    setModeNoteEl.style.display = isDelta ? 'none' : 'flex';
+
+    selectedProducts.forEach(p => {
+      const input = modal.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
+      if (!input) return;
+      input.setAttribute('data-edited', '0');
+      if (isDelta) {
+        input.removeAttribute('min');
+        input.value = '0';
+      } else {
+        input.setAttribute('min', '0');
+        input.value = String(currentStockByProd[String(p.id)] || 0);
+      }
+      updateRowPreview(p.id);
+    });
+  };
+
+  btnModeDelta.addEventListener('click', () => applyAdjustMode('delta'));
+  btnModeSet.addEventListener('click', () => applyAdjustMode('set'));
+
+  modal.querySelectorAll('.direct-stock-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      inp.setAttribute('data-edited', '1');
+      updateRowPreview(inp.getAttribute('data-prod-id'));
+    });
+  });
+
+  modal.querySelectorAll('.direct-step-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const prodId = btn.getAttribute('data-prod-id');
+      const step = parseInt(btn.getAttribute('data-step'), 10) || 0;
+      const input = modal.querySelector(`.direct-stock-input[data-prod-id="${prodId}"]`);
+      if (!input) return;
+      const curVal = parseInt(input.value, 10);
+      let nextVal = (Number.isNaN(curVal) ? 0 : curVal) + step;
+      if (adjustMode === 'set' && nextVal < 0) nextVal = 0;
+      input.value = String(nextVal);
+      input.setAttribute('data-edited', '1');
+      updateRowPreview(prodId);
+    });
+  });
+
+  const setProductStocksInModal = (stockMap, isInitialLoad) => {
+    selectedProducts.forEach(p => {
+      const currentStock = stockMap[String(p.id)] ?? 0;
+      currentStockByProd[String(p.id)] = currentStock;
+
+      const label = modal.querySelector(`.direct-current-stock-label[data-prod-id="${p.id}"]`);
+      if (label) label.textContent = currentStock;
+
+      const input = modal.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
+      if (input && (isInitialLoad || input.getAttribute('data-edited') !== '1')) {
+        input.value = adjustMode === 'delta' ? '0' : String(currentStock);
+      }
+      updateRowPreview(p.id);
+    });
+  };
+
   // Load warehouses
   supabase
     .from('warehouses')
     .select('id, name, address, comuna')
     .order('name')
-    .then(({ data: warehouses, error }) => {
-      const selectEl = document.getElementById('direct-warehouse-select');
+    .then(({ data: warehouses }) => {
       if (selectEl) {
         selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
         if (warehouses) {
           warehouses.forEach(w => {
-            selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
+            selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna || ''})</option>`;
           });
         }
       }
     });
 
-  const selectEl = document.getElementById('direct-warehouse-select');
+  let warehouseLoadSeq = 0;
   selectEl.addEventListener('change', async () => {
+    const reqSeq = ++warehouseLoadSeq;
     const warehouseId = selectEl.value;
     if (!warehouseId) {
-      document.querySelectorAll('.direct-current-stock-label').forEach(lbl => lbl.textContent = '0');
-      document.querySelectorAll('.direct-stock-input').forEach(inp => inp.value = '0');
+      const zeroMap = {};
+      selectedProducts.forEach(p => { zeroMap[String(p.id)] = 0; });
+      setProductStocksInModal(zeroMap, true);
       return;
     }
 
@@ -56467,21 +56639,16 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
       .eq('warehouse_id', warehouseId)
       .in('product_id', productIds);
 
+    if (reqSeq !== warehouseLoadSeq || !document.getElementById('modal-direct-stock-adjust')) return;
+
     const stockMap = {};
+    selectedProducts.forEach(p => { stockMap[String(p.id)] = 0; });
     if (dbInvs) {
       dbInvs.forEach(inv => {
-        stockMap[inv.product_id] = inv.quantity || 0;
+        stockMap[String(inv.product_id)] = inv.quantity || 0;
       });
     }
-
-    selectedProducts.forEach(p => {
-      const currentStock = stockMap[p.id] || 0;
-      const label = document.querySelector(`.direct-current-stock-label[data-prod-id="${p.id}"]`);
-      if (label) label.textContent = currentStock;
-
-      const input = document.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
-      if (input) input.value = currentStock;
-    });
+    setProductStocksInModal(stockMap, true);
   });
 
   const confirmBtn = document.getElementById('btn-confirm-direct-adjust');
@@ -56495,6 +56662,45 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
     const comment = document.getElementById('direct-adjust-comment').value.trim();
     if (!comment) {
       alert('Por favor, ingresa un comentario de referencia.');
+      document.getElementById('direct-adjust-comment').focus();
+      return;
+    }
+
+    const rpcItems = [];
+    for (const p of selectedProducts) {
+      const currentStock = currentStockByProd[String(p.id)] || 0;
+      const input = modal.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
+      const parsedVal = parseInt(input ? input.value : '0', 10);
+
+      if (Number.isNaN(parsedVal)) {
+        alert(`Por favor, ingresa un número entero válido para el SKU ${p.sku}.`);
+        if (input) input.focus();
+        return;
+      }
+
+      if (adjustMode === 'delta') {
+        if (parsedVal === 0) continue;
+        if (currentStock + parsedVal < 0) {
+          alert(`No se puede restar ${Math.abs(parsedVal)} un. al SKU ${p.sku} porque su stock actual estimado es ${currentStock} (el stock no puede quedar negativo).`);
+          if (input) input.focus();
+          return;
+        }
+        rpcItems.push({ product_id: p.id, delta: parsedVal });
+      } else {
+        if (parsedVal < 0) {
+          alert(`El nuevo stock para el SKU ${p.sku} no puede ser negativo.`);
+          if (input) input.focus();
+          return;
+        }
+        if (parsedVal === currentStock) continue;
+        rpcItems.push({ product_id: p.id, target_quantity: parsedVal });
+      }
+    }
+
+    if (rpcItems.length === 0) {
+      alert(adjustMode === 'delta'
+        ? 'No hay variaciones para guardar. Ingresa al menos un ajuste distinto de 0 (ej: +2 o -1).'
+        : 'No hay cambios de stock para guardar.');
       return;
     }
 
@@ -56502,23 +56708,43 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
     confirmBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
 
     try {
-      let updatedCount = 0;
-      for (const p of selectedProducts) {
-        const label = document.querySelector(`.direct-current-stock-label[data-prod-id="${p.id}"]`);
-        const oldValue = parseInt(label.textContent || '0', 10);
-        
-        const input = document.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
-        const newValue = parseInt(input.value || '0', 10);
+      let modifiedProductIds = [];
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('adjust_inventory_stock_atomic', {
+        p_warehouse_id: warehouseId,
+        p_mode: adjustMode,
+        p_items: rpcItems,
+        p_comment: comment
+      });
 
-        const diff = newValue - oldValue;
-        if (diff !== 0) {
-          // Update/Insert inventory
-          const { data: invRecord } = await supabase
+      if (rpcErr) {
+        const errMsg = String(rpcErr.message || '');
+        const isMissingRpc = rpcErr.code === 'PGRST202' || rpcErr.code === '42883' || errMsg.includes('adjust_inventory_stock_atomic');
+        if (!isMissingRpc) {
+          throw rpcErr;
+        }
+
+        // Fallback seguro si la migración SQL del RPC aún no ha sido aplicada en Supabase
+        console.warn('[StockAdjust] RPC adjust_inventory_stock_atomic no disponible; usando fallback con lectura fresca de DB.');
+        for (const item of rpcItems) {
+          const prodObj = selectedProducts.find(sp => String(sp.id) === String(item.product_id));
+          const prodSku = prodObj ? prodObj.sku : item.product_id;
+
+          const { data: invRecord, error: fetchErr } = await supabase
             .from('inventory')
             .select('id, quantity')
-            .eq('product_id', p.id)
+            .eq('product_id', item.product_id)
             .eq('warehouse_id', warehouseId)
             .maybeSingle();
+          if (fetchErr) throw fetchErr;
+
+          const liveQty = invRecord ? (invRecord.quantity || 0) : 0;
+          const newValue = adjustMode === 'delta' ? (liveQty + item.delta) : item.target_quantity;
+          const diff = adjustMode === 'delta' ? item.delta : (item.target_quantity - liveQty);
+
+          if (diff === 0) continue;
+          if (newValue < 0) {
+            throw new Error(`No se puede restar ${Math.abs(diff)} un. al SKU ${prodSku} porque su stock actual en bodega es ${liveQty}.`);
+          }
 
           if (invRecord) {
             const { error: invErr } = await supabase
@@ -56530,7 +56756,7 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
             const { error: invErr } = await supabase
               .from('inventory')
               .insert([{
-                product_id: p.id,
+                product_id: item.product_id,
                 warehouse_id: warehouseId,
                 quantity: newValue,
                 committed_quantity: 0
@@ -56538,26 +56764,28 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
             if (invErr) throw invErr;
           }
 
-          // Register movement
-          const type = diff > 0 ? 'in' : 'out';
-          const qty = Math.abs(diff);
-          await supabase
+          const { error: movErr } = await supabase
             .from('movements')
             .insert([{
-              product_id: p.id,
+              product_id: item.product_id,
               warehouse_id: warehouseId,
-              type: type,
-              quantity: qty,
+              type: diff > 0 ? 'in' : 'out',
+              quantity: Math.abs(diff),
               reference_doc: `Ajuste: ${comment}`
             }]);
-          
-          updatedCount++;
+          if (movErr) throw movErr;
+
+          modifiedProductIds.push(item.product_id);
         }
+      } else {
+        modifiedProductIds = Array.isArray(rpcRes?.modified_product_ids)
+          ? rpcRes.modified_product_ids
+          : rpcItems.map(i => i.product_id);
       }
 
-      alert(`¡Éxito! Se actualizó el stock de ${updatedCount} productos en la bodega.`);
+      alert(`¡Éxito! Se actualizó el stock de ${modifiedProductIds.length} producto${modifiedProductIds.length === 1 ? '' : 's'} en la bodega.`);
       modal.remove();
-      if (onComplete) onComplete();
+      if (onComplete) onComplete(modifiedProductIds);
     } catch (err) {
       console.error(err);
       alert('Error al ajustar stock: ' + err.message);
