@@ -449,21 +449,35 @@ async function syncProducts(integration, storeId, headers) {
       }
 
       // Verificar si Tiendanube es la plataforma principal del comercio (o única activa) para auto-crear nuevos productos en el catálogo maestro (products)
+      // En Catálogo V2 (catalog_v2_enabled = true), las integraciones externas solo sincronizan a synced_products (bandeja unificada) y nunca auto-crean en products.
       let shouldAutoCreateInMaster = true;
       try {
-        const { data: activeInts } = await supabase
-          .from('merchant_integrations')
-          .select('platform, is_main')
+        const { data: v2Cfg } = await supabase
+          .from('comercios_adicional_config')
+          .select('catalog_v2_enabled')
           .eq('comercio', integration.comercio)
-          .eq('is_active', true);
-
-        const salesInts = (activeInts || []).filter(i => i.platform !== 'Optiroute');
-        const explicitMain = salesInts.find(i => i.is_main);
-        if (explicitMain && explicitMain.platform !== 'Tiendanube') {
+          .maybeSingle();
+        if (v2Cfg?.catalog_v2_enabled === true) {
           shouldAutoCreateInMaster = false;
         }
-      } catch (err) {
-        console.warn('⚠️ Aviso al verificar plataforma principal para auto-creación:', err.message);
+      } catch (_) {}
+
+      if (shouldAutoCreateInMaster) {
+        try {
+          const { data: activeInts } = await supabase
+            .from('merchant_integrations')
+            .select('platform, is_main')
+            .eq('comercio', integration.comercio)
+            .eq('is_active', true);
+
+          const salesInts = (activeInts || []).filter(i => i.platform !== 'Optiroute');
+          const explicitMain = salesInts.find(i => i.is_main);
+          if (explicitMain && explicitMain.platform !== 'Tiendanube') {
+            shouldAutoCreateInMaster = false;
+          }
+        } catch (err) {
+          console.warn('⚠️ Aviso al verificar plataforma principal para auto-creación:', err.message);
+        }
       }
 
       if (shouldAutoCreateInMaster && integration.comercio) {
@@ -602,27 +616,40 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
     }
   }
   
-  // Cargar equivalencias de SKU para este comercio
+  // Cargar equivalencias de SKU para este comercio (con soporte de multiplicador)
   const skuMap = {};
+  const skuMultMap = {};
   try {
-    const { data: equivalences } = await supabase
+    let { data: equivalences, error: eqErr } = await supabase
       .from('sku_equivalences')
-      .select('platform_sku, master_sku, platform')
+      .select('platform_sku, master_sku, platform, quantity_multiplier')
       .eq('comercio', integration.comercio);
+    if (eqErr) {
+      ({ data: equivalences } = await supabase
+        .from('sku_equivalences')
+        .select('platform_sku, master_sku, platform')
+        .eq('comercio', integration.comercio));
+    }
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = e.master_sku.trim();
           skuMap[clean.toUpperCase()] = e.master_sku.trim();
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
       equivalences.filter(e => e.platform === 'Tiendanube').forEach(e => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = e.master_sku.trim();
           skuMap[clean.toUpperCase()] = e.master_sku.trim();
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
     }
@@ -698,9 +725,10 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
       for (const item of (order.products || [])) {
         let sku = item.sku || `TN-${item.product_id}${item.variant_id ? '-' + item.variant_id : ''}`;
         sku = String(sku).trim().replace(/\s+/g, '');
-        // Aplicar equivalencia de SKU
+        // Aplicar equivalencia de SKU y multiplicador
         const mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
-        const qty = Number(item.quantity || 0);
+        const eqMult = skuMultMap[sku] || skuMultMap[sku.toUpperCase()] || 1;
+        const qty = Number(item.quantity || 0) * eqMult;
         if (qty <= 0) continue;
 
         itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + qty;

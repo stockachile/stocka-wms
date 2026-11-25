@@ -267,29 +267,42 @@ async function syncMerchantOrders(integration) {
     return;
   }
 
-  // Cargar equivalencias de SKU para este comercio
+  // Cargar equivalencias de SKU para este comercio (con soporte de multiplicador)
   const skuMap = {};
+  const skuMultMap = {};
   try {
-    const { data: equivalences } = await supabase
+    let { data: equivalences, error: eqErr } = await supabase
       .from('sku_equivalences')
-      .select('platform_sku, master_sku, platform')
+      .select('platform_sku, master_sku, platform, quantity_multiplier')
       .eq('comercio', integration.comercio);
+    if (eqErr) {
+      ({ data: equivalences } = await supabase
+        .from('sku_equivalences')
+        .select('platform_sku, master_sku, platform')
+        .eq('comercio', integration.comercio));
+    }
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = mTrim;
           skuMap[clean.toUpperCase()] = mTrim;
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
       equivalences.filter(e => e.platform === 'Falabella').forEach(e => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = mTrim;
           skuMap[clean.toUpperCase()] = mTrim;
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
     }
@@ -394,9 +407,10 @@ async function syncMerchantOrders(integration) {
         let sku = item.Sku || item.SellerSku;
         if (sku) {
           let cleanSku = sku.trim().replace(/\s+/g, '');
-          // Aplicar equivalencia de SKU (case-insensitive)
+          // Aplicar equivalencia de SKU (case-insensitive) y multiplicador
           let mappedSku = skuMap[cleanSku] || skuMap[cleanSku.toUpperCase()] || cleanSku;
-          itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + 1;
+          const eqMult = skuMultMap[cleanSku] || skuMultMap[cleanSku.toUpperCase()] || 1;
+          itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + eqMult;
         }
         if (item.Name && !itemNames.includes(item.Name)) {
           itemNames.push(item.Name);

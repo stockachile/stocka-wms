@@ -814,14 +814,23 @@ async function syncShopifyOrders(integration: any): Promise<number> {
       const lineItems = order.line_items || [];
       const expectedQuantities = new Map<string, number>();
 
-      // Pre-cargar equivalencias de SKU del comercio (normalizadas, priorizando Shopify sobre Todas)
+      // Pre-cargar equivalencias de SKU del comercio (normalizadas, con multiplicador y master_product_id, priorizando Shopify sobre Todas)
       const shopifySkuMap: Record<string, string> = {};
+      const shopifyMultMap: Record<string, number> = {};
+      const shopifyProdIdMap: Record<string, string> = {};
       try {
-        const { data: eqRows } = await supabase
+        let { data: eqRows, error: eqErr } = await supabase
           .from("sku_equivalences")
-          .select("platform_sku, master_sku, platform")
+          .select("platform_sku, master_sku, platform, quantity_multiplier, master_product_id")
           .eq("comercio", integration.comercio)
           .in("platform", ["Shopify", "Todas"]);
+        if (eqErr) {
+          ({ data: eqRows } = await supabase
+            .from("sku_equivalences")
+            .select("platform_sku, master_sku, platform")
+            .eq("comercio", integration.comercio)
+            .in("platform", ["Shopify", "Todas"]));
+        }
 
         if (eqRows) {
           eqRows.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
@@ -829,9 +838,13 @@ async function syncShopifyOrders(integration: any): Promise<number> {
               const pTrim = e.platform_sku.trim();
               const pClean = pTrim.replace(/\s+/g, "");
               const mTrim = e.master_sku.trim();
-              shopifySkuMap[pTrim] = mTrim;
-              shopifySkuMap[pClean] = mTrim;
-              shopifySkuMap[pClean.toUpperCase()] = mTrim;
+              const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+              const pid = e.master_product_id || "";
+              [pTrim, pClean, pClean.toUpperCase()].forEach((k) => {
+                shopifySkuMap[k] = mTrim;
+                shopifyMultMap[k] = mult;
+                if (pid) shopifyProdIdMap[k] = pid;
+              });
             }
           });
           eqRows.filter((e: any) => e.platform === "Shopify").forEach((e: any) => {
@@ -839,9 +852,13 @@ async function syncShopifyOrders(integration: any): Promise<number> {
               const pTrim = e.platform_sku.trim();
               const pClean = pTrim.replace(/\s+/g, "");
               const mTrim = e.master_sku.trim();
-              shopifySkuMap[pTrim] = mTrim;
-              shopifySkuMap[pClean] = mTrim;
-              shopifySkuMap[pClean.toUpperCase()] = mTrim;
+              const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+              const pid = e.master_product_id || "";
+              [pTrim, pClean, pClean.toUpperCase()].forEach((k) => {
+                shopifySkuMap[k] = mTrim;
+                shopifyMultMap[k] = mult;
+                if (pid) shopifyProdIdMap[k] = pid;
+              });
             }
           });
         }
@@ -850,8 +867,8 @@ async function syncShopifyOrders(integration: any): Promise<number> {
       }
 
       for (const item of lineItems) {
-        const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
-        if (effectiveQty <= 0) continue;
+        const rawEffectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+        if (rawEffectiveQty <= 0) continue;
 
         const targetSku = (item.sku || item.variant_id?.toString() || "").trim();
         if (!targetSku) continue;
@@ -859,27 +876,42 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         const cleanSku = targetSku.replace(/\s+/g, "");
         const upperSku = cleanSku.toUpperCase();
         const matchedEqSku = shopifySkuMap[targetSku] || shopifySkuMap[cleanSku] || shopifySkuMap[upperSku];
+        const eqMult = shopifyMultMap[targetSku] || shopifyMultMap[cleanSku] || shopifyMultMap[upperSku] || 1;
+        const eqMasterProdId = shopifyProdIdMap[targetSku] || shopifyProdIdMap[cleanSku] || shopifyProdIdMap[upperSku];
+        const effectiveQty = rawEffectiveQty * eqMult;
         let mappedSku = matchedEqSku || targetSku;
         let hasEquivalence = Boolean(matchedEqSku);
 
-        const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, "")
-          ? [mappedSku, mappedSku.replace(/\s+/g, "")]
-          : [mappedSku];
-
-        const { data: foundProducts } = await supabase
-          .from("products")
-          .select("id, sku, barcode_wms, description")
-          .in("sku", productSkuCandidates)
-          .eq("comercio", integration.comercio);
-
         let product: any = null;
-        if (foundProducts && foundProducts.length > 0) {
-          product =
-            foundProducts.find((p: any) => p.barcode_wms && p.sku === mappedSku) ||
-            foundProducts.find((p: any) => p.barcode_wms) ||
-            foundProducts.find((p: any) => p.sku === mappedSku && !(p.description || "").startsWith("Creado automáticamente")) ||
-            foundProducts.find((p: any) => p.sku === mappedSku) ||
-            foundProducts[0];
+        if (eqMasterProdId) {
+          const { data: prodById } = await supabase
+            .from("products")
+            .select("id, sku, barcode_wms, description")
+            .eq("id", eqMasterProdId)
+            .eq("comercio", integration.comercio)
+            .maybeSingle();
+          if (prodById) product = prodById;
+        }
+
+        if (!product) {
+          const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, "")
+            ? [mappedSku, mappedSku.replace(/\s+/g, "")]
+            : [mappedSku];
+
+          const { data: foundProducts } = await supabase
+            .from("products")
+            .select("id, sku, barcode_wms, description")
+            .in("sku", productSkuCandidates)
+            .eq("comercio", integration.comercio);
+
+          if (foundProducts && foundProducts.length > 0) {
+            product =
+              foundProducts.find((p: any) => p.barcode_wms && p.sku === mappedSku) ||
+              foundProducts.find((p: any) => p.barcode_wms) ||
+              foundProducts.find((p: any) => p.sku === mappedSku && !(p.description || "").startsWith("Creado automáticamente")) ||
+              foundProducts.find((p: any) => p.sku === mappedSku) ||
+              foundProducts[0];
+          }
         }
 
         if (!product && mappedSku) {

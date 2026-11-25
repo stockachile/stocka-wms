@@ -339,14 +339,25 @@ async function resolveTiendanubeOrderNumber(comercio: string, rawOrderNumber: st
   return { orderNumber, finalOrderNumber };
 }
 
-async function loadTiendanubeSkuMap(comercio: string): Promise<Record<string, string>> {
+async function loadTiendanubeSkuMap(comercio: string): Promise<{ skuMap: Record<string, string>; skuMultMap: Record<string, number> }> {
   const skuMap: Record<string, string> = {};
-  if (!comercio) return skuMap;
+  const skuMultMap: Record<string, number> = {};
+  if (!comercio) return { skuMap, skuMultMap };
   try {
-    const { data: equivalences } = await supabase
+    let equivalences: any[] | null = null;
+    const eqRes = await supabase
       .from("sku_equivalences")
-      .select("platform_sku, master_sku, platform")
+      .select("platform_sku, master_sku, platform, quantity_multiplier")
       .eq("comercio", comercio);
+    if (eqRes.error) {
+      const fb = await supabase
+        .from("sku_equivalences")
+        .select("platform_sku, master_sku, platform")
+        .eq("comercio", comercio);
+      equivalences = fb.data;
+    } else {
+      equivalences = eqRes.data;
+    }
 
     if (equivalences) {
       equivalences
@@ -354,8 +365,12 @@ async function loadTiendanubeSkuMap(comercio: string): Promise<Record<string, st
         .forEach((e: any) => {
           if (e.platform_sku && e.master_sku) {
             const clean = e.platform_sku.trim().replace(/\s+/g, "");
-            skuMap[clean] = e.master_sku.trim();
-            skuMap[clean.toUpperCase()] = e.master_sku.trim();
+            const mTrim = e.master_sku.trim();
+            const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+            skuMap[clean] = mTrim;
+            skuMap[clean.toUpperCase()] = mTrim;
+            skuMultMap[clean] = mult;
+            skuMultMap[clean.toUpperCase()] = mult;
           }
         });
       equivalences
@@ -363,15 +378,19 @@ async function loadTiendanubeSkuMap(comercio: string): Promise<Record<string, st
         .forEach((e: any) => {
           if (e.platform_sku && e.master_sku) {
             const clean = e.platform_sku.trim().replace(/\s+/g, "");
-            skuMap[clean] = e.master_sku.trim();
-            skuMap[clean.toUpperCase()] = e.master_sku.trim();
+            const mTrim = e.master_sku.trim();
+            const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+            skuMap[clean] = mTrim;
+            skuMap[clean.toUpperCase()] = mTrim;
+            skuMultMap[clean] = mult;
+            skuMultMap[clean.toUpperCase()] = mult;
           }
         });
     }
   } catch (err: any) {
     console.error("⚠️ Error cargando equivalencias de SKU:", err.message);
   }
-  return skuMap;
+  return { skuMap, skuMultMap };
 }
 
 async function resolveMerchantWarehouseId(comercio: string, merchantId: string): Promise<string | null> {
@@ -406,7 +425,7 @@ async function resolveMerchantWarehouseId(comercio: string, merchantId: string):
   return defaultWh?.id || null;
 }
 
-function buildTiendanubeFlatOrderItems(orderProducts: any[], skuMap: Record<string, string>) {
+function buildTiendanubeFlatOrderItems(orderProducts: any[], skuMap: Record<string, string>, skuMultMap: Record<string, number> = {}) {
   const itemNames: string[] = [];
   const itemQuantities: Record<string, number> = {};
   const itemDetailsBySku: Record<string, any> = {};
@@ -415,7 +434,8 @@ function buildTiendanubeFlatOrderItems(orderProducts: any[], skuMap: Record<stri
     let rawSku = item.sku || `TN-${item.product_id}${item.variant_id ? "-" + item.variant_id : ""}`;
     rawSku = String(rawSku).trim().replace(/\s+/g, "");
     const mappedSku = skuMap[rawSku] || skuMap[rawSku.toUpperCase()] || rawSku;
-    const qty = Number(item.quantity || 0);
+    const eqMult = skuMultMap[rawSku] || skuMultMap[rawSku.toUpperCase()] || 1;
+    const qty = Number(item.quantity || 0) * eqMult;
     if (qty <= 0) continue;
 
     itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + qty;
@@ -448,9 +468,10 @@ async function reconcileTiendanubeOrderItems(
   merchantId: string,
   comercio: string,
   orderProducts: any[],
-  skuMap: Record<string, string>
+  skuMap: Record<string, string>,
+  skuMultMap: Record<string, number> = {}
 ) {
-  const { itemQuantities, itemDetailsBySku } = buildTiendanubeFlatOrderItems(orderProducts, skuMap);
+  const { itemQuantities, itemDetailsBySku } = buildTiendanubeFlatOrderItems(orderProducts, skuMap, skuMultMap);
   const warehouseId = await resolveMerchantWarehouseId(comercio, merchantId);
 
   const expectedQuantities = new Map<string, number>();
@@ -655,8 +676,8 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
     return;
   }
 
-  const skuMap = await loadTiendanubeSkuMap(comercio);
-  const { flatSku, flatItemName, flatQuantity } = buildTiendanubeFlatOrderItems(order.products || [], skuMap);
+  const { skuMap, skuMultMap } = await loadTiendanubeSkuMap(comercio);
+  const { flatSku, flatItemName, flatQuantity } = buildTiendanubeFlatOrderItems(order.products || [], skuMap, skuMultMap);
   const totalValue = Number(order.total || 0);
 
   const addr = order.shipping_address;
@@ -720,7 +741,7 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
 
   console.log(`Creado pedido cabecera Tiendanube ${finalOrderNumber} con ID: ${newOrder.id}`);
 
-  await reconcileTiendanubeOrderItems(newOrder.id, merchantId, comercio, order.products || [], skuMap);
+  await reconcileTiendanubeOrderItems(newOrder.id, merchantId, comercio, order.products || [], skuMap, skuMultMap);
 }
 
 async function handleOrderUpdate(merchantId: string, comercio: string, order: any) {
@@ -763,8 +784,8 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
   }
 
   const customerName = extractTiendanubeCustomerName(order);
-  const skuMap = await loadTiendanubeSkuMap(comercio);
-  const { flatSku, flatItemName, flatQuantity } = buildTiendanubeFlatOrderItems(order.products || [], skuMap);
+  const { skuMap, skuMultMap } = await loadTiendanubeSkuMap(comercio);
+  const { flatSku, flatItemName, flatQuantity } = buildTiendanubeFlatOrderItems(order.products || [], skuMap, skuMultMap);
 
   // Preparamos datos a actualizar protegiendo modificaciones manuales del WMS
   const updatedData: Record<string, any> = {
@@ -842,7 +863,7 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
 
     if (alertErr) console.error("Error creando alerta de pedido:", alertErr);
   } else if (!isCancelled && !isProtectedState) {
-    await reconcileTiendanubeOrderItems(existingOrder.id, merchantId, comercio, order.products || [], skuMap);
+    await reconcileTiendanubeOrderItems(existingOrder.id, merchantId, comercio, order.products || [], skuMap, skuMultMap);
     console.log(`Ítems reconciliados con éxito para el pedido Tiendanube ${finalOrderNumber}`);
   }
 }
@@ -859,21 +880,35 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
   const status = product.published ? "published" : "hidden";
 
   // Verificar si Tiendanube es el catálogo principal del comercio (o única plataforma activa)
+  // En Catálogo V2 (catalog_v2_enabled = true), nunca se auto-crean productos directamente en el Catálogo Maestro.
   let shouldSyncToMasterCatalog = true;
   try {
-    const { data: activeInts } = await supabase
-      .from("merchant_integrations")
-      .select("platform, is_main")
+    const { data: v2Cfg } = await supabase
+      .from("comercios_adicional_config")
+      .select("catalog_v2_enabled")
       .eq("comercio", comercio)
-      .eq("is_active", true);
-
-    const salesInts = (activeInts || []).filter((i: any) => i.platform !== "Optiroute");
-    const explicitMain = salesInts.find((i: any) => i.is_main);
-    if (explicitMain && explicitMain.platform !== "Tiendanube") {
+      .maybeSingle();
+    if (v2Cfg?.catalog_v2_enabled === true) {
       shouldSyncToMasterCatalog = false;
     }
-  } catch (err: any) {
-    console.warn("⚠️ Aviso al verificar plataforma principal en webhook Tiendanube:", err.message);
+  } catch (_) {}
+
+  if (shouldSyncToMasterCatalog) {
+    try {
+      const { data: activeInts } = await supabase
+        .from("merchant_integrations")
+        .select("platform, is_main")
+        .eq("comercio", comercio)
+        .eq("is_active", true);
+
+      const salesInts = (activeInts || []).filter((i: any) => i.platform !== "Optiroute");
+      const explicitMain = salesInts.find((i: any) => i.is_main);
+      if (explicitMain && explicitMain.platform !== "Tiendanube") {
+        shouldSyncToMasterCatalog = false;
+      }
+    } catch (err: any) {
+      console.warn("⚠️ Aviso al verificar plataforma principal en webhook Tiendanube:", err.message);
+    }
   }
 
   // Cargar equivalencias de SKU

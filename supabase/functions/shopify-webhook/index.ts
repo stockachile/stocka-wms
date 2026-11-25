@@ -416,14 +416,23 @@ async function handleOrderCreate(merchantId, comercio, order) {
   const expectedQuantitiesCreate = new Map<string, { product: any, sku: string, quantity: number }>();
   const lineItems = order.line_items || [];
 
-  // Pre-cargar equivalencias de SKU del comercio (normalizadas, priorizando Shopify sobre Todas)
+  // Pre-cargar equivalencias de SKU del comercio (normalizadas, con multiplicador y master_product_id, priorizando Shopify sobre Todas)
   const shopifySkuMapCreate: Record<string, string> = {};
+  const shopifyMultMapCreate: Record<string, number> = {};
+  const shopifyProdIdMapCreate: Record<string, string> = {};
   try {
-    const { data: eqRowsCreate } = await supabase
+    let { data: eqRowsCreate, error: eqErrCreate } = await supabase
       .from("sku_equivalences")
-      .select("platform_sku, master_sku, platform")
+      .select("platform_sku, master_sku, platform, quantity_multiplier, master_product_id")
       .eq("comercio", comercio)
       .in("platform", ["Shopify", "Todas"]);
+    if (eqErrCreate) {
+      ({ data: eqRowsCreate } = await supabase
+        .from("sku_equivalences")
+        .select("platform_sku, master_sku, platform")
+        .eq("comercio", comercio)
+        .in("platform", ["Shopify", "Todas"]));
+    }
 
     if (eqRowsCreate) {
       eqRowsCreate.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
@@ -431,9 +440,13 @@ async function handleOrderCreate(merchantId, comercio, order) {
           const pTrim = e.platform_sku.trim();
           const pClean = pTrim.replace(/\s+/g, "");
           const mTrim = e.master_sku.trim();
-          shopifySkuMapCreate[pTrim] = mTrim;
-          shopifySkuMapCreate[pClean] = mTrim;
-          shopifySkuMapCreate[pClean.toUpperCase()] = mTrim;
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+          const pid = e.master_product_id || "";
+          [pTrim, pClean, pClean.toUpperCase()].forEach((k) => {
+            shopifySkuMapCreate[k] = mTrim;
+            shopifyMultMapCreate[k] = mult;
+            if (pid) shopifyProdIdMapCreate[k] = pid;
+          });
         }
       });
       eqRowsCreate.filter((e: any) => e.platform === "Shopify").forEach((e: any) => {
@@ -441,9 +454,13 @@ async function handleOrderCreate(merchantId, comercio, order) {
           const pTrim = e.platform_sku.trim();
           const pClean = pTrim.replace(/\s+/g, "");
           const mTrim = e.master_sku.trim();
-          shopifySkuMapCreate[pTrim] = mTrim;
-          shopifySkuMapCreate[pClean] = mTrim;
-          shopifySkuMapCreate[pClean.toUpperCase()] = mTrim;
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+          const pid = e.master_product_id || "";
+          [pTrim, pClean, pClean.toUpperCase()].forEach((k) => {
+            shopifySkuMapCreate[k] = mTrim;
+            shopifyMultMapCreate[k] = mult;
+            if (pid) shopifyProdIdMapCreate[k] = pid;
+          });
         }
       });
     }
@@ -452,8 +469,8 @@ async function handleOrderCreate(merchantId, comercio, order) {
   }
 
   for (const item of lineItems) {
-    const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
-    if (effectiveQty <= 0) {
+    const rawEffectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+    if (rawEffectiveQty <= 0) {
       console.log(`[Shopify Webhook] Omitiendo ítem SKU ${item.sku} en creación porque fue eliminado en Shopify (cant: 0).`);
       continue;
     }
@@ -465,25 +482,40 @@ async function handleOrderCreate(merchantId, comercio, order) {
     const cleanSku = rawSku.replace(/\s+/g, '');
     const upperSku = cleanSku.toUpperCase();
     const matchedEqSku = rawSku ? (shopifySkuMapCreate[rawSku] || shopifySkuMapCreate[cleanSku] || shopifySkuMapCreate[upperSku]) : undefined;
+    const eqMult = rawSku ? (shopifyMultMapCreate[rawSku] || shopifyMultMapCreate[cleanSku] || shopifyMultMapCreate[upperSku] || 1) : 1;
+    const eqMasterProdId = rawSku ? (shopifyProdIdMapCreate[rawSku] || shopifyProdIdMapCreate[cleanSku] || shopifyProdIdMapCreate[upperSku]) : undefined;
+    const effectiveQty = rawEffectiveQty * eqMult;
     let mappedSku = matchedEqSku || rawSku;
     let hasEquivalence = Boolean(matchedEqSku);
 
+    // Prioridad 0: buscar directamente por master_product_id si la equivalencia tiene FK fuerte
+    if (eqMasterProdId) {
+      const { data: prodById } = await supabase.from("products")
+        .select("id, sku, barcode_wms, description, image_url")
+        .eq("id", eqMasterProdId)
+        .eq("comercio", comercio)
+        .maybeSingle();
+      if (prodById) product = prodById;
+    }
+
     // Buscar el producto en el catálogo por SKU (exacto o sin espacios, priorizando producto maestro con barcode_wms)
-    const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, '')
-      ? [mappedSku, mappedSku.replace(/\s+/g, '')]
-      : [mappedSku];
-    const { data: foundProducts } = await supabase.from("products")
-      .select("id, sku, barcode_wms, description")
-      .in("sku", productSkuCandidates)
-      .eq("comercio", comercio);
-    
-    if (foundProducts && foundProducts.length > 0) {
-      product =
-        foundProducts.find((p: any) => p.barcode_wms && p.sku === mappedSku) ||
-        foundProducts.find((p: any) => p.barcode_wms) ||
-        foundProducts.find((p: any) => p.sku === mappedSku && !(p.description || "").startsWith("Creado automáticamente")) ||
-        foundProducts.find((p: any) => p.sku === mappedSku) ||
-        foundProducts[0];
+    if (!product) {
+      const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, '')
+        ? [mappedSku, mappedSku.replace(/\s+/g, '')]
+        : [mappedSku];
+      const { data: foundProducts } = await supabase.from("products")
+        .select("id, sku, barcode_wms, description")
+        .in("sku", productSkuCandidates)
+        .eq("comercio", comercio);
+      
+      if (foundProducts && foundProducts.length > 0) {
+        product =
+          foundProducts.find((p: any) => p.barcode_wms && p.sku === mappedSku) ||
+          foundProducts.find((p: any) => p.barcode_wms) ||
+          foundProducts.find((p: any) => p.sku === mappedSku && !(p.description || "").startsWith("Creado automáticamente")) ||
+          foundProducts.find((p: any) => p.sku === mappedSku) ||
+          foundProducts[0];
+      }
     }
 
     if (!product && mappedSku) {
@@ -522,7 +554,7 @@ async function handleOrderCreate(merchantId, comercio, order) {
     }
 
     if (product) {
-      const grossPrice = Math.round(Number(item.price || 0));
+      const grossPrice = eqMult > 1 ? Math.round(Number(item.price || 0) / eqMult) : Math.round(Number(item.price || 0));
       const allocDisc = Array.isArray(item.discount_allocations)
         ? item.discount_allocations.reduce((s: number, a: any) => s + Number(a?.amount || 0), 0)
         : Number(item.total_discount || 0);
@@ -1007,14 +1039,23 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       });
     };
 
-    // Pre-cargar equivalencias de SKU del comercio (normalizadas, priorizando Shopify sobre Todas)
+    // Pre-cargar equivalencias de SKU del comercio (normalizadas, con multiplicador y master_product_id, priorizando Shopify sobre Todas)
     const shopifySkuMapUpdate: Record<string, string> = {};
+    const shopifyMultMapUpdate: Record<string, number> = {};
+    const shopifyProdIdMapUpdate: Record<string, string> = {};
     try {
-      const { data: eqRowsUpdate } = await supabase
+      let { data: eqRowsUpdate, error: eqErrUpdate } = await supabase
         .from("sku_equivalences")
-        .select("platform_sku, master_sku, platform")
+        .select("platform_sku, master_sku, platform, quantity_multiplier, master_product_id")
         .eq("comercio", comercio)
         .in("platform", ["Shopify", "Todas"]);
+      if (eqErrUpdate) {
+        ({ data: eqRowsUpdate } = await supabase
+          .from("sku_equivalences")
+          .select("platform_sku, master_sku, platform")
+          .eq("comercio", comercio)
+          .in("platform", ["Shopify", "Todas"]));
+      }
 
       if (eqRowsUpdate) {
         eqRowsUpdate.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
@@ -1022,9 +1063,13 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
             const pTrim = e.platform_sku.trim();
             const pClean = pTrim.replace(/\s+/g, "");
             const mTrim = e.master_sku.trim();
-            shopifySkuMapUpdate[pTrim] = mTrim;
-            shopifySkuMapUpdate[pClean] = mTrim;
-            shopifySkuMapUpdate[pClean.toUpperCase()] = mTrim;
+            const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+            const pid = e.master_product_id || "";
+            [pTrim, pClean, pClean.toUpperCase()].forEach((k) => {
+              shopifySkuMapUpdate[k] = mTrim;
+              shopifyMultMapUpdate[k] = mult;
+              if (pid) shopifyProdIdMapUpdate[k] = pid;
+            });
           }
         });
         eqRowsUpdate.filter((e: any) => e.platform === "Shopify").forEach((e: any) => {
@@ -1032,9 +1077,13 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
             const pTrim = e.platform_sku.trim();
             const pClean = pTrim.replace(/\s+/g, "");
             const mTrim = e.master_sku.trim();
-            shopifySkuMapUpdate[pTrim] = mTrim;
-            shopifySkuMapUpdate[pClean] = mTrim;
-            shopifySkuMapUpdate[pClean.toUpperCase()] = mTrim;
+            const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+            const pid = e.master_product_id || "";
+            [pTrim, pClean, pClean.toUpperCase()].forEach((k) => {
+              shopifySkuMapUpdate[k] = mTrim;
+              shopifyMultMapUpdate[k] = mult;
+              if (pid) shopifyProdIdMapUpdate[k] = pid;
+            });
           }
         });
       }
@@ -1043,7 +1092,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     }
 
     for (const item of activeItems) {
-      const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+      const rawEffectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
       let product = null;
 
       // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas (case-insensitive)
@@ -1051,6 +1100,9 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       const cleanSku = rawSku.replace(/\s+/g, '');
       const upperSku = cleanSku.toUpperCase();
       const matchedEqSku = rawSku ? (shopifySkuMapUpdate[rawSku] || shopifySkuMapUpdate[cleanSku] || shopifySkuMapUpdate[upperSku]) : undefined;
+      const eqMult = rawSku ? (shopifyMultMapUpdate[rawSku] || shopifyMultMapUpdate[cleanSku] || shopifyMultMapUpdate[upperSku] || 1) : 1;
+      const eqMasterProdId = rawSku ? (shopifyProdIdMapUpdate[rawSku] || shopifyProdIdMapUpdate[cleanSku] || shopifyProdIdMapUpdate[upperSku]) : undefined;
+      const effectiveQty = rawEffectiveQty * eqMult;
       let mappedSku = matchedEqSku || rawSku;
       let hasEquivalence = Boolean(matchedEqSku);
 
@@ -1064,22 +1116,33 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
         continue;
       }
 
+      if (eqMasterProdId) {
+        const { data: prodById } = await supabase.from("products")
+          .select("id, sku, name, is_pack, barcode_wms, description")
+          .eq("id", eqMasterProdId)
+          .eq("comercio", comercio)
+          .maybeSingle();
+        if (prodById) product = prodById;
+      }
+
       // Buscar el producto en el catálogo (exacto o sin espacios, priorizando producto maestro con barcode_wms)
-      const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, '')
-        ? [mappedSku, mappedSku.replace(/\s+/g, '')]
-        : [mappedSku];
-      const { data: foundProducts } = await supabase.from("products")
-        .select("id, sku, name, is_pack, barcode_wms, description")
-        .in("sku", productSkuCandidates)
-        .eq("comercio", comercio);
-      
-      if (foundProducts && foundProducts.length > 0) {
-        product =
-          foundProducts.find((p: any) => p.barcode_wms && p.sku === mappedSku) ||
-          foundProducts.find((p: any) => p.barcode_wms) ||
-          foundProducts.find((p: any) => p.sku === mappedSku && !(p.description || "").startsWith("Creado automáticamente")) ||
-          foundProducts.find((p: any) => p.sku === mappedSku) ||
-          foundProducts[0];
+      if (!product) {
+        const productSkuCandidates = mappedSku !== mappedSku.replace(/\s+/g, '')
+          ? [mappedSku, mappedSku.replace(/\s+/g, '')]
+          : [mappedSku];
+        const { data: foundProducts } = await supabase.from("products")
+          .select("id, sku, name, is_pack, barcode_wms, description")
+          .in("sku", productSkuCandidates)
+          .eq("comercio", comercio);
+        
+        if (foundProducts && foundProducts.length > 0) {
+          product =
+            foundProducts.find((p: any) => p.barcode_wms && p.sku === mappedSku) ||
+            foundProducts.find((p: any) => p.barcode_wms) ||
+            foundProducts.find((p: any) => p.sku === mappedSku && !(p.description || "").startsWith("Creado automáticamente")) ||
+            foundProducts.find((p: any) => p.sku === mappedSku) ||
+            foundProducts[0];
+        }
       }
 
       if (!product && mappedSku) {
@@ -1113,7 +1176,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       }
 
       if (product) {
-        const grossPrice = Math.round(Number(item.price || 0));
+        const grossPrice = eqMult > 1 ? Math.round(Number(item.price || 0) / eqMult) : Math.round(Number(item.price || 0));
         const allocDisc = Array.isArray(item.discount_allocations)
           ? item.discount_allocations.reduce((s: number, a: any) => s + Number(a?.amount || 0), 0)
           : Number(item.total_discount || 0);

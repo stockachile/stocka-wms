@@ -412,26 +412,39 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
 
     const skuMap: Record<string, string> = {};
-    const { data: equivalences } = await supabase
+    const skuMultMap: Record<string, number> = {};
+    let { data: equivalences, error: eqLoadErr } = await supabase
       .from('sku_equivalences')
-      .select('platform_sku, master_sku, platform')
+      .select('platform_sku, master_sku, platform, quantity_multiplier')
       .eq('comercio', integration.comercio);
+    if (eqLoadErr) {
+      ({ data: equivalences } = await supabase
+        .from('sku_equivalences')
+        .select('platform_sku, master_sku, platform')
+        .eq('comercio', integration.comercio));
+    }
     
     if (equivalences) {
       equivalences.filter((e: any) => e.platform === 'Todas').forEach((e: any) => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = mTrim;
           skuMap[clean.toUpperCase()] = mTrim;
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
       equivalences.filter((e: any) => e.platform === 'MercadoLibre').forEach((e: any) => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = mTrim;
           skuMap[clean.toUpperCase()] = mTrim;
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
     }
@@ -453,18 +466,20 @@ async function handleOrderNotification(orderId: string, integration: any, access
         }
         sku = sku.trim().replace(/\s+/g, '');
         let mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
+        const eqMult = skuMultMap[sku] || skuMultMap[sku.toUpperCase()] || 1;
+        const scaledQty = Number(item.quantity || 1) * eqMult;
 
         itemsList.push({
           itemId: item.item.id,
           variationId: item.item.variation_id ? item.item.variation_id.toString() : null,
           title: item.item.title,
           price: Number(item.unit_price || 0),
-          quantity: Number(item.quantity || 1),
+          quantity: scaledQty,
           sku: mappedSku,
           variation: item.item.variation_attributes ? item.item.variation_attributes.map((v: any) => v.value_name).join(', ') : 'N/A'
         });
 
-        itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity || 1);
+        itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + scaledQty;
         if (item.item.title && !itemNames.includes(item.item.title)) {
           itemNames.push(item.item.title);
         }

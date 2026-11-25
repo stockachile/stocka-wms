@@ -5878,6 +5878,25 @@ async function renderCatalog() {
     const mainPlatform = mainIntegration ? mainIntegration.platform : '';
     const secondaryPlatforms = activeIntegrations.filter(i => i.platform !== mainPlatform).map(i => i.platform);
 
+    // Consultar flag de Catálogo V2 para este comercio (defensivo)
+    let catalogV2Enabled = false;
+    try {
+      const { data: v2Cfg } = await supabase
+        .from('comercios_adicional_config')
+        .select('catalog_v2_enabled')
+        .eq('comercio', commerce)
+        .maybeSingle();
+      catalogV2Enabled = v2Cfg?.catalog_v2_enabled === true;
+    } catch (_) {}
+
+    if (window._sellerCatalogV2LastCommerce !== commerce) {
+      window._sellerCatalogV2LastCommerce = commerce;
+      window._sellerCatalogV2PlatformFilter = 'ALL';
+      window._sellerCatalogV2StatusFilter = 'pending';
+      window._sellerCatalogV2Search = '';
+    }
+    window.currentSellerCatalogV2 = catalogV2Enabled;
+
     // 2. Fetch WMS products and incidents
     const products = await window.fetchAllSupabaseRows('products', '*, inventory(quantity)', q => q.eq('comercio', commerce).order('name'));
 
@@ -5924,16 +5943,27 @@ async function renderCatalog() {
     if (mapErr) throw mapErr;
 
     const mappingsMap = {};
+    const mappingsByPlatformNorm = {};
+    const mappingsGlobalNorm = {};
     if (mappings) {
       mappings.forEach(m => {
         if (!mappingsMap[m.platform]) mappingsMap[m.platform] = {};
         mappingsMap[m.platform][m.platform_sku] = m.master_sku;
+        const pKey = normSellerSkuKey(m.platform_sku);
+        if (pKey) {
+          if (m.platform === 'Todas') {
+            mappingsGlobalNorm[pKey] = m;
+          } else {
+            if (!mappingsByPlatformNorm[m.platform]) mappingsByPlatformNorm[m.platform] = {};
+            mappingsByPlatformNorm[m.platform][pKey] = m;
+          }
+        }
       });
     }
 
-    const masterSkusSet = new Set(masterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
+    const masterSkusSet = new Set(masterProducts.map(p => normSellerSkuKey(p.sku)).filter(Boolean));
     const unmappedSynced = (syncedProducts || []).filter(sp => {
-      const cleanSku = (sp.sku || '').toLowerCase().trim().replace(/\s+/g, '');
+      const cleanSku = normSellerSkuKey(sp.sku);
       const hasExistingMapping = Boolean(mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]);
       if (mainPlatform) {
         return sp.platform.toLowerCase() !== mainPlatform.toLowerCase() || !masterSkusSet.has(cleanSku) || hasExistingMapping;
@@ -5942,10 +5972,18 @@ async function renderCatalog() {
       }
     });
 
+    const brokenMappingsCount = getSellerBrokenEquivalences(mappings || [], masterProducts).length;
+    const pendingInboxCount = (syncedProducts || []).filter(sp => {
+      const st = classifySellerSyncedProductState(sp, masterSkusSet, mappingsByPlatformNorm, mappingsGlobalNorm);
+      return st.state === 'pending';
+    }).length;
+    const distinctSyncedPlatforms = [...new Set((syncedProducts || []).map(sp => sp.platform).filter(Boolean))].sort();
+
     window.currentMasterProducts = masterProducts;
     window.currentUnmappedSyncedProducts = unmappedSynced;
     window.currentAllSyncedProducts = syncedProducts || [];
     window.currentMappingsMap = mappingsMap;
+    window.currentMappingsArray = mappings || [];
 
     window.catalogQuickEditMode = false;
     const isObserver = userRole === 'observer';
@@ -5973,17 +6011,38 @@ async function renderCatalog() {
       `;
     }
 
-    const mainPlatformSelectorHtml = `
-      <div style="margin-bottom: 1rem; background: var(--color-surface); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <div>
-          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.2rem; color: var(--color-text-main); font-size: 0.9rem;">
-            <i class="ri-shield-check-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Plataforma Principal (Catálogo Maestro): <span style="color: var(--color-primary);">${escapeHtml(mainPlatform || 'Catálogo WMS')}</span>
-          </label>
-          <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
-            Configuración administrada por Operaciones STOCKA. Puedes gestionar tus <strong>Equivalencias SKU</strong> en la pestaña correspondiente; para cambios de SKU maestro, medidas, códigos WMS o fusiones, solicita apoyo a tu ejecutivo.
-          </p>
+    const mainPlatformSelectorHtml = catalogV2Enabled
+      ? `
+        <div style="margin-bottom: 1rem; background: linear-gradient(135deg, rgba(79, 70, 229, 0.06), rgba(16, 185, 129, 0.05)); padding: 0.85rem 1.25rem; border-radius: var(--radius-md); border: 1px solid rgba(79, 70, 229, 0.25); box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem; flex-wrap: wrap;">
+              <span style="display: inline-flex; align-items: center; gap: 0.28rem; background: #4f46e5; color: white; padding: 0.16rem 0.55rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;">
+                <i class="ri-shield-star-line"></i> CATÁLOGO MAESTRO UNIFICADO (V2)
+              </span>
+              <span style="font-size: 0.86rem; font-weight: 600; color: var(--color-text-main);">Inventario centralizado en WMS STOCKA</span>
+            </div>
+            <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45;">
+              Tu catálogo físico es único e independiente de tus tiendas. Usa la pestaña <strong>Bandeja de Canales &amp; Equivalencias</strong> para vincular los SKUs de todos tus canales (con multiplicador ×N si vendes packs) o marcar como ignoradas las publicaciones que no despachas con STOCKA (ej. Meli FULL). Para incorporar productos nuevos al Master o fusionar duplicados, contacta a Operaciones.
+            </p>
+          </div>
         </div>
-      </div>
+      `
+      : `
+        <div style="margin-bottom: 1rem; background: var(--color-surface); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.2rem; color: var(--color-text-main); font-size: 0.9rem;">
+              <i class="ri-shield-check-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Plataforma Principal (Catálogo Maestro): <span style="color: var(--color-primary);">${escapeHtml(mainPlatform || 'Catálogo WMS')}</span>
+            </label>
+            <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
+              Configuración administrada por Operaciones STOCKA. Puedes gestionar tus <strong>Equivalencias SKU</strong> en la pestaña correspondiente; para cambios de SKU maestro, medidas, códigos WMS o fusiones, solicita apoyo a tu ejecutivo.
+            </p>
+          </div>
+        </div>
+      `;
+
+    const eqTabBadgesHtml = `
+      ${brokenMappingsCount > 0 ? `<span style="background: #ef4444; color: white; border-radius: 9999px; padding: 0.08rem 0.45rem; font-size: 0.7rem; font-weight: 700;" title="Equivalencias rotas">${brokenMappingsCount} rotas</span>` : ''}
+      ${catalogV2Enabled && pendingInboxCount > 0 ? `<span style="background: rgba(245, 158, 11, 0.18); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 9999px; padding: 0.06rem 0.45rem; font-size: 0.7rem; font-weight: 700;" title="Publicaciones pendientes de vincular o ignorar">${pendingInboxCount} pend.</span>` : ''}
     `;
 
     const statsContainerHtml = `
@@ -5997,13 +6056,13 @@ async function renderCatalog() {
     `;
 
     appContent.innerHTML = getObserverBanner() + commerceSelectorHtml + mainPlatformSelectorHtml + statsContainerHtml + `
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem;">
-        <div class="integration-tabs" style="display: flex; gap: 0.5rem; padding-bottom: 0px; border-bottom: none; margin-bottom: 0;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div class="integration-tabs" style="display: flex; gap: 0.5rem; padding-bottom: 0px; border-bottom: none; margin-bottom: 0; flex-wrap: wrap;">
           <button class="integration-tab catalog-tab active" data-tab="tab-catalog-master" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid var(--color-primary); color: var(--color-text-main); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
             <i class="ri-list-check"></i> Catálogo Master
           </button>
-          <button class="integration-tab catalog-tab" data-tab="tab-sku-mappings" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
-            <i class="ri-equalizer-line"></i> Equivalencias SKU
+          <button class="integration-tab catalog-tab" data-tab="tab-sku-mappings" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="${catalogV2Enabled ? 'ri-inbox-2-line' : 'ri-equalizer-line'}"></i> ${catalogV2Enabled ? 'Bandeja de Canales & Equivalencias' : 'Equivalencias SKU'} ${eqTabBadgesHtml}
           </button>
           <button class="integration-tab catalog-tab" data-tab="tab-catalog-packs" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
             <i class="ri-stack-line"></i> Packs / Combos
@@ -6164,22 +6223,26 @@ async function renderCatalog() {
         </div>
 
         <div id="tab-sku-mappings" class="catalog-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
-          <div class="card" style="border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border-radius: var(--radius-lg); background: rgba(59, 130, 246, 0.02); overflow: hidden; padding: 1.5rem 2rem;">
-            <h4 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
-              <i class="ri-information-line"></i> Instrucciones de Equivalencias de Canales
+          <div id="eq-broken-alert-container"></div>
+
+          <div class="card" style="border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: var(--shadow-sm); margin-bottom: 1.5rem; border-radius: var(--radius-lg); background: rgba(59, 130, 246, 0.02); overflow: hidden; padding: 1.25rem 1.75rem;">
+            <h4 style="margin: 0 0 0.45rem 0; font-size: 1.08rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+              <i class="${catalogV2Enabled ? 'ri-inbox-2-line' : 'ri-information-line'}"></i> ${catalogV2Enabled ? 'Bandeja Unificada de Canales & Equivalencias' : 'Instrucciones de Equivalencias de Canales'}
             </h4>
-            <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
-              ${mainPlatform 
-                ? `Aquí se listan todos los productos que provienen de tus canales secundarios (como MercadoLibre, Falabella, WooCommerce, etc.) para que los asocies con su producto equivalente del Catálogo Maestro (basado en <strong>${mainPlatform}</strong>).`
-                : 'Aquí se listan todos los SKUs que se sincronizan desde tus tiendas integradas y que <strong>no existen</strong> en tu Catálogo Master. Selecciona el producto maestro correspondiente en la columna de equivalencia para asociarlos.'
+            <p style="margin: 0 0 1rem 0; font-size: 0.87rem; color: var(--color-text-muted); line-height: 1.55;">
+              ${catalogV2Enabled
+                ? 'Aquí ves todas las publicaciones sincronizadas de tus canales conectados. Puedes <strong>vincular cualquier SKU externo a tu Catálogo Master</strong> (con multiplicador ×N si vendes packs) o marcar como <strong>Ignorada</strong> cualquier publicación que no se despache desde bodega STOCKA (ej. Mercado Envíos FULL).'
+                : (mainPlatform
+                  ? `Aquí se listan todos los productos que provienen de tus canales secundarios (como MercadoLibre, Falabella, WooCommerce, etc.) para que los asocies con su producto equivalente del Catálogo Maestro (basado en <strong>${escapeHtml(mainPlatform)}</strong>).`
+                  : 'Aquí se listan todos los SKUs que se sincronizan desde tus tiendas integradas y que <strong>no existen</strong> en tu Catálogo Master. Selecciona el producto maestro correspondiente en la columna de equivalencia para asociarlos.')
               }
             </p>
             <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
-              <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+              <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.48rem 1rem; border-radius: var(--radius-md); font-size: 0.84rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.45rem; transition: all 0.2s;">
                 <i class="ri-download-2-line"></i> Descargar Planilla de Ejemplo
               </button>
               ${!isObserver ? `
-              <button id="btn-trigger-eq-import-excel" class="btn btn-outline" style="border-color: #10b981; color: #10b981; background: transparent; padding: 0.5rem 1.1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+              <button id="btn-trigger-eq-import-excel" class="btn btn-outline" style="border-color: #10b981; color: #10b981; background: transparent; padding: 0.48rem 1rem; border-radius: var(--radius-md); font-size: 0.84rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.45rem; transition: all 0.2s;">
                 <i class="ri-file-excel-2-line"></i> Importar Planilla de Equivalencias
               </button>
               <input type="file" id="eq-matrix-import-excel" accept=".xlsx, .xls, .csv" style="display: none;">` : ''}
@@ -6187,33 +6250,71 @@ async function renderCatalog() {
           </div>
 
           <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
-            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
               <div>
-                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <i class="ri-table-2" style="color: var(--color-primary);"></i> Mapeo de Equivalencias
+                <h3 style="margin: 0 0 0.35rem 0; font-size: 1.18rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="${catalogV2Enabled ? 'ri-git-branch-line' : 'ri-table-2'}" style="color: var(--color-primary);"></i> ${catalogV2Enabled ? 'Bandeja Unificada de Publicaciones por Canal' : 'Mapeo de Equivalencias'}
                 </h3>
-                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Asocia los SKUs de tus plataformas a los SKUs maestros de WMS.</p>
+                <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);" id="v2-inbox-visible-count">
+                  ${catalogV2Enabled ? `Total sincronizados en tus canales: ${(syncedProducts || []).length} publicaciones` : 'Asocia los SKUs de tus plataformas a los SKUs maestros de WMS.'}
+                </p>
               </div>
-              <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-                <label style="display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; font-weight: 500; color: var(--color-text-muted); cursor: pointer; background: var(--color-bg); padding: 0.4rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);" title="Muestra también los productos sincronizados de la plataforma principal o que ya existen en el catálogo">
-                  <input type="checkbox" id="eq-show-all-synced" style="accent-color: var(--color-primary); cursor: pointer;">
-                  <span>Mostrar todos los SKUs sincronizados (${(syncedProducts || []).length})</span>
-                </label>
+              <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                ${!catalogV2Enabled ? `
+                  <label style="display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; font-weight: 500; color: var(--color-text-muted); cursor: pointer; background: var(--color-bg); padding: 0.4rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);" title="Muestra también los productos sincronizados de la plataforma principal o que ya existen en el catálogo">
+                    <input type="checkbox" id="eq-show-all-synced" style="accent-color: var(--color-primary); cursor: pointer;">
+                    <span>Mostrar todos los SKUs sincronizados (${(syncedProducts || []).length})</span>
+                  </label>
+                ` : ''}
                 <div style="position: relative;">
-                  <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-                  <input type="text" id="eq-matrix-search" class="form-input" placeholder="Buscar SKU externo..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s; height: 38px;">
+                  <i class="ri-search-line" style="position: absolute; left: 0.9rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="eq-matrix-search" class="form-input" value="${escapeHtml(catalogV2Enabled ? (window._sellerCatalogV2Search || '') : '')}" placeholder="${catalogV2Enabled ? 'Buscar nombre, SKU externo, EAN...' : 'Buscar SKU externo...'}" style="width: 260px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.48rem 1rem 0.48rem 2.35rem; font-size: 0.86rem; transition: border-color 0.2s; height: 36px;">
                 </div>
-                ${!isObserver ? `<button id="btn-auto-map-equivalences" class="btn btn-outline" style="border-color: var(--color-success); color: var(--color-success); background: transparent; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 500; height: 38px; display: inline-flex; align-items: center; gap: 0.5rem;"><i class="ri-magic-line"></i> Auto-mapear Coincidencias</button>` : ''}
+                ${!isObserver ? `<button id="btn-auto-map-equivalences" class="btn btn-outline" style="border-color: var(--color-success); color: var(--color-success); background: transparent; padding: 0.45rem 0.9rem; border-radius: var(--radius-md); font-weight: 500; height: 36px; font-size: 0.84rem; display: inline-flex; align-items: center; gap: 0.45rem;"><i class="ri-magic-line"></i> Auto-mapear Coincidencias</button>` : ''}
               </div>
             </div>
+
+            ${catalogV2Enabled ? `
+              <div style="padding: 0.85rem 1.75rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.65rem;">
+                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                  <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted); margin-right: 0.25rem;">Canal:</span>
+                  ${['ALL', ...distinctSyncedPlatforms].map(pl => {
+                    const isAct = (window._sellerCatalogV2PlatformFilter || 'ALL') === pl;
+                    const countPl = pl === 'ALL' ? (syncedProducts || []).length : (syncedProducts || []).filter(s => s.platform === pl).length;
+                    return `<button type="button" class="v2-platform-pill" data-platform="${escapeHtml(pl)}" style="padding: 0.28rem 0.7rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 600; cursor: pointer; border: 1px solid ${isAct ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${isAct ? 'var(--color-primary)' : 'var(--color-surface)'}; color: ${isAct ? '#ffffff' : 'var(--color-text-main)'};">${pl === 'ALL' ? 'Todos los canales' : escapeHtml(pl)} (${countPl})</button>`;
+                  }).join('')}
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                  <span style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted); margin-right: 0.25rem;">Estado:</span>
+                  ${[
+                    { key: 'pending', label: 'Pendientes', icon: 'ri-time-line' },
+                    { key: 'mapped', label: 'Vinculados', icon: 'ri-link' },
+                    { key: 'in_master', label: 'En Master (directo)', icon: 'ri-check-double-line' },
+                    { key: 'ignored', label: 'Ignorados (No WMS)', icon: 'ri-eye-off-line' },
+                    { key: 'all', label: 'Todos', icon: 'ri-list-check-2' }
+                  ].map(st => {
+                    const isAct = (window._sellerCatalogV2StatusFilter || 'pending') === st.key;
+                    return `<button type="button" class="v2-status-pill" data-status="${st.key}" style="padding: 0.28rem 0.7rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid ${isAct ? '#4f46e5' : 'var(--color-border)'}; background: ${isAct ? '#4f46e5' : 'var(--color-surface)'}; color: ${isAct ? '#ffffff' : 'var(--color-text-main)'};"><i class="${st.icon}"></i> ${st.label} <span id="v2-status-count-${st.key}" style="opacity: 0.85; font-weight: 700;">0</span></button>`;
+                  }).join('')}
+                </div>
+              </div>
+            ` : ''}
+
             <div class="card-body" style="padding: 0; overflow-x: auto;">
               <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto (Plataforma)</th>
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma Origen</th>
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo</th>
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Equivalencia (Catálogo WMS)</th>
+                    ${catalogV2Enabled ? `
+                      <th style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto (Canal)</th>
+                      <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Canal / SKU Externo / Estado</th>
+                      <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Vincular a Master (×N)</th>
+                      <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 130px;">Acciones</th>
+                    ` : `
+                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto (Plataforma)</th>
+                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma Origen</th>
+                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo</th>
+                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Equivalencia (Catálogo WMS / ×N)</th>
+                    `}
                   </tr>
                 </thead>
                 <tbody id="eq-matrix-tbody">
@@ -6223,34 +6324,36 @@ async function renderCatalog() {
           </div>
 
           <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; margin-top: 2rem;">
-            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
               <div>
-                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <i class="ri-link" style="color: var(--color-primary);"></i> Equivalencias Registradas en el Sistema
+                <h3 style="margin: 0 0 0.35rem 0; font-size: 1.18rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-link" style="color: var(--color-primary);"></i> Equivalencias Registradas en el Sistema (${(mappings || []).length})
                 </h3>
-                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Listado completo de reglas de equivalencia activas en el WMS.</p>
+                <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">Listado completo de reglas de equivalencia activas en el WMS.</p>
               </div>
-              <div style="display: flex; gap: 1rem; align-items: center;">
+              <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
                 <div style="position: relative;">
-                  <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-                  <input type="text" id="eq-registered-search" class="form-input" placeholder="Buscar equivalencia..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s; height: 38px;">
+                  <i class="ri-search-line" style="position: absolute; left: 0.9rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="eq-registered-search" class="form-input" placeholder="Buscar equivalencia..." style="width: 240px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.48rem 1rem 0.48rem 2.35rem; font-size: 0.86rem; transition: border-color 0.2s; height: 36px;">
                 </div>
-                ${!isObserver ? `<button id="btn-create-manual-equivalence" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-md); font-weight: 500;"><i class="ri-add-line"></i> + Crear Equivalencia</button>` : ''}
+                ${!isObserver ? `<button id="btn-create-manual-equivalence" class="btn btn-primary" style="padding: 0.48rem 0.95rem; font-size: 0.84rem; height: 36px; display: inline-flex; align-items: center; gap: 0.25rem; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-md); font-weight: 500;"><i class="ri-add-line"></i> + Crear Equivalencia</button>` : ''}
               </div>
             </div>
             <div class="card-body" style="padding: 0; overflow-x: auto;">
               <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma</th>
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo (Tienda)</th>
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Maestro WMS (Predomina)</th>
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 150px;">Acciones</th>
+                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma</th>
+                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo (Tienda)</th>
+                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Maestro WMS (Predomina)</th>
+                    <th style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 120px;">Multiplicador</th>
+                    <th style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 145px;">Estado</th>
+                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 130px;">Acciones</th>
                   </tr>
                 </thead>
                 <tbody id="eq-registered-tbody">
                   <tr>
-                    <td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Cargando equivalencias registradas...</td>
+                    <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Cargando equivalencias registradas...</td>
                   </tr>
                 </tbody>
               </table>
@@ -6414,6 +6517,14 @@ async function renderCatalog() {
     renderRegisteredEquivalences(mappings);
     initProductPackDomElements(false);
     setupCatalogListeners(commerce, mainPlatform);
+
+    // Restaurar última pestaña activa al recargar el mismo comercio
+    if (window._sellerCatalogLastActiveTab && window._sellerCatalogLastActiveTab.commerce === commerce && window._sellerCatalogLastActiveTab.tabId) {
+      const targetTabBtn = document.querySelector(`.catalog-tab[data-tab="${window._sellerCatalogLastActiveTab.tabId}"]`);
+      if (targetTabBtn && !targetTabBtn.classList.contains('active')) {
+        targetTabBtn.click();
+      }
+    }
 
     const clientSelect = document.getElementById('catalog-client-select');
     if (clientSelect) {
@@ -43947,7 +44058,283 @@ function renderMasterCatalogRows(products) {
   window.renderCatalogBulkActionsBar(commerce);
 }
 
+function normSellerSkuKey(s) {
+  return String(s || '').trim().replace(/\s+/g, '').toUpperCase();
+}
+
+function getSellerBrokenEquivalences(mappings, masterProducts) {
+  const masterIds = new Set((masterProducts || []).map(p => p.id).filter(Boolean));
+  const masterSkus = new Set((masterProducts || []).map(p => normSellerSkuKey(p.sku)).filter(Boolean));
+  return (mappings || []).filter(m => {
+    if (m.master_product_id && masterIds.has(m.master_product_id)) return false;
+    if (m.master_sku && masterSkus.has(normSellerSkuKey(m.master_sku))) return false;
+    return true;
+  });
+}
+
+async function upsertSellerSkuEquivalence({ commerce, platform, platformSku, masterSku, masterProductId, quantityMultiplier }) {
+  const mult = Math.max(1, parseInt(quantityMultiplier, 10) || 1);
+  let { error } = await supabase
+    .from('sku_equivalences')
+    .upsert({
+      comercio: commerce,
+      platform: platform,
+      platform_sku: platformSku,
+      master_sku: masterSku,
+      master_product_id: masterProductId || null,
+      quantity_multiplier: mult
+    }, { onConflict: 'comercio,platform,platform_sku' });
+
+  if (error && /column|schema cache|quantity_multiplier|master_product_id/i.test(error.message || '')) {
+    const fb = await supabase
+      .from('sku_equivalences')
+      .upsert({
+        comercio: commerce,
+        platform: platform,
+        platform_sku: platformSku,
+        master_sku: masterSku
+      }, { onConflict: 'comercio,platform,platform_sku' });
+    error = fb.error;
+  }
+  if (error) throw error;
+
+  if (platform && platform !== 'Todas') {
+    try {
+      await supabase.rpc('set_synced_product_ignored', {
+        p_comercio: commerce,
+        p_platform: platform,
+        p_sku: platformSku,
+        p_is_ignored: false,
+        p_reason: null
+      });
+    } catch (_) {}
+  }
+}
+
+function getSellerChannelStatusBadgeHtml(status) {
+  if (!status) return '';
+  const s = String(status).toLowerCase().trim();
+  let bgColor = 'rgba(107, 114, 128, 0.1)';
+  let textColor = '#6b7280';
+  let borderClr = 'rgba(107, 114, 128, 0.2)';
+  let label = status;
+
+  if (s === 'active' || s === 'publish' || s === 'published') {
+    bgColor = 'rgba(16, 185, 129, 0.1)';
+    textColor = '#10b981';
+    borderClr = 'rgba(16, 185, 129, 0.2)';
+    label = 'Activo';
+  } else if (s === 'draft' || s === 'borrador' || s === 'paused') {
+    bgColor = 'rgba(245, 158, 11, 0.1)';
+    textColor = '#f59e0b';
+    borderClr = 'rgba(245, 158, 11, 0.2)';
+    label = s === 'paused' ? 'Pausado' : 'Borrador';
+  } else if (s === 'archived' || s === 'archivado' || s === 'inactive' || s === 'closed' || s === 'hidden') {
+    bgColor = 'rgba(239, 68, 68, 0.1)';
+    textColor = '#ef4444';
+    borderClr = 'rgba(239, 68, 68, 0.2)';
+    label = s === 'closed' ? 'Cerrado' : 'Archivado';
+  }
+
+  return ` <span class="badge" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${borderClr}; padding: 0.12rem 0.35rem; border-radius: 4px; font-size: 0.68rem; font-weight: 600; text-transform: uppercase;">${escapeHtml(label)}</span>`;
+}
+
+function classifySellerSyncedProductState(sp, masterSkusSet, mappingsByPlatformNorm, mappingsGlobalNorm) {
+  const cleanSku = normSellerSkuKey(sp.sku);
+  const platKey = String(sp.platform || '').trim();
+  const mappedRow = (mappingsByPlatformNorm[platKey] && mappingsByPlatformNorm[platKey][cleanSku])
+    || mappingsGlobalNorm[cleanSku]
+    || null;
+  const inMaster = Boolean(cleanSku && masterSkusSet.has(cleanSku));
+  const isIgnored = sp.is_ignored === true;
+
+  if (mappedRow) return { state: 'mapped', mappedRow, inMaster, isIgnored };
+  if (isIgnored) return { state: 'ignored', mappedRow: null, inMaster, isIgnored: true };
+  if (inMaster) return { state: 'in_master', mappedRow: null, inMaster: true, isIgnored: false };
+  return { state: 'pending', mappedRow: null, inMaster: false, isIgnored: false };
+}
+
+function renderSellerV2ChannelInbox() {
+  const tbody = document.getElementById('eq-matrix-tbody');
+  if (!tbody) return;
+
+  const allSynced = window.currentAllSyncedProducts || [];
+  const masterProducts = window.currentMasterProducts || [];
+  const mappings = window.currentMappingsArray || [];
+  const isObserver = userRole === 'observer';
+
+  const masterSkusSet = new Set(masterProducts.map(p => normSellerSkuKey(p.sku)).filter(Boolean));
+  const masterIdsSet = new Set(masterProducts.map(p => p.id).filter(Boolean));
+  const mappingsByPlatformNorm = {};
+  const mappingsGlobalNorm = {};
+  mappings.forEach(m => {
+    const pKey = normSellerSkuKey(m.platform_sku);
+    if (!pKey) return;
+    if (m.platform === 'Todas') {
+      mappingsGlobalNorm[pKey] = m;
+    } else {
+      if (!mappingsByPlatformNorm[m.platform]) mappingsByPlatformNorm[m.platform] = {};
+      mappingsByPlatformNorm[m.platform][pKey] = m;
+    }
+  });
+
+  const platformFilter = window._sellerCatalogV2PlatformFilter || 'ALL';
+  const statusFilter = window._sellerCatalogV2StatusFilter || 'pending';
+  const searchTerm = (window._sellerCatalogV2Search || '').toLowerCase().trim();
+
+  const classified = allSynced.map(sp => ({
+    sp,
+    ...classifySellerSyncedProductState(sp, masterSkusSet, mappingsByPlatformNorm, mappingsGlobalNorm)
+  }));
+
+  const scopedByPlatform = platformFilter === 'ALL'
+    ? classified
+    : classified.filter(item => item.sp.platform === platformFilter);
+
+  const counts = {
+    pending: scopedByPlatform.filter(i => i.state === 'pending').length,
+    mapped: scopedByPlatform.filter(i => i.state === 'mapped').length,
+    in_master: scopedByPlatform.filter(i => i.state === 'in_master').length,
+    ignored: scopedByPlatform.filter(i => i.state === 'ignored').length,
+    all: scopedByPlatform.length
+  };
+
+  Object.entries(counts).forEach(([key, val]) => {
+    const badge = document.getElementById(`v2-status-count-${key}`);
+    if (badge) badge.textContent = val;
+  });
+
+  let visible = scopedByPlatform;
+  if (statusFilter !== 'all') {
+    visible = visible.filter(i => i.state === statusFilter);
+  }
+  if (searchTerm) {
+    visible = visible.filter(({ sp, mappedRow }) => {
+      const hay = `${sp.name || ''} ${sp.sku || ''} ${sp.platform || ''} ${sp.barcode || ''} ${mappedRow?.master_sku || ''} ${sp.ignored_reason || ''}`.toLowerCase();
+      return hay.includes(searchTerm);
+    });
+  }
+
+  const counterLabel = document.getElementById('v2-inbox-visible-count');
+  if (counterLabel) {
+    counterLabel.textContent = `Mostrando ${visible.length} de ${scopedByPlatform.length} publicaciones`;
+  }
+
+  if (visible.length === 0) {
+    const emptyMsg = statusFilter === 'pending'
+      ? '¡Excelente! No tienes publicaciones pendientes por vincular o ignorar en este filtro.'
+      : 'No hay publicaciones que coincidan con el filtro seleccionado.';
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 2.25rem; color: var(--color-text-muted);">
+          <i class="ri-checkbox-circle-line" style="font-size: 1.75rem; color: #10b981; display: block; margin-bottom: 0.4rem;"></i>
+          ${emptyMsg}
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const maxRender = 250;
+  const sliced = visible.slice(0, maxRender);
+  const truncationNotice = visible.length > maxRender
+    ? `<tr><td colspan="4" style="text-align: center; padding: 0.75rem; font-size: 0.82rem; color: var(--color-text-muted); background: var(--color-bg);">Mostrando los primeros ${maxRender} de ${visible.length} resultados. Usa el buscador o filtros por canal para acotar.</td></tr>`
+    : '';
+
+  tbody.innerHTML = sliced.map(({ sp, state, mappedRow }) => {
+    const currentMapping = mappedRow ? mappedRow.master_sku : '';
+    const currentMult = Math.max(1, parseInt(mappedRow?.quantity_multiplier, 10) || 1);
+    const isBrokenMapping = mappedRow && !(
+      (mappedRow.master_product_id && masterIdsSet.has(mappedRow.master_product_id)) ||
+      (mappedRow.master_sku && masterSkusSet.has(normSellerSkuKey(mappedRow.master_sku)))
+    );
+
+    const thumbHtml = sp.image_url
+      ? `<img src="${escapeHtml(sp.image_url)}" alt="" style="width: 38px; height: 38px; object-fit: cover; border-radius: 6px; border: 1px solid var(--color-border); flex-shrink: 0;">`
+      : `<div style="width: 38px; height: 38px; border-radius: 6px; background: var(--color-bg); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;"><i class="ri-image-line"></i></div>`;
+
+    let inboxStatePill = '';
+    if (state === 'pending') {
+      inboxStatePill = `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-time-line"></i> Pendiente</span>`;
+    } else if (state === 'mapped') {
+      inboxStatePill = isBrokenMapping
+        ? `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.35); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-error-warning-line"></i> Equivalencia Rota</span>`
+        : `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-link"></i> Vinculado${currentMult > 1 ? ` ×${currentMult}` : ''}</span>`;
+    } else if (state === 'in_master') {
+      inboxStatePill = `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-check-double-line"></i> En Master</span>`;
+    } else if (state === 'ignored') {
+      inboxStatePill = `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(107, 114, 128, 0.14); color: #4b5563; border: 1px solid rgba(107, 114, 128, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-eye-off-line"></i> Ignorado (No WMS)</span>`;
+    }
+
+    const ignoredReasonHtml = (state === 'ignored' && sp.ignored_reason)
+      ? `<div style="margin-top: 0.2rem; font-size: 0.74rem; color: var(--color-text-muted);"><i class="ri-information-line"></i> Motivo: <strong>${escapeHtml(sp.ignored_reason)}</strong></div>`
+      : '';
+
+    let actionsHtml = '';
+    if (!isObserver) {
+      if (state === 'ignored') {
+        actionsHtml = `<button type="button" class="btn btn-sm btn-restore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.65rem; font-size: 0.76rem; font-weight: 600; background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;"><i class="ri-refresh-line"></i> Restaurar</button>`;
+      } else if (state === 'pending') {
+        actionsHtml = `<button type="button" class="btn btn-sm btn-ignore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.65rem; font-size: 0.76rem; font-weight: 600; background: rgba(107, 114, 128, 0.1); color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;" title="Marcar como no gestionado por bodega STOCKA (ej. Meli FULL)"><i class="ri-eye-off-line"></i> Ignorar</button>`;
+      }
+    }
+
+    return `
+      <tr class="eq-row" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; ${state === 'ignored' ? 'opacity: 0.72;' : ''}" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.65rem 1.25rem; font-size: 0.86rem; color: var(--color-text-main); max-width: 340px;">
+          <div style="display: flex; align-items: center; gap: 0.65rem;">
+            ${thumbHtml}
+            <div style="min-width: 0;">
+              <div style="font-weight: 600; line-height: 1.3; word-break: break-word;">${escapeHtml(sp.name || '(Sin nombre)')}${getSellerChannelStatusBadgeHtml(sp.status)}</div>
+              ${sp.barcode ? `<div style="font-size: 0.72rem; color: var(--color-text-muted); font-family: monospace; margin-top: 0.15rem;">EAN: ${escapeHtml(sp.barcode)}</div>` : ''}
+              ${ignoredReasonHtml}
+            </div>
+          </div>
+        </td>
+        <td style="padding: 0.65rem 1rem; white-space: nowrap;">
+          <div style="display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.18rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600;">${escapeHtml(sp.platform)}</span>
+              ${inboxStatePill}
+            </div>
+            <span style="font-size: 0.85rem; font-family: monospace; font-weight: 700; color: var(--color-text-main);">${escapeHtml(sp.sku)}</span>
+          </div>
+        </td>
+        <td style="padding: 0.65rem 1rem; min-width: 280px;">
+          <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <input type="text" class="form-input eq-mapping-input"
+                   list="master-skus-list"
+                   data-platform-sku="${escapeHtml(sp.sku)}"
+                   data-platform="${escapeHtml(sp.platform)}"
+                   value="${escapeHtml(currentMapping)}"
+                   placeholder="${state === 'in_master' ? 'Ya coincide directo (' + escapeHtml(sp.sku) + ')' : 'Vincular a SKU Master...'}"
+                   ${isObserver ? 'disabled' : ''}
+                   style="margin: 0; padding: 0.38rem 0.65rem; font-size: 0.82rem; font-family: monospace; border: 1px solid ${isBrokenMapping ? '#ef4444' : 'var(--color-border)'}; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); flex: 1; min-width: 150px;">
+            <div style="display: inline-flex; align-items: center; gap: 0.2rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.4rem; height: 32px;" title="Multiplicador: cuántas unidades del SKU Master se descuentan por cada 1 unidad vendida (ej. 6 para Pack x6)">
+              <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted);">×</span>
+              <input type="number" class="eq-multiplier-input" min="1" max="999" step="1"
+                     data-platform-sku="${escapeHtml(sp.sku)}"
+                     data-platform="${escapeHtml(sp.platform)}"
+                     value="${currentMult}"
+                     ${isObserver ? 'disabled' : ''}
+                     style="width: 44px; border: none; background: transparent; color: var(--color-text-main); font-size: 0.82rem; font-weight: 700; text-align: center; outline: none;">
+            </div>
+          </div>
+        </td>
+        <td style="padding: 0.65rem 1rem; white-space: nowrap;">
+          ${actionsHtml || '<span style="font-size: 0.75rem; color: var(--color-text-muted);">—</span>'}
+        </td>
+      </tr>
+    `;
+  }).join('') + truncationNotice;
+}
+
 function renderEquivalencesRows(unmappedProducts, mappingsMap) {
+  if (window.currentSellerCatalogV2 === true) {
+    renderSellerV2ChannelInbox();
+    return;
+  }
+
   const tbody = document.getElementById('eq-matrix-tbody');
   if (!tbody) return;
 
@@ -43963,37 +44350,16 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
   }
 
   const isObserver = userRole === 'observer';
+  const multLookup = {};
+  (window.currentMappingsArray || []).forEach(m => {
+    if (!multLookup[m.platform]) multLookup[m.platform] = {};
+    multLookup[m.platform][m.platform_sku] = Math.max(1, parseInt(m.quantity_multiplier, 10) || 1);
+  });
 
   tbody.innerHTML = unmappedProducts.map(sp => {
     const currentMapping = (mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]) || '';
-    
-    let statusBadge = '';
-    if (sp.status) {
-      const s = sp.status.toLowerCase().trim();
-      let bgColor = 'rgba(107, 114, 128, 0.1)';
-      let textColor = '#6b7280';
-      let borderClr = 'rgba(107, 114, 128, 0.2)';
-      let label = sp.status;
-
-      if (s === 'active' || s === 'publish') {
-        bgColor = 'rgba(16, 185, 129, 0.1)';
-        textColor = '#10b981';
-        borderClr = 'rgba(16, 185, 129, 0.2)';
-        label = 'Activo';
-      } else if (s === 'draft' || s === 'borrador') {
-        bgColor = 'rgba(245, 158, 11, 0.1)';
-        textColor = '#f59e0b';
-        borderClr = 'rgba(245, 158, 11, 0.2)';
-        label = 'Borrador';
-      } else if (s === 'archived' || s === 'archivado' || s === 'inactive') {
-        bgColor = 'rgba(239, 68, 68, 0.1)';
-        textColor = '#ef4444';
-        borderClr = 'rgba(239, 68, 68, 0.2)';
-        label = 'Archivado';
-      }
-
-      statusBadge = ` <span class="badge" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${borderClr}; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem; text-transform: uppercase;">${escapeHtml(label)}</span>`;
-    }
+    const currentMult = (multLookup[sp.platform] && multLookup[sp.platform][sp.sku]) || 1;
+    const statusBadge = getSellerChannelStatusBadgeHtml(sp.status);
 
     return `
       <tr class="eq-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
@@ -44003,14 +44369,25 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
         </td>
         <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${escapeHtml(sp.sku)}</td>
         <td style="padding: 0.5rem 2rem;">
-          <input type="text" class="form-input eq-mapping-input" 
-                 list="master-skus-list" 
-                 data-platform-sku="${escapeHtml(sp.sku)}" 
-                 data-platform="${escapeHtml(sp.platform)}" 
-                 value="${escapeHtml(currentMapping)}" 
-                 placeholder="Escribe para buscar o seleccionar..." 
-                 ${isObserver ? 'disabled' : ''}
-                 style="margin: 0; padding: 0.4rem 0.8rem; font-size: 0.85rem; font-family: monospace; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); width: 100%; transition: border-color 0.2s;">
+          <div style="display: flex; align-items: center; gap: 0.45rem;">
+            <input type="text" class="form-input eq-mapping-input"
+                   list="master-skus-list"
+                   data-platform-sku="${escapeHtml(sp.sku)}"
+                   data-platform="${escapeHtml(sp.platform)}"
+                   value="${escapeHtml(currentMapping)}"
+                   placeholder="Escribe para buscar o seleccionar..."
+                   ${isObserver ? 'disabled' : ''}
+                   style="margin: 0; padding: 0.4rem 0.8rem; font-size: 0.85rem; font-family: monospace; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); flex: 1; transition: border-color 0.2s;">
+            <div style="display: inline-flex; align-items: center; gap: 0.2rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.4rem; height: 34px;" title="Multiplicador de unidades Master por 1 unidad del canal">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-muted);">×</span>
+              <input type="number" class="eq-multiplier-input" min="1" max="999" step="1"
+                     data-platform-sku="${escapeHtml(sp.sku)}"
+                     data-platform="${escapeHtml(sp.platform)}"
+                     value="${currentMult}"
+                     ${isObserver ? 'disabled' : ''}
+                     style="width: 44px; border: none; background: transparent; color: var(--color-text-main); font-size: 0.84rem; font-weight: 700; text-align: center; outline: none;">
+            </div>
+          </div>
         </td>
       </tr>
     `;
@@ -44019,12 +44396,45 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
 
 function renderRegisteredEquivalences(mappings) {
   const tbody = document.getElementById('eq-registered-tbody');
+  const brokenContainer = document.getElementById('eq-broken-alert-container');
+  const masterProducts = window.currentMasterProducts || [];
+  const brokenList = getSellerBrokenEquivalences(mappings || [], masterProducts);
+  const brokenIds = new Set(brokenList.map(b => b.id));
+  const isObserver = userRole === 'observer';
+
+  if (brokenContainer) {
+    if (brokenList.length > 0) {
+      brokenContainer.innerHTML = `
+        <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.4); border-left: 4px solid #ef4444; border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; flex: 1; min-width: 260px;">
+            <i class="ri-error-warning-fill" style="color: #ef4444; font-size: 1.45rem; margin-top: 0.05rem;"></i>
+            <div>
+              <strong style="color: #dc2626; font-size: 0.95rem; display: block; margin-bottom: 0.2rem;">
+                Atención: ${brokenList.length} Equivalencia(s) Rota(s) detectada(s)
+              </strong>
+              <span style="font-size: 0.83rem; color: var(--color-text-muted); line-height: 1.45; display: block;">
+                Algunas reglas apuntan a un <code>SKU Master</code> que ya no existe en tu catálogo WMS. Elimínalas o reasígnalas para evitar incidencias al recibir pedidos.
+              </span>
+            </div>
+          </div>
+          ${!isObserver ? `
+            <button type="button" id="btn-delete-all-broken-eq" class="btn btn-sm" style="background: #ef4444; color: white; border: none; border-radius: var(--radius-md); padding: 0.5rem 0.9rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
+              <i class="ri-delete-bin-line"></i> Eliminar ${brokenList.length} rota(s)
+            </button>
+          ` : ''}
+        </div>
+      `;
+    } else {
+      brokenContainer.innerHTML = '';
+    }
+  }
+
   if (!tbody) return;
 
   if (!mappings || mappings.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+        <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
           No hay equivalencias manuales registradas en el sistema.
         </td>
       </tr>
@@ -44032,21 +44442,41 @@ function renderRegisteredEquivalences(mappings) {
     return;
   }
 
-  const isObserver = userRole === 'observer';
+  const sortedMappings = [...mappings].sort((a, b) => {
+    const aBroken = brokenIds.has(a.id) ? 0 : 1;
+    const bBroken = brokenIds.has(b.id) ? 0 : 1;
+    if (aBroken !== bBroken) return aBroken - bBroken;
+    return String(a.platform || '').localeCompare(String(b.platform || '')) || String(a.platform_sku || '').localeCompare(String(b.platform_sku || ''));
+  });
 
-  tbody.innerHTML = mappings.map(m => {
-    const deleteBtn = isObserver 
-      ? '' 
-      : `<button class="btn btn-outline btn-delete-equivalence" data-id="${m.id}" data-platform="${escapeHtml(m.platform)}" data-platform-sku="${escapeHtml(m.platform_sku)}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;"><i class="ri-delete-bin-line"></i> Eliminar</button>`;
+  tbody.innerHTML = sortedMappings.map(m => {
+    const isBroken = brokenIds.has(m.id);
+    const mult = Math.max(1, parseInt(m.quantity_multiplier, 10) || 1);
+    const statusHtml = isBroken
+      ? `<span class="badge" style="background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.35); padding: 0.2rem 0.5rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 700; white-space: nowrap;"><i class="ri-error-warning-line"></i> Rota (no existe)</span>`
+      : `<span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.2rem 0.5rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 700; white-space: nowrap;"><i class="ri-checkbox-circle-line"></i> Activa</span>`;
+
+    const deleteBtn = isObserver
+      ? ''
+      : `<button class="btn btn-outline btn-delete-equivalence" data-id="${m.id}" data-platform="${escapeHtml(m.platform)}" data-platform-sku="${escapeHtml(m.platform_sku)}" style="padding: 0.25rem 0.55rem; font-size: 0.78rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;"><i class="ri-delete-bin-line"></i> Eliminar</button>`;
 
     return `
-      <tr class="eq-registered-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.75rem 2rem;">
-          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${escapeHtml(m.platform)}</span>
+      <tr class="eq-registered-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; ${isBroken ? 'background: rgba(239, 68, 68, 0.04);' : ''}" onmouseover="this.style.backgroundColor='${isBroken ? 'rgba(239, 68, 68, 0.08)' : 'var(--color-bg)'}'" onmouseout="this.style.backgroundColor='${isBroken ? 'rgba(239, 68, 68, 0.04)' : 'transparent'}'">
+        <td style="padding: 0.7rem 1.5rem;">
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.22rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${escapeHtml(m.platform)}</span>
         </td>
-        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${escapeHtml(m.platform_sku)}</td>
-        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-primary);">${escapeHtml(m.master_sku)}</td>
-        <td style="padding: 0.5rem 2rem;">${deleteBtn}</td>
+        <td style="padding: 0.7rem 1.5rem; font-size: 0.88rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${escapeHtml(m.platform_sku)}</td>
+        <td style="padding: 0.7rem 1.5rem; font-size: 0.88rem; font-family: monospace; font-weight: bold; color: ${isBroken ? '#dc2626' : 'var(--color-primary)'};">${escapeHtml(m.master_sku)}</td>
+        <td style="padding: 0.55rem 1.25rem;">
+          <div style="display: inline-flex; align-items: center; gap: 0.2rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; padding: 0 0.45rem; height: 30px;">
+            <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted);">×</span>
+            <input type="number" class="eq-reg-multiplier-input" min="1" max="999" step="1"
+                   data-id="${m.id}" value="${mult}" ${isObserver ? 'disabled' : ''}
+                   style="width: 44px; border: none; background: transparent; color: var(--color-text-main); font-size: 0.82rem; font-weight: 700; text-align: center; outline: none;">
+          </div>
+        </td>
+        <td style="padding: 0.7rem 1.25rem;">${statusHtml}</td>
+        <td style="padding: 0.55rem 1.5rem;">${deleteBtn}</td>
       </tr>
     `;
   }).join('');
@@ -44073,7 +44503,7 @@ function openCreateManualEquivalenceModal(commerce) {
   `;
 
   modal.innerHTML = `
-    <div class="modal-content" style="background: var(--color-surface); width: 100%; max-width: 500px; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column; animation: modalFadeIn 0.25s ease;">
+    <div class="modal-content" style="background: var(--color-surface); width: 100%; max-width: 520px; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column; animation: modalFadeIn 0.25s ease;">
       <div class="modal-header" style="border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);">
         <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
           <i class="ri-link" style="color: var(--color-primary);"></i> Crear Equivalencia Manual
@@ -44081,9 +44511,9 @@ function openCreateManualEquivalenceModal(commerce) {
         <button type="button" class="btn-close-modal" onclick="this.closest('.modal-overlay').remove()" style="background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.2rem;"><i class="ri-close-line"></i></button>
       </div>
       <form id="form-create-manual-equivalence" style="margin: 0;">
-        <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+        <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.15rem;">
           <div class="form-group">
-            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Plataforma</label>
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.45rem;">Plataforma</label>
             <select id="eq-manual-platform" class="form-input" required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem;">
               <option value="Todas">Todas (Mapeo General)</option>
               <option value="Shopify">Shopify</option>
@@ -44098,12 +44528,17 @@ function openCreateManualEquivalenceModal(commerce) {
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">SKU Externo (de la tienda)</label>
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.45rem;">SKU Externo (de la tienda)</label>
             <input type="text" id="eq-manual-platform-sku" class="form-input" placeholder="ej. abcd-shopify" required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-family: monospace;">
           </div>
           <div class="form-group">
-            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">SKU Maestro WMS (El que predomina / descuenta stock)</label>
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.45rem;">SKU Maestro WMS (El que predomina / descuenta stock)</label>
             <input type="text" id="eq-manual-master-sku" list="master-skus-list" class="form-input" placeholder="Busca o escribe el SKU del catálogo..." required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-family: monospace;">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.45rem;">Multiplicador de Unidades (×N)</label>
+            <input type="number" id="eq-manual-multiplier" class="form-input" min="1" max="999" step="1" value="1" required style="width: 120px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.55rem 0.8rem; font-weight: 700;">
+            <small style="display: block; margin-top: 0.3rem; font-size: 0.78rem; color: var(--color-text-muted);">Usa <strong>1</strong> para equivalencia directa, o ej. <strong>6</strong> si la publicación corresponde a un pack de 6 unidades del mismo SKU Master.</small>
           </div>
         </div>
         <div class="modal-footer" style="border-top: 1px solid var(--color-border); padding: 1rem 1.5rem; display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-bg);">
@@ -44122,32 +44557,29 @@ function openCreateManualEquivalenceModal(commerce) {
     const platform = document.getElementById('eq-manual-platform').value;
     const platformSku = document.getElementById('eq-manual-platform-sku').value.trim();
     const masterSkuRaw = document.getElementById('eq-manual-master-sku').value.trim();
+    const multVal = Math.max(1, parseInt(document.getElementById('eq-manual-multiplier').value, 10) || 1);
 
     if (!platformSku || !masterSkuRaw) return;
 
-    const normKey = (s) => String(s || '').trim().replace(/\s+/g, '').toUpperCase();
-    const matchedMaster = (window.currentMasterProducts || []).find(p => normKey(p.sku) === normKey(masterSkuRaw));
+    const matchedMaster = (window.currentMasterProducts || []).find(p => normSellerSkuKey(p.sku) === normSellerSkuKey(masterSkuRaw));
     if (!matchedMaster) {
       alert(`El SKU Maestro "${masterSkuRaw}" no existe en el catálogo master. Crea el producto master primero.`);
       return;
     }
-    const canonicalMasterSku = matchedMaster.sku;
 
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     submitBtn.textContent = 'Guardando...';
 
     try {
-      const { error } = await supabase
-        .from('sku_equivalences')
-        .upsert({
-          comercio: commerce,
-          platform: platform,
-          platform_sku: platformSku,
-          master_sku: canonicalMasterSku
-        }, { onConflict: 'comercio,platform,platform_sku' });
-
-      if (error) throw error;
+      await upsertSellerSkuEquivalence({
+        commerce,
+        platform,
+        platformSku,
+        masterSku: matchedMaster.sku,
+        masterProductId: matchedMaster.id,
+        quantityMultiplier: multVal
+      });
 
       alert('Equivalencia creada/actualizada correctamente.');
       modal.remove();
@@ -44573,6 +45005,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
       tab.style.fontWeight = '600';
 
       const tabId = tab.getAttribute('data-tab');
+      window._sellerCatalogLastActiveTab = { commerce, tabId };
       const targetPane = document.getElementById(tabId);
       if (targetPane) targetPane.style.display = 'block';
 
@@ -45091,26 +45524,38 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // 7. Auto-map equivalences
+  // 7. Auto-map equivalences (omite ignorados y guarda master_product_id + quantity_multiplier)
   const btnAutoMap = document.getElementById('btn-auto-map-equivalences');
   if (btnAutoMap) {
     btnAutoMap.addEventListener('click', async () => {
-      const unmapped = window.currentUnmappedSyncedProducts || [];
-      const masterSkusSet = new Set(window.currentMasterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
-      const masterSkusMap = {};
-      window.currentMasterProducts.forEach(p => {
-        masterSkusMap[p.sku.toLowerCase().trim().replace(/\s+/g, '')] = p.sku;
+      const sourcePool = window.currentSellerCatalogV2 === true
+        ? (window.currentAllSyncedProducts || []).filter(sp => sp.is_ignored !== true)
+        : (window.currentUnmappedSyncedProducts || []);
+
+      const masterMap = new Map();
+      (window.currentMasterProducts || []).forEach(p => {
+        const k = normSellerSkuKey(p.sku);
+        if (k) masterMap.set(k, p);
       });
 
+      const existingEqKeys = new Set(
+        (window.currentMappingsArray || []).map(m => `${m.platform}::${normSellerSkuKey(m.platform_sku)}`)
+      );
+
       const mappingsToInsert = [];
-      unmapped.forEach(sp => {
-        const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
-        if (masterSkusSet.has(cleanSku)) {
+      sourcePool.forEach(sp => {
+        const cleanSku = normSellerSkuKey(sp.sku);
+        const masterMatch = masterMap.get(cleanSku);
+        const eqKey = `${sp.platform}::${cleanSku}`;
+        if (masterMatch && !existingEqKeys.has(eqKey)) {
+          existingEqKeys.add(eqKey);
           mappingsToInsert.push({
             comercio: commerce,
             platform: sp.platform,
             platform_sku: sp.sku,
-            master_sku: masterSkusMap[cleanSku]
+            master_sku: masterMatch.sku,
+            master_product_id: masterMatch.id,
+            quantity_multiplier: 1
           });
         }
       });
@@ -45124,10 +45569,18 @@ function setupCatalogListeners(commerce, mainPlatform) {
         btnAutoMap.disabled = true;
         btnAutoMap.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Procesando...`;
         try {
-          const { error } = await supabase
+          let { error } = await supabase
             .from('sku_equivalences')
             .upsert(mappingsToInsert, { onConflict: 'comercio,platform,platform_sku' });
-          
+
+          if (error && /column|schema cache|quantity_multiplier|master_product_id/i.test(error.message || '')) {
+            const legacyRows = mappingsToInsert.map(({ comercio, platform, platform_sku, master_sku }) => ({ comercio, platform, platform_sku, master_sku }));
+            const fb = await supabase
+              .from('sku_equivalences')
+              .upsert(legacyRows, { onConflict: 'comercio,platform,platform_sku' });
+            error = fb.error;
+          }
+
           if (error) throw error;
           alert(`¡Éxito! Se mapearon automáticamente ${mappingsToInsert.length} equivalencias.`);
           renderCatalog();
@@ -45141,16 +45594,55 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // 8. Auto-save Equivalences on input change (delegated on tbody so dynamic toggles work)
+  // 7.5. Filtros de la Bandeja Unificada de Canales (Seller V2)
+  document.querySelectorAll('.v2-platform-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      window._sellerCatalogV2PlatformFilter = pill.getAttribute('data-platform') || 'ALL';
+      document.querySelectorAll('.v2-platform-pill').forEach(p => {
+        const active = p === pill;
+        p.style.background = active ? 'var(--color-primary)' : 'var(--color-surface)';
+        p.style.color = active ? '#ffffff' : 'var(--color-text-main)';
+        p.style.borderColor = active ? 'var(--color-primary)' : 'var(--color-border)';
+      });
+      renderSellerV2ChannelInbox();
+    });
+  });
+
+  document.querySelectorAll('.v2-status-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      window._sellerCatalogV2StatusFilter = pill.getAttribute('data-status') || 'pending';
+      document.querySelectorAll('.v2-status-pill').forEach(p => {
+        const active = p === pill;
+        p.style.background = active ? '#4f46e5' : 'var(--color-surface)';
+        p.style.color = active ? '#ffffff' : 'var(--color-text-main)';
+        p.style.borderColor = active ? '#4f46e5' : 'var(--color-border)';
+      });
+      renderSellerV2ChannelInbox();
+    });
+  });
+
+  // 8. Auto-save Equivalences (SKU + Multiplicador ×N) y Acciones V2 permitidas para Seller (Ignorar / Restaurar)
   const eqMatrixTbody = document.getElementById('eq-matrix-tbody');
   if (eqMatrixTbody) {
     eqMatrixTbody.addEventListener('change', async (e) => {
-      if (!e.target.classList.contains('eq-mapping-input')) return;
-      const platformSku = e.target.getAttribute('data-platform-sku');
-      const platform = e.target.getAttribute('data-platform');
-      const enteredValue = e.target.value.trim();
+      const isSkuInput = e.target.classList.contains('eq-mapping-input');
+      const isMultInput = e.target.classList.contains('eq-multiplier-input');
+      if (!isSkuInput && !isMultInput) return;
 
-      e.target.style.borderColor = 'var(--color-primary)';
+      const row = e.target.closest('tr');
+      const skuInput = row?.querySelector('.eq-mapping-input');
+      const multInput = row?.querySelector('.eq-multiplier-input');
+      if (!skuInput) return;
+
+      const platformSku = skuInput.getAttribute('data-platform-sku');
+      const platform = skuInput.getAttribute('data-platform');
+      const enteredValue = skuInput.value.trim();
+      const multVal = Math.max(1, parseInt(multInput?.value, 10) || 1);
+      if (multInput) multInput.value = multVal;
+
+      if (isMultInput && !enteredValue) return;
+
+      skuInput.style.borderColor = 'var(--color-primary)';
 
       try {
         if (!enteredValue) {
@@ -45162,42 +45654,139 @@ function setupCatalogListeners(commerce, mainPlatform) {
             .eq('platform_sku', platformSku);
 
           if (error) throw error;
-          e.target.style.borderColor = 'var(--color-success)';
+          skuInput.style.borderColor = 'var(--color-success)';
           renderCatalog();
         } else {
-          const normKey = (s) => String(s || '').trim().replace(/\s+/g, '').toUpperCase();
-          const matchedMaster = (window.currentMasterProducts || []).find(p => normKey(p.sku) === normKey(enteredValue));
+          const matchedMaster = (window.currentMasterProducts || []).find(p => normSellerSkuKey(p.sku) === normSellerSkuKey(enteredValue));
           if (!matchedMaster) {
-            e.target.style.borderColor = 'var(--color-danger)';
+            skuInput.style.borderColor = 'var(--color-danger)';
             alert(`El SKU "${enteredValue}" no existe en el catálogo master. Crea el producto master primero o selecciona uno válido.`);
-            e.target.value = '';
+            skuInput.value = '';
             return;
           }
 
-          const canonicalMasterSku = matchedMaster.sku;
-          e.target.value = canonicalMasterSku;
+          skuInput.value = matchedMaster.sku;
 
-          const { error } = await supabase
-            .from('sku_equivalences')
-            .upsert({
-              comercio: commerce,
-              platform: platform,
-              platform_sku: platformSku,
-              master_sku: canonicalMasterSku
-            }, { onConflict: 'comercio,platform,platform_sku' });
+          await upsertSellerSkuEquivalence({
+            commerce,
+            platform,
+            platformSku,
+            masterSku: matchedMaster.sku,
+            masterProductId: matchedMaster.id,
+            quantityMultiplier: multVal
+          });
 
-          if (error) throw error;
-          e.target.style.borderColor = 'var(--color-success)';
+          skuInput.style.borderColor = 'var(--color-success)';
           renderCatalog();
         }
       } catch (err) {
-        e.target.style.borderColor = 'var(--color-danger)';
+        skuInput.style.borderColor = 'var(--color-danger)';
         alert('Error al guardar equivalencia: ' + err.message);
+      }
+    });
+
+    eqMatrixTbody.addEventListener('click', async (e) => {
+      // Acción V2 Seller: Ignorar publicación externa (No gestionada por bodega STOCKA)
+      const ignoreBtn = e.target.closest('.btn-ignore-synced-sku');
+      if (ignoreBtn) {
+        const platform = ignoreBtn.getAttribute('data-platform');
+        const sku = ignoreBtn.getAttribute('data-sku');
+        let reason = null;
+        let proceed = false;
+
+        if (typeof Swal !== 'undefined') {
+          const res = await Swal.fire({
+            title: 'Ignorar publicación (No WMS)',
+            html: `
+              <p style="font-size:0.86rem;color:var(--color-text-muted);margin-bottom:0.75rem;">
+                La publicación <code>${escapeHtml(sku)}</code> (${escapeHtml(platform)}) se marcará como no gestionada por bodega STOCKA.
+              </p>
+              <select id="swal-seller-ignore-preset" class="form-input" style="width:100%;margin-bottom:0.6rem;padding:0.5rem;">
+                <option value="Mercado Envíos FULL">Mercado Envíos FULL (stock fuera de STOCKA)</option>
+                <option value="Despacho directo / Envío propio">Despacho directo / Envío propio</option>
+                <option value="Descontinuado / Borrador antiguo">Descontinuado / Publicación obsoleta</option>
+                <option value="Producto digital / Servicio">Producto digital / Servicio sin bodega</option>
+                <option value="CUSTOM">Otro motivo...</option>
+              </select>
+              <input type="text" id="swal-seller-ignore-custom" class="form-input" placeholder="Escribe el motivo personalizado..." style="width:100%;display:none;padding:0.5rem;">
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Marcar como Ignorado',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#64748b',
+            didOpen: () => {
+              const sel = document.getElementById('swal-seller-ignore-preset');
+              const inp = document.getElementById('swal-seller-ignore-custom');
+              sel?.addEventListener('change', () => {
+                if (inp) inp.style.display = sel.value === 'CUSTOM' ? 'block' : 'none';
+              });
+            },
+            preConfirm: () => {
+              const selVal = document.getElementById('swal-seller-ignore-preset')?.value || '';
+              const customVal = document.getElementById('swal-seller-ignore-custom')?.value?.trim() || '';
+              return selVal === 'CUSTOM' ? (customVal || 'No gestionado por WMS') : selVal;
+            }
+          });
+          if (res.isConfirmed) {
+            proceed = true;
+            reason = res.value;
+          }
+        } else {
+          const r = prompt(`Motivo para ignorar ${sku} (${platform}) (ej. Meli FULL, Envío propio):`, 'Mercado Envíos FULL');
+          if (r !== null) {
+            proceed = true;
+            reason = r.trim() || 'No gestionado por WMS';
+          }
+        }
+        if (!proceed) return;
+
+        ignoreBtn.disabled = true;
+        ignoreBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>`;
+        try {
+          const { error } = await supabase.rpc('set_synced_product_ignored', {
+            p_comercio: commerce,
+            p_platform: platform,
+            p_sku: sku,
+            p_is_ignored: true,
+            p_reason: reason
+          });
+          if (error) throw error;
+          renderCatalog();
+        } catch (err) {
+          alert('Error al marcar como ignorado: ' + err.message);
+          ignoreBtn.disabled = false;
+          ignoreBtn.innerHTML = `<i class="ri-eye-off-line"></i> Ignorar`;
+        }
+        return;
+      }
+
+      // Acción V2 Seller: Restaurar publicación ignorada
+      const restoreBtn = e.target.closest('.btn-restore-synced-sku');
+      if (restoreBtn) {
+        const platform = restoreBtn.getAttribute('data-platform');
+        const sku = restoreBtn.getAttribute('data-sku');
+        restoreBtn.disabled = true;
+        restoreBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>`;
+        try {
+          const { error } = await supabase.rpc('set_synced_product_ignored', {
+            p_comercio: commerce,
+            p_platform: platform,
+            p_sku: sku,
+            p_is_ignored: false,
+            p_reason: null
+          });
+          if (error) throw error;
+          renderCatalog();
+        } catch (err) {
+          alert('Error al restaurar publicación: ' + err.message);
+          restoreBtn.disabled = false;
+          restoreBtn.innerHTML = `<i class="ri-refresh-line"></i> Restaurar`;
+        }
       }
     });
   }
 
-  // Toggle para mostrar todos los SKUs sincronizados en Mapeo de Equivalencias
+  // Toggle para mostrar todos los SKUs sincronizados en Mapeo de Equivalencias (Modo Clásico)
   const cbShowAllSynced = document.getElementById('eq-show-all-synced');
   if (cbShowAllSynced) {
     cbShowAllSynced.addEventListener('change', (e) => {
@@ -45208,20 +45797,25 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // 2. Buscador en la matriz
+  // 2. Buscador en la matriz / Bandeja Unificada
   const searchInput = document.getElementById('eq-matrix-search');
   if (searchInput) {
     const newSearchInput = searchInput.cloneNode(true);
     searchInput.parentNode.replaceChild(newSearchInput, searchInput);
     newSearchInput.addEventListener('input', (e) => {
       const term = e.target.value.toLowerCase().trim();
-      const tbody = document.getElementById('eq-matrix-tbody');
-      if (!tbody) return;
-      const rows = tbody.querySelectorAll('.eq-row');
-      rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(term) ? '' : 'none';
-      });
+      if (window.currentSellerCatalogV2 === true) {
+        window._sellerCatalogV2Search = term;
+        renderSellerV2ChannelInbox();
+      } else {
+        const tbody = document.getElementById('eq-matrix-tbody');
+        if (!tbody) return;
+        const rows = tbody.querySelectorAll('.eq-row');
+        rows.forEach(row => {
+          const text = row.textContent.toLowerCase();
+          row.style.display = text.includes(term) ? '' : 'none';
+        });
+      }
     });
   }
 
@@ -45233,12 +45827,26 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // Fusionar SKUs duplicados del catálogo
-  const btnMergeSkus = document.getElementById('btn-merge-catalog-skus');
-  if (btnMergeSkus) {
-    btnMergeSkus.addEventListener('click', () => {
-      if (typeof window.openMergeDuplicateSkuModal === 'function') {
-        window.openMergeDuplicateSkuModal(commerce, () => renderCatalog());
+  // Eliminar todas las equivalencias rotas de una sola vez
+  const btnDeleteAllBroken = document.getElementById('btn-delete-all-broken-eq');
+  if (btnDeleteAllBroken) {
+    btnDeleteAllBroken.addEventListener('click', async () => {
+      const brokenList = getSellerBrokenEquivalences(window.currentMappingsArray || [], window.currentMasterProducts || []);
+      if (brokenList.length === 0) return;
+      const preview = brokenList.map(b => `${b.platform}: ${b.platform_sku} → ${b.master_sku}`).join('\n');
+      if (!confirm(`¿Eliminar las ${brokenList.length} equivalencias rotas que apuntan a SKUs inexistentes?\n\n${preview}`)) return;
+
+      btnDeleteAllBroken.disabled = true;
+      btnDeleteAllBroken.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Limpiando...`;
+      try {
+        const ids = brokenList.map(b => b.id).filter(Boolean);
+        const { error } = await supabase.from('sku_equivalences').delete().in('id', ids);
+        if (error) throw error;
+        alert(`Se eliminaron ${ids.length} equivalencias rotas correctamente.`);
+        renderCatalog();
+      } catch (err) {
+        alert('Error al eliminar equivalencias rotas: ' + err.message);
+        btnDeleteAllBroken.disabled = false;
       }
     });
   }
@@ -45257,6 +45865,30 @@ function setupCatalogListeners(commerce, mainPlatform) {
         const text = row.textContent.toLowerCase();
         row.style.display = text.includes(term) ? '' : 'none';
       });
+    });
+  }
+
+  // Actualizar multiplicador en línea en la tabla de equivalencias registradas
+  const regTbody = document.getElementById('eq-registered-tbody');
+  if (regTbody) {
+    regTbody.addEventListener('change', async (e) => {
+      if (!e.target.classList.contains('eq-reg-multiplier-input')) return;
+      const id = e.target.getAttribute('data-id');
+      const multVal = Math.max(1, parseInt(e.target.value, 10) || 1);
+      e.target.value = multVal;
+      try {
+        const { error } = await supabase
+          .from('sku_equivalences')
+          .update({ quantity_multiplier: multVal })
+          .eq('id', id);
+        if (error) throw error;
+        e.target.parentElement.style.borderColor = '#10b981';
+        setTimeout(() => {
+          if (e.target.parentElement) e.target.parentElement.style.borderColor = 'var(--color-border)';
+        }, 1200);
+      } catch (err) {
+        alert('Error al actualizar multiplicador: ' + err.message);
+      }
     });
   }
 
@@ -45381,7 +46013,24 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // 4. Configurar importación de Excel con Vista Previa
+  // 4. Descargar plantilla de ejemplo y configurar importación de Excel con Vista Previa
+  const btnDownloadSkuTemplate = document.getElementById('btn-download-sku-template');
+  if (btnDownloadSkuTemplate) {
+    btnDownloadSkuTemplate.addEventListener('click', () => {
+      const headers = [['Plataforma', 'SKU Plataforma', 'SKU Master', 'Multiplicador']];
+      const sampleData = [
+        ['Shopify', 'poleraazulxl', 'POL-AZ-XL', 1],
+        ['MercadoLibre', '12334456', 'POL-AZ-XL', 1],
+        ['MercadoLibre', 'PACK-6-POLERA', 'POL-AZ-XL', 6],
+        ['Todas', 'poleraazul-general', 'POL-AZ-XL', 1]
+      ];
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(headers.concat(sampleData));
+      XLSX.utils.book_append_sheet(wb, ws, 'Plantilla Equivalencias');
+      XLSX.writeFile(wb, 'plantilla_equivalencias_sku.xlsx');
+    });
+  }
+
   const btnTriggerEqImport = document.getElementById('btn-trigger-eq-import-excel');
   if (btnTriggerEqImport) {
     btnTriggerEqImport.addEventListener('click', () => {
@@ -45417,12 +46066,14 @@ function setupCatalogListeners(commerce, mainPlatform) {
           let colPlatform = '';
           let colPlatformSku = '';
           let colMasterSku = '';
+          let colMultiplier = '';
 
           for (const key of Object.keys(sample)) {
             const lower = key.toLowerCase().trim();
             if (lower === 'plataforma' || lower === 'platform') colPlatform = key;
             else if (lower === 'sku plataforma' || lower === 'platform_sku' || lower === 'sku_plataforma' || lower === 'sku externo') colPlatformSku = key;
             else if (lower === 'sku master' || lower === 'master_sku' || lower === 'sku_master' || lower === 'sku wms' || lower === 'sku maestro') colMasterSku = key;
+            else if (lower === 'multiplicador' || lower === 'quantity_multiplier' || lower === 'multiplier' || lower === 'factor' || lower === 'unidades') colMultiplier = key;
           }
 
           if (!colPlatformSku || !colMasterSku) {
@@ -45434,13 +46085,12 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
           // Obtener lista completa de SKUs válidos del catálogo para validar (normalizada, sin límite de 1000 filas)
           const validProducts = typeof window.fetchAllSupabaseRows === 'function'
-            ? await window.fetchAllSupabaseRows('products', 'sku', q => q.eq('comercio', commerce))
-            : ((await supabase.from('products').select('sku').eq('comercio', commerce)).data || []);
+            ? await window.fetchAllSupabaseRows('products', 'id, sku', q => q.eq('comercio', commerce))
+            : ((await supabase.from('products').select('id, sku').eq('comercio', commerce)).data || []);
 
-          const normSkuKey = (s) => String(s || '').trim().replace(/\s+/g, '').toUpperCase();
-          const validSkusMap = new Map();
+          const validMasterMap = new Map();
           (validProducts || []).forEach(p => {
-            if (p.sku) validSkusMap.set(normSkuKey(p.sku), p.sku);
+            if (p.sku) validMasterMap.set(normSellerSkuKey(p.sku), p);
           });
 
           const previewData = [];
@@ -45458,7 +46108,10 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
             const platformSkuVal = r[colPlatformSku] !== undefined && r[colPlatformSku] !== null ? r[colPlatformSku].toString().trim() : '';
             const masterSkuRaw = r[colMasterSku] !== undefined && r[colMasterSku] !== null ? r[colMasterSku].toString().trim() : '';
-            const canonicalMasterSku = validSkusMap.get(normSkuKey(masterSkuRaw)) || masterSkuRaw;
+            const matchedMaster = validMasterMap.get(normSellerSkuKey(masterSkuRaw));
+            const canonicalMasterSku = matchedMaster ? matchedMaster.sku : masterSkuRaw;
+            const rawMult = colMultiplier && r[colMultiplier] !== undefined && r[colMultiplier] !== null ? parseInt(r[colMultiplier], 10) : 1;
+            const multVal = Number.isFinite(rawMult) && rawMult >= 1 ? rawMult : 1;
 
             let status = 'Válido';
             let statusColor = '#10b981';
@@ -45468,7 +46121,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
               status = 'Faltan datos (SKU)';
               statusColor = '#f59e0b';
               isValid = false;
-            } else if (!validSkusMap.has(normSkuKey(masterSkuRaw))) {
+            } else if (!matchedMaster) {
               status = 'SKU Master no existe en Catálogo WMS';
               statusColor = '#ef4444';
               isValid = false;
@@ -45478,6 +46131,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
               platform: platformVal,
               platform_sku: platformSkuVal,
               master_sku: canonicalMasterSku,
+              master_product_id: matchedMaster?.id || null,
+              quantity_multiplier: multVal,
               status,
               statusColor,
               isValid
@@ -46595,17 +47250,19 @@ function showImportPreviewModal(previewData) {
               <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">Plataforma</th>
               <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">SKU Plataforma</th>
               <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">SKU Master</th>
+              <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main); text-align: center;">Mult.</th>
               <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">Estado / Diagnóstico</th>
             </tr>
           </thead>
           <tbody>
             ${previewData.map(row => `
               <tr style="border-bottom: 1px solid var(--color-border);">
-                <td style="padding: 0.75rem; font-size: 0.875rem;">${row.platform}</td>
-                <td style="padding: 0.75rem; font-family: monospace; font-size: 0.875rem;">${row.platform_sku || 'N/A'}</td>
-                <td style="padding: 0.75rem; font-family: monospace; font-size: 0.875rem; font-weight: 600; color: var(--color-primary);">${row.master_sku || 'N/A'}</td>
+                <td style="padding: 0.75rem; font-size: 0.875rem;">${escapeHtml(row.platform)}</td>
+                <td style="padding: 0.75rem; font-family: monospace; font-size: 0.875rem;">${escapeHtml(row.platform_sku || 'N/A')}</td>
+                <td style="padding: 0.75rem; font-family: monospace; font-size: 0.875rem; font-weight: 600; color: var(--color-primary);">${escapeHtml(row.master_sku || 'N/A')}</td>
+                <td style="padding: 0.75rem; text-align: center; font-weight: 700; font-size: 0.85rem;">×${Math.max(1, parseInt(row.quantity_multiplier, 10) || 1)}</td>
                 <td style="padding: 0.75rem; font-size: 0.875rem; font-weight: 500; color: ${row.statusColor};">
-                  ${row.status === 'Válido' ? '<i class="ri-checkbox-circle-line"></i> Válido' : `<i class="ri-error-warning-line"></i> ${row.status}`}
+                  ${row.status === 'Válido' ? '<i class="ri-checkbox-circle-line"></i> Válido' : `<i class="ri-error-warning-line"></i> ${escapeHtml(row.status)}`}
                 </td>
               </tr>
             `).join('')}
@@ -46629,21 +47286,32 @@ function showImportPreviewModal(previewData) {
       btnConfirm.disabled = true;
       btnConfirm.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Importando...`;
 
-      const validRows = previewData.filter(r => r.isValid).map(r => ({
-        comercio: window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : ''),
+      const commerceName = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+      const validRowsFull = previewData.filter(r => r.isValid).map(r => ({
+        comercio: commerceName,
         platform: r.platform,
         platform_sku: r.platform_sku,
-        master_sku: r.master_sku
+        master_sku: r.master_sku,
+        master_product_id: r.master_product_id || null,
+        quantity_multiplier: Math.max(1, parseInt(r.quantity_multiplier, 10) || 1)
       }));
 
       try {
-        const { error } = await supabase
+        let { error } = await supabase
           .from('sku_equivalences')
-          .upsert(validRows, { onConflict: 'comercio,platform,platform_sku' });
+          .upsert(validRowsFull, { onConflict: 'comercio,platform,platform_sku' });
+
+        if (error && /column|schema cache|quantity_multiplier|master_product_id/i.test(error.message || '')) {
+          const validRowsLegacy = validRowsFull.map(({ comercio, platform, platform_sku, master_sku }) => ({ comercio, platform, platform_sku, master_sku }));
+          const fb = await supabase
+            .from('sku_equivalences')
+            .upsert(validRowsLegacy, { onConflict: 'comercio,platform,platform_sku' });
+          error = fb.error;
+        }
 
         if (error) throw error;
 
-        alert(`Se han importado exitosamente ${validRows.length} equivalencias.`);
+        alert(`Se han importado exitosamente ${validRowsFull.length} equivalencias.`);
         modal.classList.remove('active');
         renderCatalog();
       } catch (err) {

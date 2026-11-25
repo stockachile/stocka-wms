@@ -294,13 +294,21 @@ async function syncOrders(integration) {
     warehouseId = whRelation?.warehouse_id || null;
   }
 
-  // Cargar equivalencias de SKU (soportando coincidencia exacta con espacios y sin espacios)
+  // Cargar equivalencias de SKU (soportando coincidencia exacta, sin espacios, case-insensitive, multiplicador y master_product_id)
   const skuMap = {};
+  const skuMultMap = {};
+  const skuProdIdMap = {};
   try {
-    const { data: equivalences } = await supabase
+    let { data: equivalences, error: eqErr } = await supabase
       .from('sku_equivalences')
-      .select('platform_sku, master_sku, platform')
+      .select('platform_sku, master_sku, platform, quantity_multiplier, master_product_id')
       .eq('comercio', integration.comercio);
+    if (eqErr) {
+      ({ data: equivalences } = await supabase
+        .from('sku_equivalences')
+        .select('platform_sku, master_sku, platform')
+        .eq('comercio', integration.comercio));
+    }
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
@@ -308,9 +316,13 @@ async function syncOrders(integration) {
           const pTrim = e.platform_sku.trim();
           const pClean = pTrim.replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
-          skuMap[pTrim] = mTrim;
-          skuMap[pClean] = mTrim;
-          skuMap[pClean.toUpperCase()] = mTrim;
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+          const pid = e.master_product_id || null;
+          [pTrim, pClean, pClean.toUpperCase()].forEach(k => {
+            skuMap[k] = mTrim;
+            skuMultMap[k] = mult;
+            if (pid) skuProdIdMap[k] = pid;
+          });
         }
       });
       equivalences.filter(e => e.platform === 'Shopify').forEach(e => {
@@ -318,9 +330,13 @@ async function syncOrders(integration) {
           const pTrim = e.platform_sku.trim();
           const pClean = pTrim.replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
-          skuMap[pTrim] = mTrim;
-          skuMap[pClean] = mTrim;
-          skuMap[pClean.toUpperCase()] = mTrim;
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+          const pid = e.master_product_id || null;
+          [pTrim, pClean, pClean.toUpperCase()].forEach(k => {
+            skuMap[k] = mTrim;
+            skuMultMap[k] = mult;
+            if (pid) skuProdIdMap[k] = pid;
+          });
         }
       });
     }
@@ -660,8 +676,8 @@ async function syncOrders(integration) {
       const lineItems = order.line_items || [];
 
       for (const item of lineItems) {
-        let effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
-        if (effectiveQty <= 0) {
+        const rawEffectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+        if (rawEffectiveQty <= 0) {
           console.log(`[Shopify Sync] Omitiendo ítem SKU ${item.sku} porque fue eliminado en Shopify (cant: 0).`);
           continue;
         }
@@ -671,6 +687,9 @@ async function syncOrders(integration) {
         const cleanSku = rawSku.replace(/\s+/g, '');
         const upperSku = cleanSku.toUpperCase();
         const mappedSku = skuMap[rawSku] || skuMap[cleanSku] || skuMap[upperSku] || rawSku;
+        const eqMult = skuMultMap[rawSku] || skuMultMap[cleanSku] || skuMultMap[upperSku] || 1;
+        const eqMasterProdId = skuProdIdMap[rawSku] || skuProdIdMap[cleanSku] || skuProdIdMap[upperSku] || null;
+        let effectiveQty = rawEffectiveQty * eqMult;
         const hasEquivalence = !!(skuMap[rawSku] || skuMap[cleanSku] || skuMap[upperSku]);
         const searchSku = mappedSku || fallbackSku;
 
@@ -684,25 +703,36 @@ async function syncOrders(integration) {
           continue;
         }
 
-        // Buscar producto en catálogo por comercio y sku (exacto con espacios o versión sin espacios)
-        const productSkuCandidates = Array.from(new Set([
-          searchSku,
-          searchSku.replace(/\s+/g, '')
-        ].filter(Boolean)));
-
-        const { data: foundProducts } = await supabase.from('products')
-          .select('id, sku, is_pack, barcode_wms, description')
-          .in('sku', productSkuCandidates)
-          .eq('comercio', integration.comercio);
-
         let product = null;
-        if (foundProducts && foundProducts.length > 0) {
-          product =
-            foundProducts.find(p => p.barcode_wms && p.sku === searchSku) ||
-            foundProducts.find(p => p.barcode_wms) ||
-            foundProducts.find(p => p.sku === searchSku && !(p.description || '').startsWith('Creado automáticamente')) ||
-            foundProducts.find(p => p.sku === searchSku) ||
-            foundProducts[0];
+        if (eqMasterProdId) {
+          const { data: prodById } = await supabase.from('products')
+            .select('id, sku, is_pack, barcode_wms, description')
+            .eq('id', eqMasterProdId)
+            .eq('comercio', integration.comercio)
+            .maybeSingle();
+          if (prodById) product = prodById;
+        }
+
+        // Buscar producto en catálogo por comercio y sku (exacto con espacios o versión sin espacios)
+        if (!product) {
+          const productSkuCandidates = Array.from(new Set([
+            searchSku,
+            searchSku.replace(/\s+/g, '')
+          ].filter(Boolean)));
+
+          const { data: foundProducts } = await supabase.from('products')
+            .select('id, sku, is_pack, barcode_wms, description')
+            .in('sku', productSkuCandidates)
+            .eq('comercio', integration.comercio);
+
+          if (foundProducts && foundProducts.length > 0) {
+            product =
+              foundProducts.find(p => p.barcode_wms && p.sku === searchSku) ||
+              foundProducts.find(p => p.barcode_wms) ||
+              foundProducts.find(p => p.sku === searchSku && !(p.description || '').startsWith('Creado automáticamente')) ||
+              foundProducts.find(p => p.sku === searchSku) ||
+              foundProducts[0];
+          }
         }
 
         if (!product && searchSku) {

@@ -497,29 +497,42 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
     }
   }
   
-  // Cargar equivalencias de SKU para este comercio
+  // Cargar equivalencias de SKU para este comercio (con soporte de multiplicador)
   const skuMap = {};
+  const skuMultMap = {};
   try {
-    const { data: equivalences } = await supabase
+    let { data: equivalences, error: eqErr } = await supabase
       .from('sku_equivalences')
-      .select('platform_sku, master_sku, platform')
+      .select('platform_sku, master_sku, platform, quantity_multiplier')
       .eq('comercio', integration.comercio);
+    if (eqErr) {
+      ({ data: equivalences } = await supabase
+        .from('sku_equivalences')
+        .select('platform_sku, master_sku, platform')
+        .eq('comercio', integration.comercio));
+    }
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = mTrim;
           skuMap[clean.toUpperCase()] = mTrim;
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
       equivalences.filter(e => e.platform === 'WooCommerce').forEach(e => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = mTrim;
           skuMap[clean.toUpperCase()] = mTrim;
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
     }
@@ -614,9 +627,10 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       for (const item of (order.line_items || [])) {
         let sku = item.sku || `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}`;
         sku = sku.trim().replace(/\s+/g, '');
-        // Aplicar equivalencia de SKU (case-insensitive)
+        // Aplicar equivalencia de SKU (case-insensitive) y multiplicador
         let mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
-        itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity);
+        const eqMult = skuMultMap[sku] || skuMultMap[sku.toUpperCase()] || 1;
+        itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + (Number(item.quantity) * eqMult);
         if (item.name && !itemNames.includes(item.name)) {
           itemNames.push(item.name);
         }

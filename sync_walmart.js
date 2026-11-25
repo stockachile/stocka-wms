@@ -443,29 +443,42 @@ async function syncMerchantOrders(integration) {
     }
   }
 
-  // Cargar equivalencias de SKU para este comercio
+  // Cargar equivalencias de SKU para este comercio (con soporte de multiplicador)
   const skuMap = {};
+  const skuMultMap = {};
   try {
-    const { data: equivalences } = await supabase
+    let { data: equivalences, error: eqErr } = await supabase
       .from('sku_equivalences')
-      .select('platform_sku, master_sku, platform')
+      .select('platform_sku, master_sku, platform, quantity_multiplier')
       .eq('comercio', integration.comercio);
+    if (eqErr) {
+      ({ data: equivalences } = await supabase
+        .from('sku_equivalences')
+        .select('platform_sku, master_sku, platform')
+        .eq('comercio', integration.comercio));
+    }
     
     if (equivalences) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = mTrim;
           skuMap[clean.toUpperCase()] = mTrim;
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
       equivalences.filter(e => e.platform === 'Walmart').forEach(e => {
         if (e.platform_sku && e.master_sku) {
           const clean = e.platform_sku.trim().replace(/\s+/g, '');
           const mTrim = e.master_sku.trim();
+          const mult = Math.max(1, Number(e.quantity_multiplier || 1));
           skuMap[clean] = mTrim;
           skuMap[clean.toUpperCase()] = mTrim;
+          skuMultMap[clean] = mult;
+          skuMultMap[clean.toUpperCase()] = mult;
         }
       });
     }
@@ -540,8 +553,9 @@ async function syncMerchantOrders(integration) {
       for (const line of linesArray) {
         const sku = String(line.item?.sku || '').trim().replace(/\s+/g, '');
         const mappedSku = skuMap[sku] || skuMap[sku.toUpperCase()] || sku;
+        const eqMult = skuMultMap[sku] || skuMultMap[sku.toUpperCase()] || 1;
         const title = line.item?.productName || 'Producto Walmart';
-        const qty = Number(line.orderLineQuantity?.amount || 1);
+        const qty = Number(line.orderLineQuantity?.amount || 1) * eqMult;
         
         let price = 0;
         const chargesObj = line.charges?.charge || line.charge?.charges || line.charges || line.charge || [];

@@ -402,22 +402,34 @@ serve(async (req) => {
       return true;
     });
 
-    // Cargar equivalencias de SKU para este comercio (con y sin espacios)
+    // Cargar equivalencias de SKU para este comercio (con y sin espacios, multiplicador y master_product_id)
     const skuMap: Record<string, string> = {};
+    const skuMultMap: Record<string, number> = {};
+    const skuProdIdMap: Record<string, string> = {};
     try {
-      const { data: equivalences } = await supabase
+      let { data: equivalences, error: eqErr } = await supabase
         .from("sku_equivalences")
-        .select("platform_sku, master_sku, platform")
+        .select("platform_sku, master_sku, platform, quantity_multiplier, master_product_id")
         .eq("comercio", order.comercio);
+      if (eqErr) {
+        ({ data: equivalences } = await supabase
+          .from("sku_equivalences")
+          .select("platform_sku, master_sku, platform")
+          .eq("comercio", order.comercio));
+      }
       if (equivalences) {
         equivalences.filter((e: any) => e.platform === "Todas").forEach((e: any) => {
           if (e.platform_sku && e.master_sku) {
             const pTrim = e.platform_sku.trim();
             const pClean = pTrim.replace(/\s+/g, "");
             const mTrim = e.master_sku.trim();
-            skuMap[pTrim] = mTrim;
-            skuMap[pClean] = mTrim;
-            skuMap[pClean.toUpperCase()] = mTrim;
+            const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+            const pid = e.master_product_id || "";
+            [pTrim, pClean, pClean.toUpperCase()].forEach((k) => {
+              skuMap[k] = mTrim;
+              skuMultMap[k] = mult;
+              if (pid) skuProdIdMap[k] = pid;
+            });
           }
         });
         equivalences.filter((e: any) => e.platform === "Shopify").forEach((e: any) => {
@@ -425,9 +437,13 @@ serve(async (req) => {
             const pTrim = e.platform_sku.trim();
             const pClean = pTrim.replace(/\s+/g, "");
             const mTrim = e.master_sku.trim();
-            skuMap[pTrim] = mTrim;
-            skuMap[pClean] = mTrim;
-            skuMap[pClean.toUpperCase()] = mTrim;
+            const mult = Math.max(1, Number(e.quantity_multiplier || 1));
+            const pid = e.master_product_id || "";
+            [pTrim, pClean, pClean.toUpperCase()].forEach((k) => {
+              skuMap[k] = mTrim;
+              skuMultMap[k] = mult;
+              if (pid) skuProdIdMap[k] = pid;
+            });
           }
         });
       }
@@ -523,12 +539,15 @@ serve(async (req) => {
     };
 
     for (const item of activeItems) {
-      const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+      const rawEffectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
       const fallbackSku = item.variant_id ? String(item.variant_id) : (item.id ? String(item.id) : "NO-SKU");
       const rawSku = (item.sku || fallbackSku).trim();
       const cleanSku = rawSku.replace(/\s+/g, "");
       const upperSku = cleanSku.toUpperCase();
       const mappedSku = skuMap[rawSku] || skuMap[cleanSku] || skuMap[upperSku] || rawSku;
+      const eqMult = skuMultMap[rawSku] || skuMultMap[cleanSku] || skuMultMap[upperSku] || 1;
+      const eqMasterProdId = skuProdIdMap[rawSku] || skuProdIdMap[cleanSku] || skuProdIdMap[upperSku] || "";
+      const effectiveQty = rawEffectiveQty * eqMult;
       const hasEquivalence = !!(skuMap[rawSku] || skuMap[cleanSku] || skuMap[upperSku]);
       const searchSku = mappedSku || fallbackSku;
 
@@ -541,25 +560,37 @@ serve(async (req) => {
         continue;
       }
 
-      const productSkuCandidates = Array.from(new Set([
-        searchSku,
-        searchSku.replace(/\s+/g, "")
-      ].filter(Boolean)));
-
-      const { data: foundProducts } = await supabase
-        .from("products")
-        .select("id, sku, name, is_pack, barcode_wms, description")
-        .in("sku", productSkuCandidates)
-        .eq("comercio", order.comercio);
-
       let prod: any = null;
-      if (foundProducts && foundProducts.length > 0) {
-        prod =
-          foundProducts.find((p: any) => p.barcode_wms && p.sku === searchSku) ||
-          foundProducts.find((p: any) => p.barcode_wms) ||
-          foundProducts.find((p: any) => p.sku === searchSku && !(p.description || "").startsWith("Creado automáticamente")) ||
-          foundProducts.find((p: any) => p.sku === searchSku) ||
-          foundProducts[0];
+      if (eqMasterProdId) {
+        const { data: prodById } = await supabase
+          .from("products")
+          .select("id, sku, name, is_pack, barcode_wms, description")
+          .eq("id", eqMasterProdId)
+          .eq("comercio", order.comercio)
+          .maybeSingle();
+        if (prodById) prod = prodById;
+      }
+
+      if (!prod) {
+        const productSkuCandidates = Array.from(new Set([
+          searchSku,
+          searchSku.replace(/\s+/g, "")
+        ].filter(Boolean)));
+
+        const { data: foundProducts } = await supabase
+          .from("products")
+          .select("id, sku, name, is_pack, barcode_wms, description")
+          .in("sku", productSkuCandidates)
+          .eq("comercio", order.comercio);
+
+        if (foundProducts && foundProducts.length > 0) {
+          prod =
+            foundProducts.find((p: any) => p.barcode_wms && p.sku === searchSku) ||
+            foundProducts.find((p: any) => p.barcode_wms) ||
+            foundProducts.find((p: any) => p.sku === searchSku && !(p.description || "").startsWith("Creado automáticamente")) ||
+            foundProducts.find((p: any) => p.sku === searchSku) ||
+            foundProducts[0];
+        }
       }
 
       if (!prod && searchSku) {
@@ -604,7 +635,7 @@ serve(async (req) => {
       }
 
       if (prod) {
-        const grossPrice = Math.round(Number(item.price || 0));
+        const grossPrice = eqMult > 1 ? Math.round(Number(item.price || 0) / eqMult) : Math.round(Number(item.price || 0));
         const allocDisc = Array.isArray(item.discount_allocations)
           ? item.discount_allocations.reduce((s: number, a: any) => s + Number(a?.amount || 0), 0)
           : Number(item.total_discount || 0);
