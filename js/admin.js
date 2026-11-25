@@ -21362,6 +21362,14 @@ function getWarehouseNameFromId(whId) {
 }
 window.getWarehouseNameFromId = getWarehouseNameFromId;
 
+function getSucursalFromWarehouseId(whId) {
+  if (whId === '973da888-8a63-4790-a08f-919e1af41a93') return 'Sucursal Ñuñoa';
+  if (whId === '414605cb-f926-43d2-8bd2-d9509f7b458a') return 'Sucursal La Reina';
+  if (whId === '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a') return 'Sucursal Recoleta';
+  return '';
+}
+window.getSucursalFromWarehouseId = getSucursalFromWarehouseId;
+
 window.isOrderMissingTracking = function(order, overrides = {}) {
   if (!order) return false;
   const agenda = (overrides.agenda !== undefined ? overrides.agenda : order.agenda) || '';
@@ -22776,15 +22784,43 @@ window.applyBulkWmsStatus = async function() {
   } else {
     let idsToProcess = [...ids];
     let partialFailureInfo = null;
+    const bulkCandidateOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+    const hasUnshippedForEntregado = newStatus === 'Entregado' && bulkCandidateOrders.some(
+      o => !['Despachado', 'Listo para retiro', 'Entregado'].includes(o.estado_wms) && !o.stock_descontado
+    );
 
-    if (newStatus === 'Despachado') {
-      const selectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+    if (newStatus === 'Despachado' || hasUnshippedForEntregado) {
+      const isTargetEntregado = newStatus === 'Entregado';
+      const selectedOrders = bulkCandidateOrders;
+      const unshippedOrders = selectedOrders.filter(
+        o => !['Despachado', 'Listo para retiro', 'Entregado'].includes(o.estado_wms) && !o.stock_descontado
+      );
+
+      // Detectar bodega física común en los pedidos aún no descontados
+      const existingPhysWhIds = [...new Set(
+        unshippedOrders
+          .map(o => (o.order_items || []).find(it => it.warehouse_id && it.warehouse_id !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09')?.warehouse_id || '')
+          .filter(Boolean)
+      )];
+      const anyNeedsWhSelection = unshippedOrders.some(o => {
+        const items = o.order_items || [];
+        return items.length === 0 || items.some(it => !it.warehouse_id || it.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
+      });
+      const defaultBulkStockWh = anyNeedsWhSelection
+        ? (existingPhysWhIds.length === 1 ? existingPhysWhIds[0] : '973da888-8a63-4790-a08f-919e1af41a93')
+        : (existingPhysWhIds.length === 1 ? existingPhysWhIds[0] : 'keep_order_wh');
 
       const operadores = [...new Set(selectedOrders.map(o => o.operador).filter(Boolean))];
       const defaultOperador = operadores.length === 1 ? operadores[0] : '';
 
       const agendas = [...new Set(selectedOrders.map(o => o.agenda).filter(Boolean))];
       const defaultAgenda = agendas.length === 1 ? agendas[0] : '';
+      const hasMissingAgendaInUnshipped = unshippedOrders.some(o => {
+        const cat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+          ? window.getOrderEffectiveCategoriaEntrega(o)
+          : String(o.categoria_entrega || '').toUpperCase().trim();
+        return cat !== 'RETIRO' && !String(o.agenda || '').trim();
+      });
 
       const now = new Date();
       const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -22795,13 +22831,28 @@ window.applyBulkWmsStatus = async function() {
       const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
       const { value: dispatchFormValues } = await Swal.fire({
-        title: 'Marcar como Despachado (Masivo)',
-        width: '780px',
+        title: isTargetEntregado ? 'Marcar como Entregado y Descontar Stock (Masivo)' : 'Marcar como Despachado (Masivo)',
+        width: '800px',
         html: `
           <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
             <!-- Columna Izquierda: Formulario -->
-            <div style="flex: 1 1 280px; min-width: 250px; display: flex; flex-direction: column;">
-              <p style="margin-bottom: 0.65rem; color: var(--color-text-muted); font-size: 0.85rem;">Se marcarán como <strong>Despachado</strong> los <strong>${ids.length}</strong> pedidos seleccionados.</p>
+            <div style="flex: 1 1 285px; min-width: 260px; display: flex; flex-direction: column;">
+              <p style="margin-bottom: 0.65rem; color: var(--color-text-muted); font-size: 0.85rem;">
+                Se marcarán como <strong>${isTargetEntregado ? 'Entregado (Finalizado)' : 'Despachado'}</strong> los <strong>${ids.length}</strong> pedidos seleccionados${unshippedOrders.length > 0 ? ` (validando y rebajando stock físico de <strong>${unshippedOrders.length}</strong> pedido(s) pendiente(s))` : ''}.
+              </p>
+
+              <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">
+                <i class="ri-archive-line" style="color: #059669;"></i> Bodega Física para Descontar Stock
+              </label>
+              <select id="swal-bulk-disp-bodega-stock" class="swal2-select" style="width: 100%; margin: 0 0 0.25rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+                ${!anyNeedsWhSelection ? `<option value="keep_order_wh" ${defaultBulkStockWh === 'keep_order_wh' ? 'selected' : ''}>⚡ Mantener bodega física asignada de cada pedido</option>` : ''}
+                <option value="973da888-8a63-4790-a08f-919e1af41a93" ${defaultBulkStockWh === '973da888-8a63-4790-a08f-919e1af41a93' ? 'selected' : ''}>Matriz Ñuñoa (Sucursal Ñuñoa)</option>
+                <option value="414605cb-f926-43d2-8bd2-d9509f7b458a" ${defaultBulkStockWh === '414605cb-f926-43d2-8bd2-d9509f7b458a' ? 'selected' : ''}>CDD La Reina (Sucursal La Reina)</option>
+                <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a" ${defaultBulkStockWh === '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a' ? 'selected' : ''}>CDD Recoleta (Sucursal Recoleta)</option>
+              </select>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted, #64748b); margin-bottom: 0.7rem; line-height: 1.25;">
+                Se verificará disponibilidad en esta bodega física antes de ${isTargetEntregado ? 'cerrar en Entregado' : 'despachar'} (jamás desde Bodega Central).
+              </div>
               
               <div style="background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.65rem 0.75rem; margin-bottom: 0.75rem;">
                 <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; user-select: none;">
@@ -22809,7 +22860,7 @@ window.applyBulkWmsStatus = async function() {
                   <div>
                     <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-primary, #4f46e5); display: block;">Conservar datos de picking existentes</span>
                     <span style="font-size: 0.75rem; color: var(--color-text-muted, #64748b); line-height: 1.3; display: block; margin-top: 0.15rem;">
-                      No sobreescribir Agenda, Operador ni Fecha de Procesamiento de cada pedido. Solo cambiar estado a Despachado.
+                      No sobreescribir Agenda, Operador ni Fecha de Procesamiento existentes.
                     </span>
                   </div>
                 </label>
@@ -22822,7 +22873,7 @@ window.applyBulkWmsStatus = async function() {
               </datalist>
               <div id="swal-bulk-disp-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
 
-              <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda</label>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda${hasMissingAgendaInUnshipped ? ' <span style="color:#ef4444;">*</span>' : ''}</label>
               <input id="swal-bulk-disp-agenda" list="swal-bulk-disp-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
               <datalist id="swal-bulk-disp-agenda-list">
                 ${agendaDatalistHtml}
@@ -22849,13 +22900,14 @@ window.applyBulkWmsStatus = async function() {
         },
         focusConfirm: false,
         showCancelButton: true,
-        confirmButtonText: 'Confirmar Despacho',
+        confirmButtonText: isTargetEntregado ? 'Validar Stock y Marcar Entregado' : 'Confirmar Despacho',
         confirmButtonColor: '#059669',
         cancelButtonText: 'Cancelar',
         preConfirm: () => {
+          const bodegaStock = document.getElementById('swal-bulk-disp-bodega-stock')?.value || 'keep_order_wh';
           const keepPicking = document.getElementById('swal-bulk-disp-keep-picking')?.checked;
           if (keepPicking) {
-            return { keepPicking: true };
+            return { keepPicking: true, bodegaStock };
           }
 
           const operadorInput = document.getElementById('swal-bulk-disp-operador').value;
@@ -22878,6 +22930,9 @@ window.applyBulkWmsStatus = async function() {
               Swal.showValidationMessage(`"${agendaInput}" no es una Agenda válida. Solo se permiten opciones del desplegable.`);
               return false;
             }
+          } else if (hasMissingAgendaInUnshipped) {
+            Swal.showValidationMessage('Debes seleccionar una Agenda para los pedidos que aún no tienen agenda asignada.');
+            return false;
           }
 
           if (fechaProcInput) {
@@ -22887,7 +22942,7 @@ window.applyBulkWmsStatus = async function() {
               return false;
             }
           }
-          return { keepPicking: false, operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
+          return { keepPicking: false, bodegaStock, operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
         }
       });
 
@@ -22896,7 +22951,22 @@ window.applyBulkWmsStatus = async function() {
         return;
       }
 
-      const valResult = await validateOrderStockForDispatch(selectedOrders);
+      // Asignar la bodega física seleccionada a los pedidos cuyo stock aún no se ha descontado
+      if (dispatchFormValues.bodegaStock && dispatchFormValues.bodegaStock !== 'keep_order_wh' && unshippedOrders.length > 0) {
+        const targetWhId = dispatchFormValues.bodegaStock;
+        const targetSucName = getSucursalFromWarehouseId(targetWhId);
+        const unshippedIds = unshippedOrders.map(o => o.id);
+        if (targetSucName) {
+          await supabase.from('orders').update({ sucursal_pickeo: targetSucName }).in('id', unshippedIds);
+        }
+        await supabase.from('order_items').update({ warehouse_id: targetWhId }).in('order_id', unshippedIds);
+        unshippedOrders.forEach(o => {
+          if (targetSucName) o.sucursal_pickeo = targetSucName;
+          (o.order_items || []).forEach(it => { it.warehouse_id = targetWhId; });
+        });
+      }
+
+      const valResult = await validateOrderStockForDispatch(selectedOrders, { targetStatusLabel: newStatus });
       if (!valResult || !valResult.isValid) {
         if (typeof Swal.close === 'function') Swal.close();
         applyWmsFiltersAndRender();
@@ -22912,8 +22982,8 @@ window.applyBulkWmsStatus = async function() {
       }
 
       Swal.fire({
-        title: 'Despachando pedidos...',
-        html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Actualizando estado y registrando despacho para ${idsToProcess.length} pedido(s)...</div>`,
+        title: isTargetEntregado ? 'Cerrando pedidos en Entregado...' : 'Despachando pedidos...',
+        html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Actualizando estado, rebajando stock físico y registrando salida para ${idsToProcess.length} pedido(s)...</div>`,
         allowOutsideClick: false,
         allowEscapeKey: false,
         showConfirmButton: false,
@@ -22925,11 +22995,12 @@ window.applyBulkWmsStatus = async function() {
       try {
         const priorIds = valResult.ordersWithPriorMovement ? idsToProcess.filter(id => valResult.ordersWithPriorMovement.includes(id)) : [];
         const normalIds = idsToProcess.filter(id => !priorIds.includes(id));
+        const nowIso = new Date().toISOString();
 
-        const baseUpdateData = { 
-          estado_wms: 'Despachado',
-          stock_descontado: true
-        };
+        const baseUpdateData = isTargetEntregado
+          ? { estado_wms: 'Entregado', delivered_at: nowIso, closed_at: nowIso }
+          : { estado_wms: 'Despachado' };
+
         if (!dispatchFormValues.keepPicking) {
           if (dispatchFormValues.operador) baseUpdateData.operador = dispatchFormValues.operador;
           if (dispatchFormValues.agenda) baseUpdateData.agenda = dispatchFormValues.agenda;
@@ -22937,25 +23008,66 @@ window.applyBulkWmsStatus = async function() {
         }
 
         if (priorIds.length > 0) {
+          const priorPayload = { ...baseUpdateData, stock_descontado: true, ...(isTargetEntregado ? { status: 'entregado' } : {}) };
           for (let i = 0; i < priorIds.length; i += 100) {
             const chunk = priorIds.slice(i, i + 100);
             const { error: errPrior } = await supabase
               .from('orders')
-              .update(baseUpdateData)
+              .update(priorPayload)
               .in('id', chunk);
             if (errPrior) throw errPrior;
           }
         }
 
         if (normalIds.length > 0) {
-          const normalUpdateData = { ...baseUpdateData, status: 'despachado' };
-          for (let i = 0; i < normalIds.length; i += 100) {
-            const chunk = normalIds.slice(i, i + 100);
-            const { error: errNormal } = await supabase
-              .from('orders')
-              .update(normalUpdateData)
-              .in('id', chunk);
-            if (errNormal) throw errNormal;
+          if (isTargetEntregado) {
+            const retiroNormalIds = [];
+            const distNormalIds = [];
+            normalIds.forEach(id => {
+              const ord = selectedOrders.find(o => o.id === id);
+              const cat = ord && typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+                ? window.getOrderEffectiveCategoriaEntrega(ord)
+                : String(ord?.categoria_entrega || '').toUpperCase().trim();
+              if (cat === 'RETIRO') retiroNormalIds.push(id);
+              else distNormalIds.push(id);
+            });
+            for (let i = 0; i < distNormalIds.length; i += 100) {
+              const chunk = distNormalIds.slice(i, i + 100);
+              const { error: errDist } = await supabase
+                .from('orders')
+                .update({ ...baseUpdateData, status: 'entregado' })
+                .in('id', chunk);
+              if (errDist) throw errDist;
+            }
+            for (let i = 0; i < retiroNormalIds.length; i += 100) {
+              const chunk = retiroNormalIds.slice(i, i + 100);
+              const { error: errRet } = await supabase
+                .from('orders')
+                .update({ ...baseUpdateData, status: 'retirado', agenda: baseUpdateData.agenda || 'RETIRO' })
+                .in('id', chunk);
+              if (errRet) throw errRet;
+            }
+          } else {
+            const normalUpdateData = { ...baseUpdateData, status: 'despachado' };
+            for (let i = 0; i < normalIds.length; i += 100) {
+              const chunk = normalIds.slice(i, i + 100);
+              const { error: errNormal } = await supabase
+                .from('orders')
+                .update(normalUpdateData)
+                .in('id', chunk);
+              if (errNormal) throw errNormal;
+            }
+          }
+        }
+
+        if (isTargetEntregado) {
+          const retiroClosedOrders = selectedOrders.filter(o => idsToProcess.includes(o.id) && (
+            (typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+              ? window.getOrderEffectiveCategoriaEntrega(o)
+              : String(o.categoria_entrega || '').toUpperCase().trim()) === 'RETIRO'
+          ));
+          if (retiroClosedOrders.length > 0 && typeof window.syncPickupTablesStatus === 'function') {
+            await window.syncPickupTablesStatus(retiroClosedOrders, 'ENTREGADO');
           }
         }
 
@@ -22971,8 +23083,15 @@ window.applyBulkWmsStatus = async function() {
           idsToProcess.forEach(id => {
             const order = window.loadedOrders.find(o => o.id === id);
             if (order) {
-              order.estado_wms = 'Despachado';
-              if (!priorIds.includes(id)) {
+              order.estado_wms = newStatus;
+              if (isTargetEntregado) {
+                const cat = typeof window.getOrderEffectiveCategoriaEntrega === 'function'
+                  ? window.getOrderEffectiveCategoriaEntrega(order)
+                  : String(order.categoria_entrega || '').toUpperCase().trim();
+                order.status = cat === 'RETIRO' ? 'retirado' : 'entregado';
+                order.delivered_at = order.delivered_at || nowIso;
+                order.closed_at = order.closed_at || nowIso;
+              } else if (!priorIds.includes(id)) {
                 order.status = 'despachado';
               }
               order.stock_descontado = true;
@@ -22980,6 +23099,11 @@ window.applyBulkWmsStatus = async function() {
                 if (dispatchFormValues.operador) order.operador = dispatchFormValues.operador;
                 if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
                 if (dispatchFormValues.fechaProc) order.fecha_procesamiento = dispatchFormValues.fechaProc;
+              }
+              if (typeof window.clearSingleOrderWmsCache === 'function') {
+                window.clearSingleOrderWmsCache(order);
+              } else {
+                delete order._wmsTags;
               }
             }
           });
@@ -23000,24 +23124,27 @@ window.applyBulkWmsStatus = async function() {
         if (partialFailureInfo) {
           Swal.fire({
             icon: 'warning',
-            title: 'Despacho Parcial Completado',
-            html: `Se despacharon exitosamente ${partialFailureInfo.validCount} pedidos. ${partialFailureInfo.failedCount} pedidos no pudieron ser despachados por falta de stock.${priorNoteHtml}`,
+            title: isTargetEntregado ? 'Cierre Parcial Completado' : 'Despacho Parcial Completado',
+            html: `Se actualizaron exitosamente ${partialFailureInfo.validCount} pedidos a <strong>${newStatus}</strong>. ${partialFailureInfo.failedCount} pedidos no pudieron procesarse por falta de stock.${priorNoteHtml}`,
             confirmButtonColor: '#7117eb'
           });
         } else {
           Swal.fire({
             icon: 'success',
-            title: '¡Pedidos Despachados!',
-            html: `Se actualizaron ${idsToProcess.length} pedidos como Despachados.${priorNoteHtml}`,
+            title: isTargetEntregado ? '¡Pedidos Marcados como Entregados!' : '¡Pedidos Despachados!',
+            html: `Se actualizaron ${idsToProcess.length} pedidos como <strong>${newStatus}</strong>.${priorNoteHtml}`,
             confirmButtonColor: '#059669'
           });
         }
         applyWmsFiltersAndRender();
+        if (typeof window.refreshAgendasOrderCell === 'function') {
+          idsToProcess.forEach(id => window.refreshAgendasOrderCell(id, 'estado_wms', newStatus));
+        }
         window.triggerShopifyFulfillmentSync(idsToProcess);
         return;
       } catch (err) {
         console.error(err);
-        Swal.fire('Error', 'No se pudieron despachar los pedidos: ' + err.message, 'error');
+        Swal.fire('Error', `No se pudieron actualizar los pedidos a ${newStatus}: ` + err.message, 'error');
         applyWmsFiltersAndRender();
         return;
       }
@@ -23061,7 +23188,6 @@ window.applyBulkWmsStatus = async function() {
         updateData.status = 'preparado';
       } else if (newStatus === 'Entregado') {
         updateData.status = 'entregado';
-        updateData.stock_descontado = true;
         updateData.delivered_at = new Date().toISOString();
         updateData.closed_at = new Date().toISOString();
       }
@@ -24076,9 +24202,11 @@ window.syncReverseLogisticsOnOrdersDispatched = async function(orderIds) {
 };
 
 // Validar stock antes de cambiar a Despachado para evitar error de check constraint
-async function validateOrderStockForDispatch(ordersList) {
+async function validateOrderStockForDispatch(ordersList, opts = {}) {
   if (!ordersList || ordersList.length === 0) return { isValid: true, validOrders: [], failedOrders: [] };
 
+  const targetStatusLabel = opts.targetStatusLabel || 'Despachado';
+  const actionVerbPlural = targetStatusLabel === 'Entregado' ? 'cerrar como Entregados' : (targetStatusLabel === 'Listo para retiro' ? 'pasar a Listo para retiro' : 'despachar');
   const allSelectedIds = ordersList.map(o => o.id);
 
   while (true) {
@@ -24305,13 +24433,13 @@ async function validateOrderStockForDispatch(ordersList) {
     const swalRes = await window.showStockShortageSlidesModal({
       title: 'Stock Físico Insuficiente',
       subtitle: validOrders.length > 0
-        ? `Se detectaron <strong>${failuresByOrder.length} pedidos con stock insuficiente</strong> de un total de ${ordersList.length} seleccionados. Hay <strong>${validOrders.length} pedidos con stock disponible</strong> listos para ser despachados:`
+        ? `Se detectaron <strong>${failuresByOrder.length} pedidos con stock insuficiente</strong> de un total de ${ordersList.length} seleccionados. Hay <strong>${validOrders.length} pedidos con stock disponible</strong> listos para ${actionVerbPlural}:`
         : (failuresByOrder.length > 1
-            ? `No se pueden marcar como <strong>Despachado</strong>: Se detectaron <strong>${failuresByOrder.length} pedidos</strong> con stock insuficiente en su sucursal de despacho:`
-            : `No se puede marcar como <strong>Despachado</strong> debido a falta de stock físico:`),
+            ? `No se pueden marcar como <strong>${targetStatusLabel}</strong>: Se detectaron <strong>${failuresByOrder.length} pedidos</strong> con stock insuficiente en su bodega seleccionada:`
+            : `No se puede marcar como <strong>${targetStatusLabel}</strong> debido a falta de stock físico:`),
       failuresByOrder,
       validOrdersCount: validOrders.length,
-      actionButtonText: `<i class="ri-truck-line"></i> Despachar los ${validOrders.length} pedidos restantes`,
+      actionButtonText: `<i class="ri-truck-line"></i> Continuar con los ${validOrders.length} pedidos restantes`,
       totalSelectedCount: ordersList.length,
       allSelectedOrderIds: allSelectedIds,
       allowReassignment: true
@@ -26067,24 +26195,39 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
     }
   } else {
     try {
-      if (newWmsStatus === 'Despachado') {
-        const currentOperador = order.operador || '';
-        const currentAgenda = order.agenda || '';
+      const needsPhysicalStockModalForEntregado = newWmsStatus === 'Entregado'
+        && !['Despachado', 'Listo para retiro', 'Entregado'].includes(order.estado_wms)
+        && !order.stock_descontado;
+
+      if (newWmsStatus === 'Despachado' || needsPhysicalStockModalForEntregado) {
+        const isTargetEntregado = newWmsStatus === 'Entregado';
+        const currentOperador = order.operador || (isRetiroOrder ? 'SUCURSAL ÑUÑOA' : '');
+        const currentAgenda = order.agenda || (isRetiroOrder ? 'RETIRO' : '');
         const now = new Date();
         const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
         const currentFechaProc = order.fecha_procesamiento || todayDDMM;
+
+        const existingPhysWhId = (order.order_items || []).find(
+          it => it.warehouse_id && it.warehouse_id !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'
+        )?.warehouse_id || '';
+        const sucursalDerivedWhId = order.sucursal_pickeo ? getWarehouseIdFromSucursal(order.sucursal_pickeo) : '';
+        const defaultStockWhId = existingPhysWhId
+          || (sucursalDerivedWhId && sucursalDerivedWhId !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09' ? sucursalDerivedWhId : '973da888-8a63-4790-a08f-919e1af41a93');
+        const requiresAgenda = !isRetiroOrder && !String(order.agenda || '').trim();
 
         const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
         const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
         const { value: dispatchFormValues } = await Swal.fire({
-          title: 'Marcar Pedido como Despachado',
-          width: '780px',
+          title: isTargetEntregado ? 'Marcar Pedido como Entregado (Finalizado)' : 'Marcar Pedido como Despachado',
+          width: '800px',
           html: `
             <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
               <!-- Columna Izquierda: Formulario -->
-              <div style="flex: 1 1 280px; min-width: 250px; display: flex; flex-direction: column;">
-                <p style="margin-bottom: 0.65rem; color: var(--color-text-muted); font-size: 0.85rem;">Confirmar despacho para el pedido <strong>${order.external_order_number || order.id}</strong>.</p>
+              <div style="flex: 1 1 285px; min-width: 260px; display: flex; flex-direction: column;">
+                <p style="margin-bottom: 0.65rem; color: var(--color-text-muted); font-size: 0.85rem;">
+                  Confirmar ${isTargetEntregado ? 'cierre en <strong>Entregado</strong> y descuento de stock' : 'despacho'} para el pedido <strong>${window.escapeHtml(order.external_order_number || order.id)}</strong>.
+                </p>
                 
                 <div style="background: rgba(241, 245, 249, 0.85); border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; padding: 0.45rem 0.65rem; margin-bottom: 0.65rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.2rem;">
                   <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -26097,13 +26240,25 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
                   </div>
                 </div>
 
+                <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">
+                  <i class="ri-archive-line" style="color: #059669;"></i> Bodega Física para Descontar Stock <span style="color:#ef4444;">*</span>
+                </label>
+                <select id="swal-single-disp-bodega-stock" class="swal2-select" style="width: 100%; margin: 0 0 0.25rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+                  <option value="973da888-8a63-4790-a08f-919e1af41a93" ${defaultStockWhId === '973da888-8a63-4790-a08f-919e1af41a93' ? 'selected' : ''}>Matriz Ñuñoa (Sucursal Ñuñoa)</option>
+                  <option value="414605cb-f926-43d2-8bd2-d9509f7b458a" ${defaultStockWhId === '414605cb-f926-43d2-8bd2-d9509f7b458a' ? 'selected' : ''}>CDD La Reina (Sucursal La Reina)</option>
+                  <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a" ${defaultStockWhId === '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a' ? 'selected' : ''}>CDD Recoleta (Sucursal Recoleta)</option>
+                </select>
+                <div style="font-size: 0.72rem; color: var(--color-text-muted, #64748b); margin-bottom: 0.7rem; line-height: 1.25;">
+                  Se verificará stock físico disponible en esta bodega antes de ${isTargetEntregado ? 'marcar como Entregado' : 'despachar'}.
+                </div>
+
                 <div style="background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.65rem 0.75rem; margin-bottom: 0.75rem;">
                   <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; user-select: none;">
                     <input type="checkbox" id="swal-single-disp-keep-picking" style="margin-top: 0.15rem; width: 17px; height: 17px; accent-color: var(--color-primary, #6366f1); cursor: pointer;" onchange="window.toggleSingleDispKeepPicking(this.checked)">
                     <div>
                       <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-primary, #4f46e5); display: block;">Conservar datos de picking existentes</span>
                       <span style="font-size: 0.75rem; color: var(--color-text-muted, #64748b); line-height: 1.3; display: block; margin-top: 0.15rem;">
-                        No sobreescribir Agenda, Operador ni Fecha de Procesamiento. Solo cambiar estado a Despachado.
+                        No sobreescribir Agenda, Operador ni Fecha de Procesamiento existentes.
                       </span>
                     </div>
                   </label>
@@ -26116,7 +26271,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
                 </datalist>
                 <div id="swal-single-disp-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
 
-                <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda</label>
+                <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda${requiresAgenda ? ' <span style="color:#ef4444;">*</span>' : ''}</label>
                 <input id="swal-single-disp-agenda" list="swal-single-disp-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
                 <datalist id="swal-single-disp-agenda-list">
                   ${agendaDatalistHtml}
@@ -26143,13 +26298,19 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           },
           focusConfirm: false,
           showCancelButton: true,
-          confirmButtonText: 'Confirmar Despacho',
+          confirmButtonText: isTargetEntregado ? 'Validar Stock y Marcar Entregado' : 'Confirmar Despacho',
           confirmButtonColor: '#059669',
           cancelButtonText: 'Cancelar',
           preConfirm: () => {
+            const bodegaStock = document.getElementById('swal-single-disp-bodega-stock')?.value;
+            if (!bodegaStock || bodegaStock === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09') {
+              Swal.showValidationMessage('Debes seleccionar una bodega física válida para descontar el stock.');
+              return false;
+            }
+
             const keepPicking = document.getElementById('swal-single-disp-keep-picking')?.checked;
             if (keepPicking) {
-              return { keepPicking: true };
+              return { keepPicking: true, bodegaStock };
             }
 
             const operadorInput = document.getElementById('swal-single-disp-operador').value;
@@ -26172,6 +26333,9 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
                 Swal.showValidationMessage(`"${agendaInput}" no es una Agenda válida. Solo se permiten opciones del desplegable.`);
                 return false;
               }
+            } else if (requiresAgenda) {
+              Swal.showValidationMessage('Debes seleccionar una Agenda antes de continuar.');
+              return false;
             }
 
             if (fechaProcInput) {
@@ -26181,7 +26345,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
                 return false;
               }
             }
-            return { keepPicking: false, operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
+            return { keepPicking: false, bodegaStock, operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
           }
         });
 
@@ -26190,10 +26354,25 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           return;
         }
 
+        // Persistir bodega física seleccionada en el pedido e ítems antes de validar y descontar stock
+        const chosenWhId = dispatchFormValues.bodegaStock;
+        const chosenSucursalName = getSucursalFromWarehouseId(chosenWhId);
+        if (chosenWhId && chosenWhId !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09') {
+          if (chosenSucursalName && order.sucursal_pickeo !== chosenSucursalName) {
+            await supabase.from('orders').update({ sucursal_pickeo: chosenSucursalName }).eq('id', orderId);
+            order.sucursal_pickeo = chosenSucursalName;
+          }
+          const itemsNeedWhUpdate = (order.order_items || []).some(it => it.warehouse_id !== chosenWhId);
+          if (itemsNeedWhUpdate) {
+            await supabase.from('order_items').update({ warehouse_id: chosenWhId }).eq('order_id', orderId);
+            (order.order_items || []).forEach(it => { it.warehouse_id = chosenWhId; });
+          }
+        }
+
         const checkPrior = await window.checkOrderExistingStockMovement(order);
         const hadPriorMovement = !!(checkPrior && checkPrior.hasMovement);
 
-        const valRes = await validateOrderStockForDispatch([order]);
+        const valRes = await validateOrderStockForDispatch([order], { targetStatusLabel: newWmsStatus });
         if (!valRes || !valRes.isValid) {
           if (typeof Swal.close === 'function') Swal.close();
           applyWmsFiltersAndRender();
@@ -26201,8 +26380,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         }
 
         Swal.fire({
-          title: 'Despachando pedido...',
-          html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Actualizando estado y registrando despacho para el pedido <strong>${order.external_order_number || order.id}</strong>...</div>`,
+          title: isTargetEntregado ? 'Cerrando pedido en Entregado...' : 'Despachando pedido...',
+          html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Actualizando estado, rebajando stock físico y registrando salida para <strong>${window.escapeHtml(order.external_order_number || order.id)}</strong>...</div>`,
           allowOutsideClick: false,
           allowEscapeKey: false,
           showConfirmButton: false,
@@ -26211,13 +26390,20 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           }
         });
 
-        const updateData = { 
-          estado_wms: 'Despachado', 
-          stock_descontado: true
-        };
-        if (!hadPriorMovement) {
-          updateData.status = 'despachado';
-        }
+        const nowIso = new Date().toISOString();
+        const updateData = isTargetEntregado
+          ? {
+              estado_wms: 'Entregado',
+              status: isRetiroOrder ? 'retirado' : 'entregado',
+              delivered_at: nowIso,
+              closed_at: nowIso,
+              ...(hadPriorMovement ? { stock_descontado: true } : {})
+            }
+          : {
+              estado_wms: 'Despachado',
+              ...(hadPriorMovement ? { stock_descontado: true } : { status: 'despachado' })
+            };
+
         if (!dispatchFormValues.keepPicking) {
           if (dispatchFormValues.operador) updateData.operador = dispatchFormValues.operador;
           if (dispatchFormValues.agenda) updateData.agenda = dispatchFormValues.agenda;
@@ -26231,17 +26417,32 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           
         if (error) throw error;
 
+        if (isTargetEntregado && isRetiroOrder && typeof window.syncPickupTablesStatus === 'function') {
+          await window.syncPickupTablesStatus([order], 'ENTREGADO');
+        }
+
         if (order.is_consolidated_primary && typeof window.syncConsolidatedChildrenFromPrimary === 'function') {
-          await window.syncConsolidatedChildrenFromPrimary(order.id, updateData).catch(e => console.warn('Aviso sincronizando consolidados a Despachado:', e));
+          await window.syncConsolidatedChildrenFromPrimary(order.id, updateData).catch(e => console.warn(`Aviso sincronizando consolidados a ${newWmsStatus}:`, e));
         }
 
         if (window.syncReverseLogisticsOnOrdersDispatched) {
           await window.syncReverseLogisticsOnOrdersDispatched([orderId]);
         }
+
+        if (isTargetEntregado) {
+          try {
+            const { data: sealedRow } = await supabase
+              .from('orders')
+              .select('closed_snapshot, tracking_history, delivered_at, closed_at, stock_descontado')
+              .eq('id', orderId)
+              .maybeSingle();
+            if (sealedRow) Object.assign(order, sealedRow);
+          } catch (_) {}
+        }
         
-        order.estado_wms = 'Despachado';
-        if (!hadPriorMovement) {
-          order.status = 'despachado';
+        order.estado_wms = newWmsStatus;
+        if (updateData.status) {
+          order.status = updateData.status;
         }
         order.stock_descontado = true;
         if (!dispatchFormValues.keepPicking) {
@@ -26249,27 +26450,32 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
           if (dispatchFormValues.fechaProc) order.fecha_procesamiento = dispatchFormValues.fechaProc;
         }
+        if (typeof window.clearSingleOrderWmsCache === 'function') {
+          window.clearSingleOrderWmsCache(order);
+        } else {
+          delete order._wmsTags;
+        }
         
         // Liberar compromisos/reservas en inventario si venía de procesamiento o preparación
         try {
           await supabase.rpc('recalculate_committed_stock');
         } catch (e) {
-          console.warn('Error al recalcular stock comprometido tras despacho:', e);
+          console.warn('Error al recalcular stock comprometido:', e);
         }
 
         applyWmsFiltersAndRender();
         if (typeof window.refreshAgendasOrderCell === 'function') {
-          window.refreshAgendasOrderCell(orderId, 'estado_wms', 'Despachado');
+          window.refreshAgendasOrderCell(orderId, 'estado_wms', newWmsStatus);
         }
         window.triggerShopifyFulfillmentSync([orderId]);
 
         if (hadPriorMovement) {
           const docName = checkPrior.movement?.reference_doc ? ` (Referencia: <em>${checkPrior.movement.reference_doc}</em>)` : '';
           await Swal.fire({
-            title: 'Pedido Marcado como Despachado',
+            title: isTargetEntregado ? 'Pedido Marcado como Entregado' : 'Pedido Marcado como Despachado',
             html: `
               <div style="text-align: left; font-size: 0.9rem;">
-                <p style="margin-bottom: 0.65rem;">El pedido <strong>${order.external_order_number || order.id}</strong> ha sido marcado como <strong>Despachado</strong>.</p>
+                <p style="margin-bottom: 0.65rem;">El pedido <strong>${window.escapeHtml(order.external_order_number || order.id)}</strong> ha sido marcado como <strong>${newWmsStatus}</strong>.</p>
                 <div style="background: rgba(16, 185, 129, 0.1); border-left: 4px solid #10b981; border-radius: 4px; padding: 0.75rem 1rem; color: #065f46;">
                   <strong style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.92rem; margin-bottom: 0.25rem;">
                     <i class="ri-checkbox-circle-fill" style="color: #10b981; font-size: 1.1rem;"></i> Movimiento previo verificado
@@ -26285,9 +26491,9 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         } else {
           Swal.fire({
             icon: 'success',
-            title: '¡Pedido Despachado!',
-            text: `El pedido ${order.external_order_number || order.id} se ha marcado como Despachado con éxito.`,
-            timer: 1600,
+            title: isTargetEntregado ? '🏁 ¡Pedido Entregado!' : '¡Pedido Despachado!',
+            text: `El pedido ${order.external_order_number || order.id} se ha marcado como ${newWmsStatus} y su stock físico fue rebajado de ${getWarehouseNameFromId(chosenWhId)}.`,
+            timer: 1800,
             showConfirmButton: false
           });
         }
@@ -26317,7 +26523,6 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           ? window.getOrderEffectiveCategoriaEntrega(order)
           : String(order.categoria_entrega || '').toUpperCase().trim();
         updateData.status = effCat === 'RETIRO' ? 'retirado' : 'entregado';
-        updateData.stock_descontado = true;
         updateData.delivered_at = new Date().toISOString();
         updateData.closed_at = new Date().toISOString();
       } else if (order.status === 'cancelado' && !order.raw_shopify_data?.cancelled_at) {
@@ -26329,6 +26534,10 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         .eq('id', orderId);
         
       if (error) throw error;
+
+      if (newWmsStatus === 'Entregado' && isRetiroOrder && typeof window.syncPickupTablesStatus === 'function') {
+        await window.syncPickupTablesStatus([order], 'ENTREGADO');
+      }
 
       if (order.is_consolidated_primary && typeof window.syncConsolidatedChildrenFromPrimary === 'function') {
         await window.syncConsolidatedChildrenFromPrimary(order.id, updateData).catch(e => console.warn('Aviso sincronizando estado a consolidados:', e));
