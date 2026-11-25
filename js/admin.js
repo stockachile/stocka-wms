@@ -8,7 +8,7 @@ import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
 import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
-import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.10';
+import { renderInventoryCountAdmin } from './inventory_count.js?v=1.1.0';
 import { renderReturnsWidgetCustomizer } from './returns_widget_customizer.js';
 import './reverse_rma_manager.js';
 import './manual_order_number_validator.js?v=1.0.0';
