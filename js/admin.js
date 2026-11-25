@@ -16120,8 +16120,8 @@ async function renderAdminOrders() {
             <button onclick="window.openCreateOrderModal()" class="btn btn-primary" style="padding: 0.25rem 0.65rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; background: var(--color-primary); color: white;" title="Crear un nuevo pedido manual en el sistema">
               <i class="ri-add-circle-line"></i> Crear Pedido
             </button>
-            <button onclick="window.openStoxControlTowerMessageModal()" class="btn btn-outline" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.28rem; font-weight: 700; cursor: pointer; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.08);" title="Enviar mensaje por WhatsApp desde Stox y reenviar la respuesta recibida al grupo NOTIFICACIONES STOX">
-              <i class="ri-whatsapp-fill" style="color: #10b981; font-size: 0.95rem;"></i> Mensaje Stox
+            <button onclick="window.openStoxControlTowerMessageModal()" class="btn btn-outline" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.28rem; font-weight: 700; cursor: pointer; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.08);" title="Contactar al cliente desde Stox por WhatsApp o Correo (info@stocka.cl)">
+              <i class="ri-message-3-fill" style="color: #10b981; font-size: 0.95rem;"></i> Contacto Stox
             </button>
             <!-- Botón Dual / Split de Etiqueta Stocka Masiva con Opciones Rápidas -->
             <div id="wms-bulk-print-labels-btn" class="wms-bulk-labels-split-btn" style="display: none; position: relative; vertical-align: middle; box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25); border-radius: 6px;">
@@ -19565,8 +19565,8 @@ window.applyWmsFiltersAndRender = function() {
                     <button onclick="window.openWmsOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #c084fc; color: #7e22ce; background: rgba(147, 51, 234, 0.05);" title="Abrir Ficha Completa del Pedido">
                       <i class="ri-file-user-line"></i> Ficha Completa
                     </button>
-                    <button onclick="window.openStoxControlTowerMessageModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.1);" title="Enviar WhatsApp al cliente con Stox y reenviar su respuesta al grupo NOTIFICACIONES STOX">
-                      <i class="ri-whatsapp-fill" style="color: #10b981;"></i> Stox WA
+                    <button onclick="window.openStoxControlTowerMessageModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.1);" title="Contactar al cliente por WhatsApp o Correo (info@stocka.cl) desde Stox">
+                      <i class="ri-message-3-fill" style="color: #10b981;"></i> Contacto Stox
                     </button>
                     <button onclick="window.openOrderShippingQuoteModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.08);" title="Cotizar envío con la información de este pedido (comuna, productos, peso y volumen)">
                       <i class="ri-calculator-line"></i> Cotizar Envío
@@ -19580,15 +19580,18 @@ window.applyWmsFiltersAndRender = function() {
                   <i class="ri-user-line" title="Nombre Cliente" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
                   <span>${displayName}</span>${window.renderCopyFieldBtn(displayName, 'Nombre')}
                 </p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
                   <i class="ri-mail-line" title="Email" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
                   <span>${displayEmail}</span>${window.renderCopyFieldBtn(displayEmail, 'Email')}
+                  <button type="button" onclick="window.openStoxControlTowerMessageModal('${order.id}', 'email')" class="btn btn-outline btn-sm" style="padding: 0.1rem 0.42rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; border-color: #3b82f6; color: #2563eb; background: rgba(59, 130, 246, 0.08); border-radius: 99px;" title="Contactar por Correo (info@stocka.cl → respuesta a stockachile@gmail.com)">
+                    <i class="ri-mail-send-line" style="color: #2563eb;"></i> Correo Stox
+                  </button>
                 </p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
                   <i class="ri-phone-line" title="Teléfono" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
                   <span>${displayPhone}</span>${window.renderCopyFieldBtn(displayPhone, 'Teléfono')}
-                  <button type="button" onclick="window.openStoxControlTowerMessageModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.1rem 0.42rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.08); border-radius: 99px;" title="Enviar mensaje desde Stox y reenviar respuesta a grupo de WhatsApp">
-                    <i class="ri-whatsapp-fill" style="color: #10b981;"></i> Enviar Stox
+                  <button type="button" onclick="window.openStoxControlTowerMessageModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.1rem 0.42rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; border-color: #10b981; color: #059669; background: rgba(16, 185, 129, 0.08); border-radius: 99px;" title="Abrir Contacto Stox (elegir WhatsApp o Correo)">
+                    <i class="ri-message-3-fill" style="color: #10b981;"></i> Contacto Stox
                   </button>
                 </p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4; display: flex; align-items: flex-start; gap: 0.4rem;">
@@ -28557,43 +28560,61 @@ function renderMasterCatalogRows(products) {
   const sortCol = window.catalogSortCol || 'sku';
   const sortAsc = window.catalogSortAsc !== false;
 
+  const resolveProdOrigin = (p) => {
+    if (p.shopify_product_id) return 'shopify';
+    if (p.raw_meli_data) return 'mercadolibre';
+    if (p.raw_falabella_data) return 'falabella';
+    if (p.raw_paris_data) return 'paris';
+    if (p.raw_ripley_data) return 'ripley';
+    if (p.raw_woocommerce_data) return 'woocommerce';
+    if (p.raw_jumpseller_data) return 'jumpseller';
+    if (p.raw_walmart_data) return 'walmart';
+    if (p.raw_tiendanube_data) return 'tiendanube';
+    return 'manual';
+  };
+
   const sortedProducts = [...products].sort((a, b) => {
     let valA, valB;
+    let isNumeric = false;
     if (sortCol === 'sku') {
-      valA = (a.sku || '').toString().toLowerCase();
-      valB = (b.sku || '').toString().toLowerCase();
+      valA = (a.sku || '').toString().trim();
+      valB = (b.sku || '').toString().trim();
     } else if (sortCol === 'name') {
-      valA = (a.name || '').toString().toLowerCase();
-      valB = (b.name || '').toString().toLowerCase();
+      valA = (a.name || '').toString().trim();
+      valB = (b.name || '').toString().trim();
     } else if (sortCol === 'barcode') {
-      valA = ((a.barcode_wms && a.barcode_wms.trim()) || a.barcode || '').toString().toLowerCase();
-      valB = ((b.barcode_wms && b.barcode_wms.trim()) || b.barcode || '').toString().toLowerCase();
+      valA = ((a.barcode_wms && a.barcode_wms.trim()) || a.barcode || '').toString().trim();
+      valB = ((b.barcode_wms && b.barcode_wms.trim()) || b.barcode || '').toString().trim();
     } else if (sortCol === 'stock') {
+      isNumeric = true;
       valA = parseInt(window.catalogInitialStockMap?.[a.id] || 0, 10);
       valB = parseInt(window.catalogInitialStockMap?.[b.id] || 0, 10);
     } else if (sortCol === 'current_stock') {
+      isNumeric = true;
       valA = (a.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
       valB = (b.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
     } else if (sortCol === 'price') {
+      isNumeric = true;
       valA = parseFloat(a.price || 0);
       valB = parseFloat(b.price || 0);
     } else if (sortCol === 'origin') {
-      let origA = a.shopify_product_id ? 'shopify' : (a.raw_meli_data ? 'meli' : (a.raw_falabella_data ? 'falabella' : 'manual'));
-      let origB = b.shopify_product_id ? 'shopify' : (b.raw_meli_data ? 'meli' : (b.raw_falabella_data ? 'falabella' : 'manual'));
-      valA = origA;
-      valB = origB;
+      valA = resolveProdOrigin(a);
+      valB = resolveProdOrigin(b);
     } else if (sortCol === 'medidas') {
-      valA = (parseFloat(a.length) || 0) * (parseFloat(a.width) || 0) * (parseFloat(a.height) || 0);
-      valB = (parseFloat(b.length) || 0) * (parseFloat(b.width) || 0) * (parseFloat(b.height) || 0);
+      isNumeric = true;
+      valA = (parseFloat(a.length || a.largo) || 0) * (parseFloat(a.width || a.ancho) || 0) * (parseFloat(a.height || a.alto) || 0);
+      valB = (parseFloat(b.length || b.largo) || 0) * (parseFloat(b.width || b.ancho) || 0) * (parseFloat(b.height || b.alto) || 0);
     } else if (sortCol === 'volumen') {
+      isNumeric = true;
       valA = parseFloat(a.volumen || 0);
       valB = parseFloat(b.volumen || 0);
     } else if (sortCol === 'weight') {
+      isNumeric = true;
       valA = parseFloat(a.weight || 0);
       valB = parseFloat(b.weight || 0);
     } else if (sortCol === 'venc') {
-      valA = (a.expiration_date || '').toString().toLowerCase();
-      valB = (b.expiration_date || '').toString().toLowerCase();
+      valA = (a.expiration_date || '').toString().trim();
+      valB = (b.expiration_date || '').toString().trim();
     } else if (sortCol === 'status') {
       valA = (a.status || 'active').toString().toLowerCase();
       valB = (b.status || 'active').toString().toLowerCase();
@@ -28601,13 +28622,15 @@ function renderMasterCatalogRows(products) {
       return 0;
     }
 
-    if (valA < valB) return sortAsc ? -1 : 1;
-    if (valA > valB) return sortAsc ? 1 : -1;
-    return 0;
+    if (isNumeric) {
+      return sortAsc ? (valA - valB) : (valB - valA);
+    }
+    const cmp = String(valA).localeCompare(String(valB), 'es', { numeric: true, sensitivity: 'base' });
+    return sortAsc ? cmp : -cmp;
   });
 
-  // Actualizar indicadores visuales de ordenación en las cabeceras
-  document.querySelectorAll('.sortable-header').forEach(header => {
+  // Actualizar indicadores visuales de ordenación en las cabeceras del Catálogo Master
+  document.querySelectorAll('#tab-catalog-master .sortable-header').forEach(header => {
     const col = header.getAttribute('data-sort');
     const icon = header.querySelector('.sort-icon');
     if (icon) {
@@ -29574,6 +29597,216 @@ function getAdminBrokenEquivalences(mappings, masterProducts) {
   });
 }
 
+function rebuildAdminMappingsMap() {
+  const map = {};
+  (window.currentMappingsArray || []).forEach(m => {
+    if (!map[m.platform]) map[m.platform] = {};
+    map[m.platform][m.platform_sku] = m.master_sku;
+  });
+  window.currentMappingsMap = map;
+  return map;
+}
+
+function upsertMappingInMemory(savedRow) {
+  if (!savedRow) return;
+  if (!Array.isArray(window.currentMappingsArray)) window.currentMappingsArray = [];
+  const pNorm = normCatalogSkuKey(savedRow.platform_sku);
+  const idx = window.currentMappingsArray.findIndex(
+    m => m.platform === savedRow.platform && normCatalogSkuKey(m.platform_sku) === pNorm
+  );
+  if (idx >= 0) {
+    window.currentMappingsArray[idx] = { ...window.currentMappingsArray[idx], ...savedRow };
+  } else {
+    window.currentMappingsArray.push(savedRow);
+  }
+  rebuildAdminMappingsMap();
+}
+
+function removeMappingFromMemory({ id, platform, platformSku }) {
+  if (!Array.isArray(window.currentMappingsArray)) return;
+  const pNorm = normCatalogSkuKey(platformSku);
+  window.currentMappingsArray = window.currentMappingsArray.filter(m => {
+    if (id && String(m.id) === String(id)) return false;
+    if (platform && pNorm && m.platform === platform && normCatalogSkuKey(m.platform_sku) === pNorm) return false;
+    return true;
+  });
+  rebuildAdminMappingsMap();
+}
+
+function buildAdminInboxStatePillHtml(state, currentMult, isBrokenMapping, justSavedLabel) {
+  const savedChip = justSavedLabel
+    ? ` <span style="display: inline-flex; align-items: center; gap: 0.15rem; background: rgba(16, 185, 129, 0.16); color: #059669; padding: 0.12rem 0.4rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 700;"><i class="ri-check-line"></i> ${escapeHtml(justSavedLabel)}</span>`
+    : '';
+  if (state === 'pending') {
+    return `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-time-line"></i> Pendiente</span>${savedChip}`;
+  }
+  if (state === 'mapped') {
+    return (isBrokenMapping
+      ? `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.35); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-error-warning-line"></i> Equivalencia Rota</span>`
+      : `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-link"></i> Vinculado${currentMult > 1 ? ` ×${currentMult}` : ''}</span>`) + savedChip;
+  }
+  if (state === 'in_master') {
+    return `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-check-double-line"></i> En Master</span>${savedChip}`;
+  }
+  if (state === 'ignored') {
+    return `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(107, 114, 128, 0.14); color: #4b5563; border: 1px solid rgba(107, 114, 128, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-eye-off-line"></i> Ignorado (No WMS)</span>${savedChip}`;
+  }
+  return '';
+}
+
+function buildAdminInboxActionsHtml(sp, state, isObserver) {
+  if (isObserver) return '<span style="font-size: 0.75rem; color: var(--color-text-muted);">—</span>';
+  const promoteBtn = (state === 'pending')
+    ? `<button type="button" class="btn btn-sm btn-promote-to-master" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.6rem; font-size: 0.76rem; font-weight: 600; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;" title="Crear este producto como nuevo SKU en el Catálogo Maestro WMS"><i class="ri-add-box-line"></i> Promover</button>`
+    : '';
+  const ignoreBtn = (state === 'ignored')
+    ? `<button type="button" class="btn btn-sm btn-restore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.6rem; font-size: 0.76rem; font-weight: 600; background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;" title="Restaurar esta publicación a la bandeja activa"><i class="ri-refresh-line"></i> Restaurar</button>`
+    : (state === 'pending'
+      ? `<button type="button" class="btn btn-sm btn-ignore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.6rem; font-size: 0.76rem; font-weight: 600; background: rgba(107, 114, 128, 0.1); color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;" title="Marcar como no gestionado por WMS (ej. Meli FULL, digital o descontinuado)"><i class="ri-eye-off-line"></i> Ignorar</button>`
+      : '');
+  if (!promoteBtn && !ignoreBtn) return '<span style="font-size: 0.75rem; color: var(--color-text-muted);">—</span>';
+  return `<div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">${promoteBtn}${ignoreBtn}</div>`;
+}
+
+function syncAdminInboxStateAndRegistered({ rerenderInbox = false } = {}) {
+  const allSynced = window.currentAllSyncedProducts || [];
+  const masterProducts = window.currentMasterProducts || [];
+  const mappings = window.currentMappingsArray || [];
+  const catalogV2 = window.currentAdminCatalogV2 === true;
+
+  const masterSkusSet = new Set(masterProducts.map(p => normCatalogSkuKey(p.sku)).filter(Boolean));
+  const mappingsByPlatformNorm = {};
+  const mappingsGlobalNorm = {};
+  mappings.forEach(m => {
+    const pKey = normCatalogSkuKey(m.platform_sku);
+    if (!pKey) return;
+    if (m.platform === 'Todas') {
+      mappingsGlobalNorm[pKey] = m;
+    } else {
+      if (!mappingsByPlatformNorm[m.platform]) mappingsByPlatformNorm[m.platform] = {};
+      mappingsByPlatformNorm[m.platform][pKey] = m;
+    }
+  });
+
+  const classifiedAll = allSynced.map(sp => ({
+    sp,
+    ...classifySyncedProductInboxState(sp, masterSkusSet, mappingsByPlatformNorm, mappingsGlobalNorm)
+  }));
+
+  const brokenCount = getAdminBrokenEquivalences(mappings, masterProducts).length;
+  const totalPendingCount = classifiedAll.filter(i => i.state === 'pending').length;
+
+  // Actualizar badges de la pestaña superior sin recargar la página
+  const tabBadgesSlot = document.getElementById('eq-tab-badges-slot');
+  if (tabBadgesSlot) {
+    tabBadgesSlot.innerHTML = `
+      ${brokenCount > 0 ? `<span style="background: #ef4444; color: white; border-radius: 9999px; padding: 0.08rem 0.45rem; font-size: 0.7rem; font-weight: 700;" title="Equivalencias rotas">${brokenCount} rotas</span>` : ''}
+      ${catalogV2 && totalPendingCount > 0 ? `<span style="background: rgba(245, 158, 11, 0.18); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 9999px; padding: 0.06rem 0.45rem; font-size: 0.7rem; font-weight: 700;" title="Publicaciones de canales pendientes por vincular, promover o ignorar">${totalPendingCount} pend.</span>` : ''}
+    `;
+  }
+
+  // Actualizar contadores de filtros de estado respetando filtro de plataforma activo
+  const platformFilter = window._catalogV2PlatformFilter || 'ALL';
+  const scoped = platformFilter === 'ALL' ? classifiedAll : classifiedAll.filter(i => i.sp.platform === platformFilter);
+  const counts = {
+    pending: scoped.filter(i => i.state === 'pending').length,
+    mapped: scoped.filter(i => i.state === 'mapped').length,
+    in_master: scoped.filter(i => i.state === 'in_master').length,
+    ignored: scoped.filter(i => i.state === 'ignored').length,
+    all: scoped.length
+  };
+  Object.entries(counts).forEach(([key, val]) => {
+    const el = document.getElementById(`v2-status-count-${key}`);
+    if (el) el.textContent = val;
+  });
+
+  // Actualizar título contador de equivalencias registradas y re-renderizar solo la tabla registrada + alerta rota
+  const regCountEl = document.getElementById('eq-registered-count');
+  if (regCountEl) regCountEl.textContent = `(${mappings.length})`;
+  renderRegisteredEquivalences(mappings);
+
+  // Mantener filtro de búsqueda activo en equivalencias registradas
+  const regSearchVal = (document.getElementById('eq-registered-search')?.value || '').toLowerCase().trim();
+  if (regSearchVal) {
+    document.querySelectorAll('#eq-registered-tbody .eq-registered-row').forEach(r => {
+      r.style.display = r.textContent.toLowerCase().includes(regSearchVal) ? '' : 'none';
+    });
+  }
+
+  if (rerenderInbox) {
+    if (catalogV2) {
+      renderAdminV2ChannelInbox();
+    } else {
+      const showAll = document.getElementById('eq-show-all-synced')?.checked;
+      renderEquivalencesRows(showAll ? allSynced : (window.currentUnmappedSyncedProducts || []), window.currentMappingsMap || {});
+    }
+  }
+}
+
+function patchAdminInboxRowInPlace(row, { platform, sku, justSavedLabel = '' }) {
+  if (!row) return;
+  const sp = (window.currentAllSyncedProducts || []).find(item => item.platform === platform && item.sku === sku)
+    || { platform, sku, is_ignored: false, ignored_reason: null };
+  const masterProducts = window.currentMasterProducts || [];
+  const mappings = window.currentMappingsArray || [];
+  const isObserver = userRole === 'observer';
+
+  const masterSkusSet = new Set(masterProducts.map(p => normCatalogSkuKey(p.sku)).filter(Boolean));
+  const masterIdsSet = new Set(masterProducts.map(p => p.id).filter(Boolean));
+  const mappingsByPlatformNorm = {};
+  const mappingsGlobalNorm = {};
+  mappings.forEach(m => {
+    const pKey = normCatalogSkuKey(m.platform_sku);
+    if (!pKey) return;
+    if (m.platform === 'Todas') mappingsGlobalNorm[pKey] = m;
+    else {
+      if (!mappingsByPlatformNorm[m.platform]) mappingsByPlatformNorm[m.platform] = {};
+      mappingsByPlatformNorm[m.platform][pKey] = m;
+    }
+  });
+
+  const { state, mappedRow } = classifySyncedProductInboxState(sp, masterSkusSet, mappingsByPlatformNorm, mappingsGlobalNorm);
+  const currentMult = Math.max(1, parseInt(mappedRow?.quantity_multiplier, 10) || 1);
+  const isBrokenMapping = mappedRow && !(
+    (mappedRow.master_product_id && masterIdsSet.has(mappedRow.master_product_id)) ||
+    (mappedRow.master_sku && masterSkusSet.has(normCatalogSkuKey(mappedRow.master_sku)))
+  );
+
+  const stateSlot = row.querySelector('.eq-row-state-slot');
+  if (stateSlot) {
+    stateSlot.innerHTML = buildAdminInboxStatePillHtml(state, currentMult, isBrokenMapping, justSavedLabel);
+  }
+  const actionsSlot = row.querySelector('.eq-row-actions-slot');
+  if (actionsSlot) {
+    actionsSlot.innerHTML = buildAdminInboxActionsHtml(sp, state, isObserver);
+  }
+  const reasonSlot = row.querySelector('.eq-row-reason-slot');
+  if (reasonSlot) {
+    reasonSlot.innerHTML = (state === 'ignored' && sp.ignored_reason)
+      ? `<div style="margin-top: 0.2rem; font-size: 0.74rem; color: var(--color-text-muted);"><i class="ri-information-line"></i> Motivo: <strong>${escapeHtml(sp.ignored_reason)}</strong></div>`
+      : '';
+  }
+  const skuInput = row.querySelector('.eq-mapping-input');
+  if (skuInput) {
+    skuInput.value = mappedRow ? mappedRow.master_sku : '';
+    skuInput.placeholder = state === 'in_master' ? `Ya coincide directo (${sku})` : 'Vincular a SKU Master...';
+    skuInput.style.borderColor = isBrokenMapping ? '#ef4444' : '#10b981';
+    setTimeout(() => {
+      if (skuInput) skuInput.style.borderColor = isBrokenMapping ? '#ef4444' : 'var(--color-border)';
+    }, 1400);
+  }
+  const multInput = row.querySelector('.eq-multiplier-input');
+  if (multInput) {
+    multInput.value = currentMult;
+  }
+
+  row.style.opacity = state === 'ignored' ? '0.62' : '1';
+  row.style.backgroundColor = 'rgba(16, 185, 129, 0.13)';
+  setTimeout(() => {
+    if (row) row.style.backgroundColor = 'transparent';
+  }, 900);
+}
+
 async function upsertAdminSkuEquivalence({ commerce, platform, platformSku, masterSku, masterProductId, quantityMultiplier }) {
   const mult = Math.max(1, parseInt(quantityMultiplier, 10) || 1);
   const fullPayload = {
@@ -29585,9 +29818,11 @@ async function upsertAdminSkuEquivalence({ commerce, platform, platformSku, mast
     quantity_multiplier: mult
   };
 
-  let { error } = await supabase
+  let { data, error } = await supabase
     .from('sku_equivalences')
-    .upsert(fullPayload, { onConflict: 'comercio,platform,platform_sku' });
+    .upsert(fullPayload, { onConflict: 'comercio,platform,platform_sku' })
+    .select('*')
+    .maybeSingle();
 
   if (error && /column|schema cache|quantity_multiplier|master_product_id/i.test(error.message || '')) {
     const fb = await supabase
@@ -29597,7 +29832,10 @@ async function upsertAdminSkuEquivalence({ commerce, platform, platformSku, mast
         platform: platform,
         platform_sku: platformSku,
         master_sku: masterSku
-      }, { onConflict: 'comercio,platform,platform_sku' });
+      }, { onConflict: 'comercio,platform,platform_sku' })
+      .select('*')
+      .maybeSingle();
+    data = fb.data;
     error = fb.error;
     if (!error && mult > 1) {
       alert('Aviso: La equivalencia se guardó, pero debes aplicar la migración SQL de Fase 2 para activar el multiplicador ×' + mult + '.');
@@ -29605,18 +29843,28 @@ async function upsertAdminSkuEquivalence({ commerce, platform, platformSku, mast
   }
   if (error) throw error;
 
+  const savedRow = data || { ...fullPayload };
+  upsertMappingInMemory(savedRow);
+
   // Si el SKU externo estaba marcado como ignorado en synced_products, restaurarlo al vincularlo
   if (platform && platform !== 'Todas') {
-    try {
-      await supabase.rpc('set_synced_product_ignored', {
-        p_comercio: commerce,
-        p_platform: platform,
-        p_sku: platformSku,
-        p_is_ignored: false,
-        p_reason: null
-      });
-    } catch (_) {}
+    const sp = (window.currentAllSyncedProducts || []).find(i => i.platform === platform && i.sku === platformSku);
+    if (sp && sp.is_ignored === true) {
+      sp.is_ignored = false;
+      sp.ignored_reason = null;
+      try {
+        await supabase.rpc('set_synced_product_ignored', {
+          p_comercio: commerce,
+          p_platform: platform,
+          p_sku: platformSku,
+          p_is_ignored: false,
+          p_reason: null
+        });
+      } catch (_) {}
+    }
   }
+
+  return savedRow;
 }
 
 function getAdminChannelStatusBadgeHtml(status) {
@@ -29735,13 +29983,51 @@ function renderAdminV2ChannelInbox() {
     counterLabel.textContent = `Mostrando ${visible.length} de ${scopedByPlatform.length} publicaciones`;
   }
 
+  // Ordenar filas de la Bandeja Unificada según columna activa
+  const eqSortCol = window._catalogV2SortCol || 'name';
+  const eqSortAsc = window._catalogV2SortAsc !== false;
+  const stateOrder = { pending: 1, mapped: 2, in_master: 3, ignored: 4 };
+
+  visible.sort((a, b) => {
+    let cmp = 0;
+    if (eqSortCol === 'name') {
+      cmp = String(a.sp.name || '').localeCompare(String(b.sp.name || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'platform') {
+      cmp = String(a.sp.platform || '').localeCompare(String(b.sp.platform || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'sku') {
+      cmp = String(a.sp.sku || '').localeCompare(String(b.sp.sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'state') {
+      cmp = (stateOrder[a.state] || 9) - (stateOrder[b.state] || 9);
+    } else if (eqSortCol === 'master_sku') {
+      cmp = String(a.mappedRow?.master_sku || '').localeCompare(String(b.mappedRow?.master_sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    }
+    if (cmp === 0) {
+      cmp = String(a.sp.sku || '').localeCompare(String(b.sp.sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    }
+    return eqSortAsc ? cmp : -cmp;
+  });
+
+  document.querySelectorAll('.eq-inbox-sortable').forEach(header => {
+    const col = header.getAttribute('data-eq-sort');
+    const icon = header.querySelector('.sort-icon');
+    if (icon) {
+      if (col === eqSortCol) {
+        icon.className = eqSortAsc ? 'sort-icon ri-arrow-up-line' : 'sort-icon ri-arrow-down-line';
+        icon.style.color = 'var(--color-primary)';
+      } else {
+        icon.className = 'sort-icon ri-arrow-up-down-line';
+        icon.style.color = 'var(--color-text-muted)';
+      }
+    }
+  });
+
   if (visible.length === 0) {
     const emptyMsg = statusFilter === 'pending'
       ? '¡Excelente! No hay publicaciones pendientes por mapear o promover en este filtro.'
       : 'No hay publicaciones que coincidan con el filtro seleccionado.';
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" style="text-align: center; padding: 2.25rem; color: var(--color-text-muted);">
+        <td colspan="6" style="text-align: center; padding: 2.25rem; color: var(--color-text-muted);">
           <i class="ri-checkbox-circle-line" style="font-size: 1.75rem; color: #10b981; display: block; margin-bottom: 0.4rem;"></i>
           ${emptyMsg}
         </td>
@@ -29753,7 +30039,7 @@ function renderAdminV2ChannelInbox() {
   const maxRender = 250;
   const sliced = visible.slice(0, maxRender);
   const truncationNotice = visible.length > maxRender
-    ? `<tr><td colspan="4" style="text-align: center; padding: 0.75rem; font-size: 0.82rem; color: var(--color-text-muted); background: var(--color-bg);">Mostrando los primeros ${maxRender} de ${visible.length} resultados. Usa el buscador o filtros por canal para acotar.</td></tr>`
+    ? `<tr><td colspan="6" style="text-align: center; padding: 0.75rem; font-size: 0.82rem; color: var(--color-text-muted); background: var(--color-bg);">Mostrando los primeros ${maxRender} de ${visible.length} resultados. Usa el buscador o filtros por canal para acotar.</td></tr>`
     : '';
 
   tbody.innerHTML = sliced.map(({ sp, state, mappedRow }) => {
@@ -29768,18 +30054,7 @@ function renderAdminV2ChannelInbox() {
       ? `<img src="${escapeHtml(sp.image_url)}" alt="" style="width: 38px; height: 38px; object-fit: cover; border-radius: 6px; border: 1px solid var(--color-border); flex-shrink: 0;">`
       : `<div style="width: 38px; height: 38px; border-radius: 6px; background: var(--color-bg); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;"><i class="ri-image-line"></i></div>`;
 
-    let inboxStatePill = '';
-    if (state === 'pending') {
-      inboxStatePill = `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-time-line"></i> Pendiente</span>`;
-    } else if (state === 'mapped') {
-      inboxStatePill = isBrokenMapping
-        ? `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.35); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-error-warning-line"></i> Equivalencia Rota</span>`
-        : `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-link"></i> Vinculado${currentMult > 1 ? ` ×${currentMult}` : ''}</span>`;
-    } else if (state === 'in_master') {
-      inboxStatePill = `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-check-double-line"></i> En Master</span>`;
-    } else if (state === 'ignored') {
-      inboxStatePill = `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(107, 114, 128, 0.14); color: #4b5563; border: 1px solid rgba(107, 114, 128, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-eye-off-line"></i> Ignorado (No WMS)</span>`;
-    }
+    const inboxStatePill = buildAdminInboxStatePillHtml(state, currentMult, isBrokenMapping, '');
 
     const ignoredReasonHtml = (state === 'ignored' && sp.ignored_reason)
       ? `<div style="margin-top: 0.2rem; font-size: 0.74rem; color: var(--color-text-muted);"><i class="ri-information-line"></i> Motivo: <strong>${escapeHtml(sp.ignored_reason)}</strong></div>`
@@ -29792,43 +30067,30 @@ function renderAdminV2ChannelInbox() {
       ? `<span style="font-size: 0.72rem; color: var(--color-text-muted);">$${Number(sp.price).toLocaleString('es-CL')}</span>`
       : '';
 
-    let actionsHtml = '';
-    if (!isObserver) {
-      const promoteBtn = (state === 'pending')
-        ? `<button type="button" class="btn btn-sm btn-promote-to-master" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.6rem; font-size: 0.76rem; font-weight: 600; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;" title="Crear este producto como nuevo SKU en el Catálogo Maestro WMS"><i class="ri-add-box-line"></i> Promover</button>`
-        : '';
-
-      const ignoreBtn = (state === 'ignored')
-        ? `<button type="button" class="btn btn-sm btn-restore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.6rem; font-size: 0.76rem; font-weight: 600; background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;" title="Restaurar esta publicación a la bandeja activa"><i class="ri-refresh-line"></i> Restaurar</button>`
-        : (state === 'pending'
-          ? `<button type="button" class="btn btn-sm btn-ignore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.6rem; font-size: 0.76rem; font-weight: 600; background: rgba(107, 114, 128, 0.1); color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;" title="Marcar como no gestionado por WMS (ej. Meli FULL, digital o descontinuado)"><i class="ri-eye-off-line"></i> Ignorar</button>`
-          : '');
-
-      actionsHtml = `<div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">${promoteBtn}${ignoreBtn}</div>`;
-    }
+    const actionsHtml = buildAdminInboxActionsHtml(sp, state, isObserver);
 
     return `
-      <tr class="eq-row" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; ${state === 'ignored' ? 'opacity: 0.72;' : ''}" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.65rem 1.25rem; font-size: 0.86rem; color: var(--color-text-main); max-width: 340px;">
+      <tr class="eq-row" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.25s, opacity 0.2s; ${state === 'ignored' ? 'opacity: 0.62;' : ''}" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.65rem 1.25rem; font-size: 0.86rem; color: var(--color-text-main); max-width: 320px;">
           <div style="display: flex; align-items: center; gap: 0.65rem;">
             ${thumbHtml}
             <div style="min-width: 0;">
               <div style="font-weight: 600; line-height: 1.3; word-break: break-word;">${escapeHtml(sp.name || '(Sin nombre)')}${getAdminChannelStatusBadgeHtml(sp.status)}</div>
               <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; margin-top: 0.15rem;">${barcodeMeta}${priceMeta}</div>
-              ${ignoredReasonHtml}
+              <div class="eq-row-reason-slot">${ignoredReasonHtml}</div>
             </div>
           </div>
         </td>
-        <td style="padding: 0.65rem 1rem; white-space: nowrap;">
-          <div style="display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start;">
-            <div style="display: flex; align-items: center; gap: 0.4rem;">
-              <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.18rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600;">${escapeHtml(sp.platform)}</span>
-              ${inboxStatePill}
-            </div>
-            <span style="font-size: 0.85rem; font-family: monospace; font-weight: 700; color: var(--color-text-main);">${escapeHtml(sp.sku)}</span>
-          </div>
+        <td style="padding: 0.65rem 0.85rem; white-space: nowrap;">
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.74rem; font-weight: 600;">${escapeHtml(sp.platform)}</span>
         </td>
-        <td style="padding: 0.65rem 1rem; min-width: 280px;">
+        <td style="padding: 0.65rem 0.85rem; white-space: nowrap;">
+          <span style="font-size: 0.85rem; font-family: monospace; font-weight: 700; color: var(--color-text-main);">${escapeHtml(sp.sku)}</span>
+        </td>
+        <td style="padding: 0.65rem 0.85rem; white-space: nowrap;">
+          <span class="eq-row-state-slot">${inboxStatePill}</span>
+        </td>
+        <td style="padding: 0.65rem 1rem; min-width: 265px;">
           <div style="display: flex; align-items: center; gap: 0.4rem;">
             <input type="text" class="form-input eq-mapping-input"
                    list="master-skus-list"
@@ -29837,7 +30099,7 @@ function renderAdminV2ChannelInbox() {
                    value="${escapeHtml(currentMapping)}"
                    placeholder="${state === 'in_master' ? 'Ya coincide directo (' + escapeHtml(sp.sku) + ')' : 'Vincular a SKU Master...'}"
                    ${isObserver ? 'disabled' : ''}
-                   style="margin: 0; padding: 0.38rem 0.65rem; font-size: 0.82rem; font-family: monospace; border: 1px solid ${isBrokenMapping ? '#ef4444' : 'var(--color-border)'}; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); flex: 1; min-width: 150px;">
+                   style="margin: 0; padding: 0.38rem 0.65rem; font-size: 0.82rem; font-family: monospace; border: 1px solid ${isBrokenMapping ? '#ef4444' : 'var(--color-border)'}; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); flex: 1; min-width: 145px;">
             <div style="display: inline-flex; align-items: center; gap: 0.2rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.4rem; height: 32px;" title="Multiplicador: cuántas unidades del SKU Master se descuentan por cada 1 unidad vendida en el canal (ej. 6 para Pack x6)">
               <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted);">×</span>
               <input type="number" class="eq-multiplier-input" min="1" max="999" step="1"
@@ -29849,8 +30111,8 @@ function renderAdminV2ChannelInbox() {
             </div>
           </div>
         </td>
-        <td style="padding: 0.65rem 1rem; white-space: nowrap;">
-          ${actionsHtml || '<span style="font-size: 0.75rem; color: var(--color-text-muted);">—</span>'}
+        <td class="eq-row-actions-slot" style="padding: 0.65rem 1rem; white-space: nowrap;">
+          ${actionsHtml}
         </td>
       </tr>
     `;
@@ -29865,6 +30127,23 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
 
   const tbody = document.getElementById('eq-matrix-tbody');
   if (!tbody) return;
+
+  const eqSortCol = window._catalogV2SortCol || 'name';
+  const eqSortAsc = window._catalogV2SortAsc !== false;
+
+  document.querySelectorAll('.eq-inbox-sortable').forEach(header => {
+    const col = header.getAttribute('data-eq-sort');
+    const icon = header.querySelector('.sort-icon');
+    if (icon) {
+      if (col === eqSortCol) {
+        icon.className = eqSortAsc ? 'sort-icon ri-arrow-up-line' : 'sort-icon ri-arrow-down-line';
+        icon.style.color = 'var(--color-primary)';
+      } else {
+        icon.className = 'sort-icon ri-arrow-up-down-line';
+        icon.style.color = 'var(--color-text-muted)';
+      }
+    }
+  });
 
   if (unmappedProducts.length === 0) {
     tbody.innerHTML = `
@@ -29884,13 +30163,29 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
     multLookup[m.platform][m.platform_sku] = Math.max(1, parseInt(m.quantity_multiplier, 10) || 1);
   });
 
-  tbody.innerHTML = unmappedProducts.map(sp => {
+  const sortedUnmapped = [...unmappedProducts].sort((a, b) => {
+    let cmp = 0;
+    if (eqSortCol === 'name') {
+      cmp = String(a.name || '').localeCompare(String(b.name || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'platform') {
+      cmp = String(a.platform || '').localeCompare(String(b.platform || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'sku') {
+      cmp = String(a.sku || '').localeCompare(String(b.sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'master_sku') {
+      const mA = (mappingsMap[a.platform] && mappingsMap[a.platform][a.sku]) || '';
+      const mB = (mappingsMap[b.platform] && mappingsMap[b.platform][b.sku]) || '';
+      cmp = String(mA).localeCompare(String(mB), 'es', { numeric: true, sensitivity: 'base' });
+    }
+    return eqSortAsc ? cmp : -cmp;
+  });
+
+  tbody.innerHTML = sortedUnmapped.map(sp => {
     const currentMapping = (mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]) || '';
     const currentMult = (multLookup[sp.platform] && multLookup[sp.platform][sp.sku]) || 1;
     const statusBadge = getAdminChannelStatusBadgeHtml(sp.status);
 
     return `
-      <tr class="eq-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+      <tr class="eq-row" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.25s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
         <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${escapeHtml(sp.name)}${statusBadge}</td>
         <td style="padding: 0.75rem 2rem;">
           <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${escapeHtml(sp.platform)}</span>
@@ -29970,12 +30265,44 @@ function renderRegisteredEquivalences(mappings) {
     return;
   }
 
-  // Mostrar primero las equivalencias rotas para visibilidad inmediata
+  // Ordenar tabla de equivalencias registradas según columna activa (por defecto rotas primero)
+  const regSortCol = window._catalogRegSortCol || 'status';
+  const regSortAsc = window._catalogRegSortAsc !== false;
+
+  document.querySelectorAll('.eq-reg-sortable').forEach(header => {
+    const col = header.getAttribute('data-reg-sort');
+    const icon = header.querySelector('.sort-icon');
+    if (icon) {
+      if (col === regSortCol) {
+        icon.className = regSortAsc ? 'sort-icon ri-arrow-up-line' : 'sort-icon ri-arrow-down-line';
+        icon.style.color = 'var(--color-primary)';
+      } else {
+        icon.className = 'sort-icon ri-arrow-up-down-line';
+        icon.style.color = 'var(--color-text-muted)';
+      }
+    }
+  });
+
   const sortedMappings = [...mappings].sort((a, b) => {
-    const aBroken = brokenIds.has(a.id) ? 0 : 1;
-    const bBroken = brokenIds.has(b.id) ? 0 : 1;
-    if (aBroken !== bBroken) return aBroken - bBroken;
-    return String(a.platform || '').localeCompare(String(b.platform || '')) || String(a.platform_sku || '').localeCompare(String(b.platform_sku || ''));
+    let cmp = 0;
+    if (regSortCol === 'platform') {
+      cmp = String(a.platform || '').localeCompare(String(b.platform || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (regSortCol === 'platform_sku') {
+      cmp = String(a.platform_sku || '').localeCompare(String(b.platform_sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (regSortCol === 'master_sku') {
+      cmp = String(a.master_sku || '').localeCompare(String(b.master_sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (regSortCol === 'quantity_multiplier') {
+      cmp = (parseInt(a.quantity_multiplier, 10) || 1) - (parseInt(b.quantity_multiplier, 10) || 1);
+    } else if (regSortCol === 'status') {
+      const aBroken = brokenIds.has(a.id) ? 0 : 1;
+      const bBroken = brokenIds.has(b.id) ? 0 : 1;
+      cmp = aBroken - bBroken;
+    }
+    if (cmp === 0) {
+      cmp = String(a.platform || '').localeCompare(String(b.platform || ''), 'es', { sensitivity: 'base' })
+        || String(a.platform_sku || '').localeCompare(String(b.platform_sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    }
+    return regSortAsc ? cmp : -cmp;
   });
 
   tbody.innerHTML = sortedMappings.map(m => {
@@ -30110,9 +30437,8 @@ function openCreateManualEquivalenceModal(commerce) {
         quantityMultiplier: multVal
       });
 
-      alert('Equivalencia creada/actualizada correctamente.');
       modal.remove();
-      renderAdminCatalogWorkspace(commerce);
+      syncAdminInboxStateAndRegistered({ rerenderInbox: true });
     } catch (err) {
       alert('Error al guardar la equivalencia: ' + err.message);
       submitBtn.disabled = false;
@@ -30194,23 +30520,27 @@ function showAdminEqImportPreviewModal(previewData, commerce) {
       }));
 
       try {
-        let { error } = await supabase
+        let { data: upsertedRows, error } = await supabase
           .from('sku_equivalences')
-          .upsert(validRowsFull, { onConflict: 'comercio,platform,platform_sku' });
+          .upsert(validRowsFull, { onConflict: 'comercio,platform,platform_sku' })
+          .select('*');
 
         if (error && /column|schema cache|quantity_multiplier|master_product_id/i.test(error.message || '')) {
           const validRowsLegacy = validRowsFull.map(({ comercio, platform, platform_sku, master_sku }) => ({ comercio, platform, platform_sku, master_sku }));
           const fb = await supabase
             .from('sku_equivalences')
-            .upsert(validRowsLegacy, { onConflict: 'comercio,platform,platform_sku' });
+            .upsert(validRowsLegacy, { onConflict: 'comercio,platform,platform_sku' })
+            .select('*');
+          upsertedRows = fb.data;
           error = fb.error;
         }
 
         if (error) throw error;
 
+        (upsertedRows || validRowsFull).forEach(r => upsertMappingInMemory(r));
         alert(`Se han importado exitosamente ${validRowsFull.length} equivalencias.`);
         modal.classList.remove('active');
-        renderAdminCatalogWorkspace(commerce);
+        syncAdminInboxStateAndRegistered({ rerenderInbox: true });
       } catch (err) {
         alert('Error al realizar la importación masiva: ' + err.message);
         btnConfirm.disabled = false;
@@ -30810,36 +31140,39 @@ function setupCatalogListeners(commerce, mainPlatform) {
       window.openCatalogBulkCreateModal(commerce);
     });
   }
-  document.querySelectorAll('.btn-edit-product').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const prodId = e.currentTarget.getAttribute('data-id');
-      openEditProductModal(prodId);
-      showWmsWarningInModal('form-edit-product');
-    });
-  });
-  document.querySelectorAll('.btn-print-label').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const prodId = e.currentTarget.getAttribute('data-id');
-      window.openIndividualLabelModal(prodId);
-    });
-  });
-
-  // 5. Delete Product handler
-  document.querySelectorAll('.btn-delete-product').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const prodId = e.currentTarget.getAttribute('data-id');
-      if (confirm('¿Estás seguro de que deseas eliminar este producto? Esto también eliminará su inventario asociado en todas las bodegas.')) {
-        try {
-          const { error } = await supabase.from('products').delete().eq('id', prodId);
-          if (error) throw error;
-          alert('Producto eliminado correctamente.');
-          renderAdminCatalogWorkspace(commerce);
-        } catch (err) {
-          alert('Error al eliminar producto: ' + err.message);
+  // 4 & 5. Edit / Print / Delete Product handlers (delegados en #catalog-master-tbody para sobrevivir ordenamientos de columnas)
+  const masterTbodyActions = document.getElementById('catalog-master-tbody');
+  if (masterTbodyActions) {
+    masterTbodyActions.addEventListener('click', async (e) => {
+      const editBtn = e.target.closest('.btn-edit-product');
+      if (editBtn) {
+        const prodId = editBtn.getAttribute('data-id');
+        openEditProductModal(prodId);
+        showWmsWarningInModal('form-edit-product');
+        return;
+      }
+      const printBtn = e.target.closest('.btn-print-label');
+      if (printBtn) {
+        const prodId = printBtn.getAttribute('data-id');
+        window.openIndividualLabelModal(prodId);
+        return;
+      }
+      const deleteBtn = e.target.closest('.btn-delete-product');
+      if (deleteBtn) {
+        const prodId = deleteBtn.getAttribute('data-id');
+        if (confirm('¿Estás seguro de que deseas eliminar este producto? Esto también eliminará su inventario asociado en todas las bodegas.')) {
+          try {
+            const { error } = await supabase.from('products').delete().eq('id', prodId);
+            if (error) throw error;
+            alert('Producto eliminado correctamente.');
+            renderAdminCatalogWorkspace(commerce);
+          } catch (err) {
+            alert('Error al eliminar producto: ' + err.message);
+          }
         }
       }
     });
-  });
+  }
 
   // Real-time calculation and totals update for quick-edit mode
   const masterTbody = document.getElementById('catalog-master-tbody');
@@ -31289,21 +31622,25 @@ function setupCatalogListeners(commerce, mainPlatform) {
         btnAutoMap.disabled = true;
         btnAutoMap.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Procesando...`;
         try {
-          let { error } = await supabase
+          let { data: upsertedRows, error } = await supabase
             .from('sku_equivalences')
-            .upsert(mappingsToInsert, { onConflict: 'comercio,platform,platform_sku' });
+            .upsert(mappingsToInsert, { onConflict: 'comercio,platform,platform_sku' })
+            .select('*');
 
           if (error && /column|schema cache|quantity_multiplier|master_product_id/i.test(error.message || '')) {
             const legacyRows = mappingsToInsert.map(({ comercio, platform, platform_sku, master_sku }) => ({ comercio, platform, platform_sku, master_sku }));
             const fb = await supabase
               .from('sku_equivalences')
-              .upsert(legacyRows, { onConflict: 'comercio,platform,platform_sku' });
+              .upsert(legacyRows, { onConflict: 'comercio,platform,platform_sku' })
+              .select('*');
+            upsertedRows = fb.data;
             error = fb.error;
           }
 
           if (error) throw error;
+          (upsertedRows || mappingsToInsert).forEach(r => upsertMappingInMemory(r));
           alert(`¡Éxito! Se mapearon automáticamente ${mappingsToInsert.length} equivalencias.`);
-          renderAdminCatalogWorkspace(commerce);
+          syncAdminInboxStateAndRegistered({ rerenderInbox: true });
         } catch (err) {
           alert('Error al realizar auto-mapeo: ' + err.message);
         } finally {
@@ -31320,7 +31657,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
       window._catalogV2PlatformFilter = pill.getAttribute('data-platform') || 'ALL';
       document.querySelectorAll('.v2-platform-pill').forEach(p => {
         const active = p === pill;
-        p.style.background = active ? 'var(--color-primary)' : 'var(--color-bg)';
+        p.style.background = active ? 'var(--color-primary)' : 'var(--color-surface)';
         p.style.color = active ? '#ffffff' : 'var(--color-text-main)';
         p.style.borderColor = active ? 'var(--color-primary)' : 'var(--color-border)';
       });
@@ -31333,7 +31670,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
       window._catalogV2StatusFilter = pill.getAttribute('data-status') || 'pending';
       document.querySelectorAll('.v2-status-pill').forEach(p => {
         const active = p === pill;
-        p.style.background = active ? '#4f46e5' : 'var(--color-bg)';
+        p.style.background = active ? '#4f46e5' : 'var(--color-surface)';
         p.style.color = active ? '#ffffff' : 'var(--color-text-main)';
         p.style.borderColor = active ? '#4f46e5' : 'var(--color-border)';
       });
@@ -31341,7 +31678,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   });
 
-  // 8. Auto-save Equivalences (SKU + Multiplicador ×N) y Acciones V2 (Promover / Ignorar / Restaurar)
+  // 8. Auto-save Equivalences (SKU + Multiplicador ×N) y Acciones V2 (Promover / Ignorar / Restaurar) SIN recargar toda la pantalla
   const eqMatrixTbody = document.getElementById('eq-matrix-tbody');
   if (eqMatrixTbody) {
     eqMatrixTbody.addEventListener('change', async (e) => {
@@ -31375,8 +31712,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
             .eq('platform_sku', platformSku);
 
           if (error) throw error;
-          skuInput.style.borderColor = 'var(--color-success)';
-          renderAdminCatalogWorkspace(commerce);
+          removeMappingFromMemory({ platform, platformSku });
+          patchAdminInboxRowInPlace(row, { platform, sku: platformSku, justSavedLabel: 'Desvinculado' });
+          syncAdminInboxStateAndRegistered({ rerenderInbox: false });
         } else {
           const matchedMaster = (window.currentMasterProducts || []).find(p => normCatalogSkuKey(p.sku) === normCatalogSkuKey(enteredValue));
           if (!matchedMaster) {
@@ -31397,8 +31735,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
             quantityMultiplier: multVal
           });
 
-          skuInput.style.borderColor = 'var(--color-success)';
-          renderAdminCatalogWorkspace(commerce);
+          patchAdminInboxRowInPlace(row, { platform, sku: platformSku, justSavedLabel: 'Guardado' });
+          syncAdminInboxStateAndRegistered({ rerenderInbox: false });
         }
       } catch (err) {
         skuInput.style.borderColor = 'var(--color-danger)';
@@ -31407,9 +31745,10 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
 
     eqMatrixTbody.addEventListener('click', async (e) => {
-      // Acción V2: Promover publicación de canal a Nuevo Producto en Catálogo Master
+      // Acción V2: Promover publicación de canal a Nuevo Producto en Catálogo Master (actualización en sitio)
       const promoteBtn = e.target.closest('.btn-promote-to-master');
       if (promoteBtn) {
+        const row = promoteBtn.closest('tr');
         const platform = promoteBtn.getAttribute('data-platform');
         const sku = promoteBtn.getAttribute('data-sku');
         const sp = (window.currentAllSyncedProducts || []).find(item => item.platform === platform && item.sku === sku);
@@ -31459,20 +31798,44 @@ function setupCatalogListeners(commerce, mainPlatform) {
           else if (platform === 'Walmart') newRow.raw_walmart_data = {};
           else if (platform === 'Tiendanube') newRow.raw_tiendanube_data = {};
 
-          const { error: insErr } = await supabase.from('products').insert([newRow]);
+          const { data: insertedProd, error: insErr } = await supabase
+            .from('products')
+            .insert([newRow])
+            .select('*, inventory(quantity)')
+            .single();
           if (insErr) throw insErr;
 
-          try {
-            await supabase.rpc('set_synced_product_ignored', {
-              p_comercio: commerce,
-              p_platform: platform,
-              p_sku: sku,
-              p_is_ignored: false,
-              p_reason: null
-            });
-          } catch (_) {}
+          if (sp.is_ignored === true) {
+            sp.is_ignored = false;
+            sp.ignored_reason = null;
+            try {
+              await supabase.rpc('set_synced_product_ignored', {
+                p_comercio: commerce,
+                p_platform: platform,
+                p_sku: sku,
+                p_is_ignored: false,
+                p_reason: null
+              });
+            } catch (_) {}
+          }
 
-          renderAdminCatalogWorkspace(commerce);
+          // Actualizar catálogo Master y datalist en memoria sin recargar la página
+          const createdProd = insertedProd || { ...newRow, inventory: [] };
+          if (!Array.isArray(window.currentMasterProducts)) window.currentMasterProducts = [];
+          window.currentMasterProducts.push(createdProd);
+          window.adminMasterProducts = window.currentMasterProducts;
+
+          const dl = document.getElementById('master-skus-list');
+          if (dl) {
+            const opt = document.createElement('option');
+            opt.value = createdProd.sku;
+            opt.textContent = `${createdProd.name || createdProd.sku} (${createdProd.sku})`;
+            dl.appendChild(opt);
+          }
+          try { renderMasterCatalogRows(window.currentMasterProducts); } catch (_) {}
+
+          patchAdminInboxRowInPlace(row, { platform, sku, justSavedLabel: 'Promovido' });
+          syncAdminInboxStateAndRegistered({ rerenderInbox: false });
         } catch (err) {
           alert('Error al promover producto al Master: ' + err.message);
           promoteBtn.disabled = false;
@@ -31481,9 +31844,10 @@ function setupCatalogListeners(commerce, mainPlatform) {
         return;
       }
 
-      // Acción V2: Ignorar publicación externa (No gestionada por WMS)
+      // Acción V2: Ignorar publicación externa (No gestionada por WMS) — sin recargar la tabla
       const ignoreBtn = e.target.closest('.btn-ignore-synced-sku');
       if (ignoreBtn) {
+        const row = ignoreBtn.closest('tr');
         const platform = ignoreBtn.getAttribute('data-platform');
         const sku = ignoreBtn.getAttribute('data-sku');
         let reason = null;
@@ -31546,7 +31910,14 @@ function setupCatalogListeners(commerce, mainPlatform) {
             p_reason: reason
           });
           if (error) throw error;
-          renderAdminCatalogWorkspace(commerce);
+
+          const sp = (window.currentAllSyncedProducts || []).find(item => item.platform === platform && item.sku === sku);
+          if (sp) {
+            sp.is_ignored = true;
+            sp.ignored_reason = reason;
+          }
+          patchAdminInboxRowInPlace(row, { platform, sku, justSavedLabel: 'Ignorado' });
+          syncAdminInboxStateAndRegistered({ rerenderInbox: false });
         } catch (err) {
           alert('Error al marcar como ignorado: ' + err.message);
           ignoreBtn.disabled = false;
@@ -31555,9 +31926,10 @@ function setupCatalogListeners(commerce, mainPlatform) {
         return;
       }
 
-      // Acción V2: Restaurar publicación ignorada
+      // Acción V2: Restaurar publicación ignorada — sin recargar la tabla
       const restoreBtn = e.target.closest('.btn-restore-synced-sku');
       if (restoreBtn) {
+        const row = restoreBtn.closest('tr');
         const platform = restoreBtn.getAttribute('data-platform');
         const sku = restoreBtn.getAttribute('data-sku');
         restoreBtn.disabled = true;
@@ -31571,7 +31943,14 @@ function setupCatalogListeners(commerce, mainPlatform) {
             p_reason: null
           });
           if (error) throw error;
-          renderAdminCatalogWorkspace(commerce);
+
+          const sp = (window.currentAllSyncedProducts || []).find(item => item.platform === platform && item.sku === sku);
+          if (sp) {
+            sp.is_ignored = false;
+            sp.ignored_reason = null;
+          }
+          patchAdminInboxRowInPlace(row, { platform, sku, justSavedLabel: 'Restaurado' });
+          syncAdminInboxStateAndRegistered({ rerenderInbox: false });
         } catch (err) {
           alert('Error al restaurar publicación: ' + err.message);
           restoreBtn.disabled = false;
@@ -31608,10 +31987,12 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // 8.3b Eliminar todas las equivalencias rotas de una sola vez
-  const btnDeleteAllBroken = document.getElementById('btn-delete-all-broken-eq');
-  if (btnDeleteAllBroken) {
-    btnDeleteAllBroken.addEventListener('click', async () => {
+  // 8.3b Eliminar todas las equivalencias rotas de una sola vez (delegado para sobrevivir re-renders)
+  const brokenAlertContainer = document.getElementById('eq-broken-alert-container');
+  if (brokenAlertContainer) {
+    brokenAlertContainer.addEventListener('click', async (e) => {
+      const btnDeleteAllBroken = e.target.closest('#btn-delete-all-broken-eq');
+      if (!btnDeleteAllBroken) return;
       const brokenList = getAdminBrokenEquivalences(window.currentMappingsArray || [], window.currentMasterProducts || []);
       if (brokenList.length === 0) return;
       const preview = brokenList.map(b => `${b.platform}: ${b.platform_sku} → ${b.master_sku}`).join('\n');
@@ -31621,10 +32002,12 @@ function setupCatalogListeners(commerce, mainPlatform) {
       btnDeleteAllBroken.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Limpiando...`;
       try {
         const ids = brokenList.map(b => b.id).filter(Boolean);
+        const idSet = new Set(ids.map(String));
         const { error } = await supabase.from('sku_equivalences').delete().in('id', ids);
         if (error) throw error;
-        alert(`Se eliminaron ${ids.length} equivalencias rotas correctamente.`);
-        renderAdminCatalogWorkspace(commerce);
+        window.currentMappingsArray = (window.currentMappingsArray || []).filter(m => !idSet.has(String(m.id)));
+        rebuildAdminMappingsMap();
+        syncAdminInboxStateAndRegistered({ rerenderInbox: false });
       } catch (err) {
         alert('Error al eliminar equivalencias rotas: ' + err.message);
         btnDeleteAllBroken.disabled = false;
@@ -31647,7 +32030,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // 8.4b Actualizar multiplicador en línea en la tabla de equivalencias registradas
+  // 8.4b & 8.5 Actualizar multiplicador y eliminar equivalencias en tabla registrada (delegado, sin recargar)
   const regTbody = document.getElementById('eq-registered-tbody');
   if (regTbody) {
     regTbody.addEventListener('change', async (e) => {
@@ -31661,6 +32044,15 @@ function setupCatalogListeners(commerce, mainPlatform) {
           .update({ quantity_multiplier: multVal })
           .eq('id', id);
         if (error) throw error;
+        const mObj = (window.currentMappingsArray || []).find(m => String(m.id) === String(id));
+        if (mObj) {
+          mObj.quantity_multiplier = multVal;
+          const matchingRow = Array.from(document.querySelectorAll('#eq-matrix-tbody tr.eq-row'))
+            .find(r => r.getAttribute('data-platform') === mObj.platform && r.getAttribute('data-sku') === mObj.platform_sku);
+          if (matchingRow) {
+            patchAdminInboxRowInPlace(matchingRow, { platform: mObj.platform, sku: mObj.platform_sku, justSavedLabel: `×${multVal}` });
+          }
+        }
         e.target.parentElement.style.borderColor = '#10b981';
         setTimeout(() => {
           if (e.target.parentElement) e.target.parentElement.style.borderColor = 'var(--color-border)';
@@ -31669,29 +32061,38 @@ function setupCatalogListeners(commerce, mainPlatform) {
         alert('Error al actualizar multiplicador (verifica que la migración SQL de Fase 2 esté aplicada): ' + err.message);
       }
     });
-  }
 
-  // 8.5 Eliminar equivalencia registrada
-  document.querySelectorAll('.btn-delete-equivalence').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const id = e.currentTarget.getAttribute('data-id');
-      const platform = e.currentTarget.getAttribute('data-platform');
-      const platformSku = e.currentTarget.getAttribute('data-platform-sku');
-      if (confirm(`¿Estás seguro de que deseas eliminar la equivalencia para ${platform} (SKU: ${platformSku})?`)) {
-        try {
-          const { error } = await supabase
-            .from('sku_equivalences')
-            .delete()
-            .eq('id', id);
-          if (error) throw error;
-          alert('Equivalencia eliminada correctamente.');
-          renderAdminCatalogWorkspace(commerce);
-        } catch (err) {
-          alert('Error al eliminar equivalencia: ' + err.message);
+    regTbody.addEventListener('click', async (e) => {
+      const delBtn = e.target.closest('.btn-delete-equivalence');
+      if (!delBtn) return;
+      const id = delBtn.getAttribute('data-id');
+      const platform = delBtn.getAttribute('data-platform');
+      const platformSku = delBtn.getAttribute('data-platform-sku');
+      if (!confirm(`¿Eliminar la equivalencia para ${platform} (SKU: ${platformSku})?`)) return;
+
+      delBtn.disabled = true;
+      delBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>`;
+      try {
+        const { error } = await supabase
+          .from('sku_equivalences')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+
+        removeMappingFromMemory({ id, platform, platformSku });
+        const matchingRow = Array.from(document.querySelectorAll('#eq-matrix-tbody tr.eq-row'))
+          .find(r => r.getAttribute('data-platform') === platform && r.getAttribute('data-sku') === platformSku);
+        if (matchingRow) {
+          patchAdminInboxRowInPlace(matchingRow, { platform, sku: platformSku, justSavedLabel: 'Desvinculado' });
         }
+        syncAdminInboxStateAndRegistered({ rerenderInbox: false });
+      } catch (err) {
+        alert('Error al eliminar equivalencia: ' + err.message);
+        delBtn.disabled = false;
+        delBtn.innerHTML = `<i class="ri-delete-bin-line"></i> Eliminar`;
       }
     });
-  });
+  }
 
   // 8.6 Importar Planilla Excel de Equivalencias
   const btnTriggerEqImport = document.getElementById('btn-trigger-eq-import-excel');
@@ -32630,20 +33031,58 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // Manejo de ordenación por cabeceras de tabla
+  // Manejo de ordenación por cabeceras de tabla (Catálogo Master + Bandeja de Canales + Equivalencias Registradas)
   if (!window.catalogSortListenerAdded) {
     window.catalogSortListenerAdded = true;
     document.addEventListener('click', (e) => {
-      const header = e.target.closest('.sortable-header');
-      if (header) {
-        const col = header.getAttribute('data-sort');
+      const masterHeader = e.target.closest('#tab-catalog-master .sortable-header');
+      if (masterHeader) {
+        const col = masterHeader.getAttribute('data-sort');
         if (window.catalogSortCol === col) {
           window.catalogSortAsc = !window.catalogSortAsc;
         } else {
           window.catalogSortCol = col;
           window.catalogSortAsc = true;
         }
-        renderMasterCatalogRows(window.currentMasterProducts);
+        renderMasterCatalogRows(window.currentMasterProducts || []);
+        return;
+      }
+
+      const inboxHeader = e.target.closest('.eq-inbox-sortable');
+      if (inboxHeader) {
+        const col = inboxHeader.getAttribute('data-eq-sort');
+        if (window._catalogV2SortCol === col) {
+          window._catalogV2SortAsc = !window._catalogV2SortAsc;
+        } else {
+          window._catalogV2SortCol = col;
+          window._catalogV2SortAsc = true;
+        }
+        if (window.currentAdminCatalogV2 === true) {
+          renderAdminV2ChannelInbox();
+        } else {
+          const showAll = document.getElementById('eq-show-all-synced')?.checked;
+          const listToShow = showAll ? (window.currentAllSyncedProducts || []) : (window.currentUnmappedSyncedProducts || []);
+          renderEquivalencesRows(listToShow, window.currentMappingsMap || {});
+        }
+        return;
+      }
+
+      const regHeader = e.target.closest('.eq-reg-sortable');
+      if (regHeader) {
+        const col = regHeader.getAttribute('data-reg-sort');
+        if (window._catalogRegSortCol === col) {
+          window._catalogRegSortAsc = !window._catalogRegSortAsc;
+        } else {
+          window._catalogRegSortCol = col;
+          window._catalogRegSortAsc = true;
+        }
+        renderRegisteredEquivalences(window.currentMappingsArray || []);
+        const regSearchVal = (document.getElementById('eq-registered-search')?.value || '').toLowerCase().trim();
+        if (regSearchVal) {
+          document.querySelectorAll('#eq-registered-tbody .eq-registered-row').forEach(r => {
+            r.style.display = r.textContent.toLowerCase().includes(regSearchVal) ? '' : 'none';
+          });
+        }
       }
     });
   }
@@ -43752,7 +44191,7 @@ async function renderAdminCatalogWorkspace(commerce) {
           <i class="ri-list-check"></i> Catálogo Master
         </button>
         <button class="integration-tab catalog-tab" data-tab="tab-sku-mappings" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.45rem;">
-          <i class="${catalogV2Enabled ? 'ri-inbox-2-line' : 'ri-equalizer-line'}"></i> ${catalogV2Enabled ? 'Bandeja de Canales & Equivalencias' : 'Equivalencias SKU'} ${eqTabBadgesHtml}
+          <i class="${catalogV2Enabled ? 'ri-inbox-2-line' : 'ri-equalizer-line'}"></i> ${catalogV2Enabled ? 'Bandeja de Canales & Equivalencias' : 'Equivalencias SKU'} <span id="eq-tab-badges-slot" style="display: inline-flex; align-items: center; gap: 0.3rem;">${eqTabBadgesHtml}</span>
         </button>
         <button class="integration-tab catalog-tab" data-tab="tab-catalog-packs" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
           <i class="ri-stack-line"></i> Packs / Combos
@@ -43991,19 +44430,21 @@ async function renderAdminCatalogWorkspace(commerce) {
             ` : ''}
 
             <div class="card-body" style="padding: 0; overflow-x: auto;">
-              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 960px;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
                     ${catalogV2Enabled ? `
-                      <th style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto (Canal)</th>
-                      <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Canal / SKU Externo / Estado</th>
-                      <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Vincular a Master (×N)</th>
-                      <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 190px;">Acciones</th>
+                      <th class="eq-inbox-sortable" data-eq-sort="name" style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por Nombre">Producto (Canal) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="platform" style="padding: 0.85rem 0.85rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por Canal">Canal <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="sku" style="padding: 0.85rem 0.85rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por SKU Externo">SKU Externo <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="state" style="padding: 0.85rem 0.85rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por Estado">Estado <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="master_sku" style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por SKU Master vinculado">Vincular a Master (×N) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 175px;">Acciones</th>
                     ` : `
-                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto (Plataforma)</th>
-                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma Origen</th>
-                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo</th>
-                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Equivalencia (Catálogo WMS / ×N)</th>
+                      <th class="eq-inbox-sortable" data-eq-sort="name" style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por Nombre">Producto (Plataforma) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="platform" style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por Plataforma">Plataforma Origen <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="sku" style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por SKU Externo">SKU Externo <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="master_sku" style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por SKU Master">Equivalencia (Catálogo WMS / ×N) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
                     `}
                   </tr>
                 </thead>
@@ -44017,7 +44458,7 @@ async function renderAdminCatalogWorkspace(commerce) {
             <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
               <div>
                 <h3 style="margin: 0 0 0.35rem 0; font-size: 1.18rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <i class="ri-link" style="color: var(--color-primary);"></i> Equivalencias Registradas en el Sistema (${(mappings || []).length})
+                  <i class="ri-link" style="color: var(--color-primary);"></i> Equivalencias Registradas en el Sistema <span id="eq-registered-count">(${(mappings || []).length})</span>
                 </h3>
                 <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">Listado completo de reglas de equivalencia activas en el WMS para ${escapeHtml(commerce)}.</p>
               </div>
@@ -44033,11 +44474,11 @@ async function renderAdminCatalogWorkspace(commerce) {
               <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
-                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma</th>
-                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo (Tienda)</th>
-                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Maestro WMS (Predomina)</th>
-                    <th style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 120px;">Multiplicador</th>
-                    <th style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 145px;">Estado</th>
+                    <th class="eq-reg-sortable" data-reg-sort="platform" style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por Plataforma">Plataforma <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                    <th class="eq-reg-sortable" data-reg-sort="platform_sku" style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por SKU Externo">SKU Externo (Tienda) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                    <th class="eq-reg-sortable" data-reg-sort="master_sku" style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por SKU Maestro">SKU Maestro WMS (Predomina) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                    <th class="eq-reg-sortable" data-reg-sort="quantity_multiplier" style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 135px; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por Multiplicador">Multiplicador <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                    <th class="eq-reg-sortable" data-reg-sort="status" style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 145px; cursor: pointer; user-select: none;" title="Ordenar por Estado">Estado <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
                     <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 130px;">Acciones</th>
                   </tr>
                 </thead>
@@ -47807,11 +48248,20 @@ window.renderLeadsAdmin = async function(forceReload = false) {
       `;
     }
 
-    // Fecha formateada y subetiqueta de engagement de lectura / reunión
+    // Fecha formateada y subetiqueta de engagement de lectura / reunión / correo programado
     const dateObj = lead.last_activity_at ? new Date(lead.last_activity_at) : null;
     const dateStr = dateObj ? dateObj.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
     
     let engagementNotice = '';
+    const allSchedEmails = typeof window.getScheduledLeadEmails === 'function' ? window.getScheduledLeadEmails() : [];
+    const leadPendingEmail = allSchedEmails.find(item =>
+      (item.status === 'pending' || item.status === 'brevo_scheduled') &&
+      (item.recipient_email || '').toLowerCase() === (lead.email || '').toLowerCase()
+    );
+    if (leadPendingEmail && leadPendingEmail.scheduled_at) {
+      const sDate = new Date(leadPendingEmail.scheduled_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      engagementNotice += `<div onclick="window.openScheduledLeadEmailsModal('${encodeURIComponent(lead.email)}')" title="Ver o editar correo programado" style="color: #d97706; font-weight: 800; font-size: 0.72rem; margin-top: 3px; display: flex; align-items: center; gap: 3px; cursor: pointer;"><i class="ri-calendar-schedule-fill"></i> Correo prog.: ${sDate}</div>`;
+    }
     if (lead.latest_meeting?.meeting_start_at) {
       const mDate = new Date(lead.latest_meeting.meeting_start_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       const isDone = lead.latest_meeting.meeting_status === 'completed';
@@ -47926,6 +48376,12 @@ window.renderLeadsAdmin = async function(forceReload = false) {
     rowsHtml = displayLeads.map(buildLeadRowHtml).join('');
   }
 
+  if (typeof window.startScheduledLeadEmailsWatcher === 'function') {
+    window.startScheduledLeadEmailsWatcher();
+  }
+  const pendingSchedEmailsCount = (typeof window.getScheduledLeadEmails === 'function' ? window.getScheduledLeadEmails() : [])
+    .filter(e => e.status === 'pending' || e.status === 'brevo_scheduled').length;
+
   appContent.innerHTML = `
     <div class="leads-admin-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
       
@@ -47945,6 +48401,9 @@ window.renderLeadsAdmin = async function(forceReload = false) {
           </button>
           <button type="button" id="btn-open-wa-hub-main" class="btn btn-primary" onclick="window.openLeadWhatsAppHubModal('', 'inbox')" title="Vincular tu WhatsApp por QR, responder mensajes del día con IA, programar envíos y automatizar seguimientos" style="background: linear-gradient(135deg, #059669, #10b981); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1rem; font-weight: 700; box-shadow: 0 3px 10px rgba(16, 185, 129, 0.25);">
             <i class="ri-whatsapp-fill" style="font-size: 1.1rem;"></i> Central WhatsApp IA &amp; Programador
+          </button>
+          <button type="button" class="btn btn-outline" onclick="window.openScheduledLeadEmailsModal('')" title="Ver, programar, adelantar o cancelar correos de Cotización, Presentación Comercial o Instrucciones E1" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.55rem 0.9rem; font-weight: 700; color: #b45309; border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.08);">
+            <i class="ri-calendar-schedule-fill" style="color: #d97706; font-size: 1.05rem;"></i> Correos Programados ${pendingSchedEmailsCount > 0 ? `<span style="background: #d97706; color: white; font-size: 0.72rem; padding: 1px 6px; border-radius: 10px;">${pendingSchedEmailsCount}</span>` : ''}
           </button>
           <button type="button" class="btn btn-outline" onclick="window.openLeadMeetingModal('')" title="Sincronizar agendamientos de HubSpot Meetings y Notas de Gemini en Google Meet" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.55rem 0.9rem; font-weight: 700; color: #0284c7; border-color: rgba(2, 132, 199, 0.4); background: rgba(2, 132, 199, 0.06);">
             <i class="ri-vidicon-fill" style="color: #0284c7; font-size: 1.05rem;"></i> HubSpot &amp; Notas Meet
@@ -56424,7 +56883,7 @@ window.triggerDashboardManualOrdersStoxWA = async function(btn) {
 
 
 // ============================================================================
-// CENTRO DE MENSAJES STOX DESDE TORRE DE CONTROL (CON REENVÍO DE RESPUESTA A GRUPO WA)
+// CENTRO DE CONTACTO STOX DESDE TORRE DE CONTROL (WHATSAPP Y CORREO info@stocka.cl)
 // ============================================================================
 window._stoxTrackedGroupsCache = null;
 
@@ -56436,6 +56895,7 @@ window.extractOrderContactInfoForStox = function(order) {
       comercio: '',
       contactName: '',
       phone: '',
+      email: '',
       shippingAddress: '',
       shippingCity: ''
     };
@@ -56463,6 +56923,17 @@ window.extractOrderContactInfoForStox = function(order) {
     }
   }
 
+  let displayEmail = order.customer_email || '';
+  if (!displayEmail || displayEmail === 'No registrado' || displayEmail.trim() === '') {
+    if (order.raw_shopify_data) {
+      const raw = order.raw_shopify_data;
+      displayEmail = raw.contact_email || raw.email || raw.customer?.email || '';
+    } else if (order.raw_jumpseller_data) {
+      const raw = order.raw_jumpseller_data;
+      displayEmail = raw.customer?.email || raw.shipping_address?.email || raw.billing_address?.email || '';
+    }
+  }
+
   const fullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
 
   return {
@@ -56470,10 +56941,83 @@ window.extractOrderContactInfoForStox = function(order) {
     orderNumber: String(order.external_order_number || order.id || '').trim(),
     comercio: String(order.comercio || 'Stocka').trim(),
     contactName: String(displayName || '').trim(),
-    phone: String(displayPhone || '').trim(),
+    phone: String(displayPhone === 'No registrado' ? '' : (displayPhone || '')).trim(),
+    email: String(displayEmail === 'No registrado' ? '' : (displayEmail || '')).trim(),
     shippingAddress: fullAddress,
     shippingCity: String(order.shipping_city || order.comuna || '').trim()
   };
+};
+
+window.setStoxContactChannel = function(channel) {
+  const ch = channel === 'email' ? 'email' : 'whatsapp';
+  const chInput = document.getElementById('stox-ct-channel');
+  if (chInput) chInput.value = ch;
+
+  const btnWa = document.getElementById('stox-ct-ch-btn-wa');
+  const btnEmail = document.getElementById('stox-ct-ch-btn-email');
+  const phoneWrap = document.getElementById('stox-ct-wa-phone-wrap');
+  const emailWrap = document.getElementById('stox-ct-email-addr-wrap');
+  const subjectWrap = document.getElementById('stox-ct-email-subject-wrap');
+  const waGroupWrap = document.getElementById('stox-ct-wa-group-wrap');
+  const emailRouteWrap = document.getElementById('stox-ct-email-routing-box');
+  const infoBanner = document.getElementById('stox-ct-info-banner');
+  const confirmBtn = document.querySelector('.swal2-confirm');
+
+  if (ch === 'email') {
+    if (btnEmail) {
+      btnEmail.style.background = '#2563eb';
+      btnEmail.style.color = '#ffffff';
+      btnEmail.style.borderColor = '#2563eb';
+      btnEmail.style.boxShadow = '0 2px 6px rgba(37, 99, 235, 0.25)';
+    }
+    if (btnWa) {
+      btnWa.style.background = 'var(--color-surface, #fff)';
+      btnWa.style.color = 'var(--color-text-muted)';
+      btnWa.style.borderColor = 'var(--color-border, #cbd5e1)';
+      btnWa.style.boxShadow = 'none';
+    }
+    if (phoneWrap) phoneWrap.style.display = 'none';
+    if (emailWrap) emailWrap.style.display = 'block';
+    if (subjectWrap) subjectWrap.style.display = 'block';
+    if (waGroupWrap) waGroupWrap.style.display = 'none';
+    if (emailRouteWrap) emailRouteWrap.style.display = 'block';
+    if (infoBanner) {
+      infoBanner.style.background = 'rgba(37, 99, 235, 0.08)';
+      infoBanner.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+      infoBanner.innerHTML = `<i class="ri-mail-send-fill" style="color: #2563eb; font-size: 0.95rem;"></i> <strong>Contacto por Correo:</strong> El correo se enviará desde <strong>info@stocka.cl</strong> y si el cliente responde, su respuesta llegará directamente a <strong>stockachile@gmail.com</strong>.`;
+    }
+    if (confirmBtn) {
+      confirmBtn.style.backgroundColor = '#2563eb';
+      confirmBtn.innerHTML = '<i class="ri-mail-send-line"></i> Enviar Correo (info@stocka.cl)';
+    }
+  } else {
+    if (btnWa) {
+      btnWa.style.background = '#10b981';
+      btnWa.style.color = '#ffffff';
+      btnWa.style.borderColor = '#10b981';
+      btnWa.style.boxShadow = '0 2px 6px rgba(16, 185, 129, 0.25)';
+    }
+    if (btnEmail) {
+      btnEmail.style.background = 'var(--color-surface, #fff)';
+      btnEmail.style.color = 'var(--color-text-muted)';
+      btnEmail.style.borderColor = 'var(--color-border, #cbd5e1)';
+      btnEmail.style.boxShadow = 'none';
+    }
+    if (phoneWrap) phoneWrap.style.display = 'block';
+    if (emailWrap) emailWrap.style.display = 'none';
+    if (subjectWrap) subjectWrap.style.display = 'none';
+    if (waGroupWrap) waGroupWrap.style.display = 'block';
+    if (emailRouteWrap) emailRouteWrap.style.display = 'none';
+    if (infoBanner) {
+      infoBanner.style.background = 'rgba(16, 185, 129, 0.08)';
+      infoBanner.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+      infoBanner.innerHTML = `<i class="ri-whatsapp-fill" style="color: #10b981; font-size: 0.95rem;"></i> <strong>Contacto por WhatsApp:</strong> Stox enviará este mensaje al WhatsApp del cliente. Si responde, Stox <strong>acumulará sus mensajes por 30 minutos y enviará un único resumen</strong> al grupo seleccionado.`;
+    }
+    if (confirmBtn) {
+      confirmBtn.style.backgroundColor = '#10b981';
+      confirmBtn.innerHTML = '<i class="ri-whatsapp-line"></i> Enviar WhatsApp y Activar Seguimiento';
+    }
+  }
 };
 
 window.applyStoxControlTowerTemplate = function(templateType) {
@@ -56481,6 +57025,7 @@ window.applyStoxControlTowerTemplate = function(templateType) {
   const orderNumEl = document.getElementById('stox-ct-order-number');
   const comercioEl = document.getElementById('stox-ct-comercio');
   const addressEl = document.getElementById('stox-ct-address');
+  const subjectEl = document.getElementById('stox-ct-email-subject');
   const msgEl = document.getElementById('stox-ct-message');
   if (!msgEl) return;
 
@@ -56491,26 +57036,36 @@ window.applyStoxControlTowerTemplate = function(templateType) {
   const comercio = (comercioEl?.value || '').trim() || 'nuestra tienda';
   const addr = (addressEl?.value || '').trim();
   const orderRef = orderNum ? `tu pedido *#${orderNum}* de *${comercio}*` : `tu pedido de *${comercio}*`;
+  const subjectSuffix = `${orderNum ? ` - Pedido #${orderNum}` : ''}${comercio ? ` (${comercio})` : ''}`;
 
   let text = '';
+  let subject = '';
   switch (templateType) {
     case 'direccion':
-      text = `${greeting}, te escribimos por el despacho de ${orderRef}. Necesitamos confirmar o complementar tu dirección de entrega${addr ? ` (*${addr}*)` : ''}. ¿Nos confirmas los datos correctos por este medio? Gracias.`;
+      subject = `Confirmación de dirección de entrega${subjectSuffix}`;
+      text = `${greeting}, te escribimos por el despacho de ${orderRef}. Necesitamos confirmar o complementar tu dirección de entrega${addr ? ` (*${addr}*)` : ''}. ¿Nos confirmas los datos correctos respondiendo por este medio? Gracias.`;
       break;
     case 'retiro':
+      subject = `Tu pedido está listo para retiro${subjectSuffix}`;
       text = `${greeting}, te informamos que ${orderRef} ya está preparado y listo para retiro en bodega. Puedes responder a este mensaje para coordinar.`;
       break;
     case 'entrega':
+      subject = `Coordinación de entrega de tu pedido${subjectSuffix}`;
       text = `${greeting}, te contactamos por la entrega de ${orderRef}${addr ? ` en *${addr}*` : ''}. ¿Habrá alguien disponible para recibir el pedido? Quedamos atentos.`;
       break;
     case 'incidencia':
+      subject = `Información importante sobre tu pedido${subjectSuffix}`;
       text = `${greeting}, te escribimos por ${orderRef} para coordinar un detalle antes del despacho. ¿Nos puedes responder por este medio cuando puedas? Gracias.`;
       break;
     case 'clear':
+      subject = '';
       text = '';
       break;
   }
 
+  if (subjectEl && (templateType === 'clear' || subject)) {
+    subjectEl.value = subject;
+  }
   msgEl.value = text;
   msgEl.focus();
 };
@@ -56531,14 +57086,20 @@ window.onStoxControlTowerOrderPicked = function(inputVal) {
   const comEl = document.getElementById('stox-ct-comercio');
   const nameEl = document.getElementById('stox-ct-contact-name');
   const phoneEl = document.getElementById('stox-ct-phone');
+  const emailEl = document.getElementById('stox-ct-email');
   const addrEl = document.getElementById('stox-ct-address');
+  const subjEl = document.getElementById('stox-ct-email-subject');
 
   if (idEl) idEl.value = info.orderId;
   if (numEl) numEl.value = info.orderNumber;
   if (comEl) comEl.value = info.comercio;
   if (nameEl) nameEl.value = info.contactName;
   if (phoneEl) phoneEl.value = info.phone;
+  if (emailEl) emailEl.value = info.email;
   if (addrEl) addrEl.value = [info.shippingAddress, info.shippingCity].filter(Boolean).join(', ');
+  if (subjEl && !subjEl.value.trim()) {
+    subjEl.value = `Información sobre tu pedido${info.orderNumber ? ` #${info.orderNumber}` : ''}${info.comercio ? ` (${info.comercio})` : ''}`;
+  }
 };
 
 window.switchStoxControlTowerTab = function(tab) {
@@ -56621,7 +57182,7 @@ window.loadStoxTrackedContactsList = async function() {
 
   container.innerHTML = `
     <div style="text-align: center; padding: 1.5rem; color: var(--color-text-muted);">
-      <i class="ri-loader-4-line ri-spin" style="font-size: 1.3rem;"></i> Cargando contactos en seguimiento activo...
+      <i class="ri-loader-4-line ri-spin" style="font-size: 1.3rem;"></i> Cargando contactos y envíos recientes...
     </div>
   `;
 
@@ -56641,22 +57202,26 @@ window.loadStoxTrackedContactsList = async function() {
     }
   } catch (_) {}
 
-  // Combinar con espejo local por si el servidor remoto aún no expone /tracked-messages
+  // Combinar con espejo local (incluyendo envíos por correo)
   try {
     const localList = JSON.parse(localStorage.getItem('stox_ct_local_tracked_v1') || '[]');
     if (Array.isArray(localList)) {
       localList.forEach(loc => {
-        if (!activeContacts.some(r => String(r.phone).slice(-8) === String(loc.phone).slice(-8))) {
+        if (loc.channel === 'email') {
+          activeContacts.push(loc);
+        } else if (!activeContacts.some(r => String(r.phone || '').slice(-8) === String(loc.phone || '').slice(-8))) {
           activeContacts.push(loc);
         }
       });
     }
   } catch (_) {}
 
+  activeContacts.sort((a, b) => new Date(b.sentAt || 0).getTime() - new Date(a.sentAt || 0).getTime());
+
   if (activeContacts.length === 0) {
     container.innerHTML = `
       <div style="padding: 1.5rem; text-align: center; background: var(--color-bg, #f8fafc); border: 1px dashed var(--color-border, #cbd5e1); border-radius: 10px; color: var(--color-text-muted); font-size: 0.82rem;">
-        No hay contactos en seguimiento activo todavía. Cuando envíes un mensaje desde esta ventana, Stox quedará atento a las respuestas del contacto, las acumulará por 30 minutos y enviará un resumen consolidado al grupo de WhatsApp.
+        No hay contactos registrados todavía. Cuando envíes un WhatsApp o Correo desde Contacto Stox, verás aquí el seguimiento activo.
       </div>
     `;
     return;
@@ -56665,24 +57230,27 @@ window.loadStoxTrackedContactsList = async function() {
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 0.55rem; max-height: 360px; overflow-y: auto; padding-right: 4px;">
       ${activeContacts.map(c => {
+        const isEmail = c.channel === 'email';
         const sentTime = c.sentAt ? new Date(c.sentAt).toLocaleString('es-CL') : '-';
         const pendingCount = Array.isArray(c.pendingReplies) ? c.pendingReplies.length : 0;
         const flushTimeStr = c.pendingFlushAt
           ? new Date(c.pendingFlushAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
           : '';
         const hasReplies = (c.repliesCount || 0) > 0 || !!c.lastReplyText || pendingCount > 0;
-        const statusBadgeBg = pendingCount > 0 ? '#fef3c7' : (hasReplies ? '#d1fae5' : '#e0e7ff');
-        const statusBadgeColor = pendingCount > 0 ? '#92400e' : (hasReplies ? '#065f46' : '#3730a3');
-        const statusBadgeText = pendingCount > 0
-          ? `⏳ Acumulando ${pendingCount} msg · resumen a las ${flushTimeStr} hrs`
-          : (hasReplies ? `💬 ${c.repliesCount || 1} resumen(es) enviado(s)` : '⏳ Esperando respuesta');
+        const statusBadgeBg = isEmail ? '#dbeafe' : (pendingCount > 0 ? '#fef3c7' : (hasReplies ? '#d1fae5' : '#e0e7ff'));
+        const statusBadgeColor = isEmail ? '#1e40af' : (pendingCount > 0 ? '#92400e' : (hasReplies ? '#065f46' : '#3730a3'));
+        const statusBadgeText = isEmail
+          ? '✉️ Correo enviado (info@stocka.cl)'
+          : (pendingCount > 0
+              ? `⏳ Acumulando ${pendingCount} msg · resumen a las ${flushTimeStr} hrs`
+              : (hasReplies ? `💬 ${c.repliesCount || 1} resumen(es) enviado(s)` : '⏳ Esperando respuesta WA'));
 
         return `
-          <div style="background: var(--color-bg, #f8fafc); border: 1px solid ${pendingCount > 0 ? '#f59e0b' : (hasReplies ? '#10b981' : 'var(--color-border, #cbd5e1)')}; border-left: 4px solid ${pendingCount > 0 ? '#f59e0b' : (hasReplies ? '#10b981' : '#6366f1')}; border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.8rem;">
+          <div style="background: var(--color-bg, #f8fafc); border: 1px solid ${isEmail ? '#93c5fd' : (pendingCount > 0 ? '#f59e0b' : (hasReplies ? '#10b981' : 'var(--color-border, #cbd5e1)'))}; border-left: 4px solid ${isEmail ? '#2563eb' : (pendingCount > 0 ? '#f59e0b' : (hasReplies ? '#10b981' : '#6366f1'))}; border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.8rem;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
               <div>
                 <strong style="color: var(--color-text-main); font-size: 0.86rem;">${window.escapeHtml ? window.escapeHtml(c.contactName || 'Contacto') : (c.contactName || 'Contacto')}</strong>
-                <span style="color: var(--color-text-muted); font-family: monospace; margin-left: 0.35rem;">+${c.phone}</span>
+                <span style="color: var(--color-text-muted); font-family: monospace; margin-left: 0.35rem;">${isEmail ? (window.escapeHtml ? window.escapeHtml(c.email || '') : (c.email || '')) : `+${c.phone}`}</span>
                 ${c.orderNumber ? `<span style="background: rgba(99, 102, 241, 0.1); color: #4f46e5; padding: 0.08rem 0.4rem; border-radius: 4px; font-weight: 700; font-size: 0.72rem; margin-left: 0.35rem;">#${window.escapeHtml ? window.escapeHtml(c.orderNumber) : c.orderNumber}${c.comercio ? ` · ${window.escapeHtml ? window.escapeHtml(c.comercio) : c.comercio}` : ''}</span>` : ''}
               </div>
               <span style="font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 99px; background: ${statusBadgeBg}; color: ${statusBadgeColor};">
@@ -56698,8 +57266,11 @@ window.loadStoxTrackedContactsList = async function() {
               </div>
             ` : ''}
             <div style="margin-top: 0.35rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; font-size: 0.72rem; color: var(--color-text-muted);">
-              <span><i class="ri-group-line"></i> Reenvía a: <strong>${window.escapeHtml ? window.escapeHtml(c.targetGroupName || 'NOTIFICACIONES STOX') : 'NOTIFICACIONES STOX'}</strong> (ventana 30 min)</span>
-              ${pendingCount > 0 ? `
+              ${isEmail
+                ? `<span><i class="ri-reply-line"></i> Respuestas llegan a: <strong>stockachile@gmail.com</strong></span>`
+                : `<span><i class="ri-group-line"></i> Reenvía a: <strong>${window.escapeHtml ? window.escapeHtml(c.targetGroupName || 'NOTIFICACIONES STOX') : 'NOTIFICACIONES STOX'}</strong> (ventana 30 min)</span>`
+              }
+              ${!isEmail && pendingCount > 0 ? `
                 <button type="button" onclick="window.flushStoxTrackedContactNow('${c.phone}', this)" style="background: #f59e0b; color: #fff; border: none; border-radius: 5px; padding: 0.18rem 0.5rem; font-size: 0.7rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
                   <i class="ri-send-plane-fill"></i> Enviar resumen ahora
                 </button>
@@ -56712,7 +57283,56 @@ window.loadStoxTrackedContactsList = async function() {
   `;
 };
 
-window.openStoxControlTowerMessageModal = async function(orderId = null) {
+window.buildStoxContactEmailHtml = function({ contactName, orderNumber, comercio, shippingAddress, message }) {
+  const esc = (str) => window.escapeHtml ? window.escapeHtml(String(str || '')) : String(str || '');
+  const formattedBody = esc(message)
+    .replace(/\*([^*]+)\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+
+  return `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head><meta charset="UTF-8"></head>
+    <body style="margin: 0; padding: 0; background-color: #f4f6f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f6f9; padding: 28px 14px;">
+        <tr>
+          <td align="center">
+            <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);">
+              <tr>
+                <td style="background: linear-gradient(135deg, #0f172a, #1e293b); padding: 18px 24px; color: #ffffff;">
+                  <div style="font-size: 16px; font-weight: 700; letter-spacing: 0.2px;">
+                    ${comercio ? `${esc(comercio)} · Logística Stocka` : 'Stocka Logística'}
+                  </div>
+                  ${orderNumber ? `<div style="font-size: 12px; color: #94a3b8; margin-top: 3px;">Referencia Pedido #${esc(orderNumber)}</div>` : ''}
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 24px; font-size: 14.5px; line-height: 1.6; color: #1e293b;">
+                  <div>${formattedBody}</div>
+                  ${(orderNumber || shippingAddress) ? `
+                    <div style="margin-top: 20px; padding: 12px 15px; background-color: #f8fafc; border-left: 3px solid #2563eb; border-radius: 6px; font-size: 13px; color: #475569;">
+                      ${orderNumber ? `<div><strong>Pedido:</strong> #${esc(orderNumber)}${comercio ? ` (${esc(comercio)})` : ''}</div>` : ''}
+                      ${shippingAddress ? `<div style="margin-top: 4px;"><strong>Dirección registrada:</strong> ${esc(shippingAddress)}</div>` : ''}
+                    </div>
+                  ` : ''}
+                </td>
+              </tr>
+              <tr>
+                <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 24px; font-size: 12px; color: #64748b; line-height: 1.4;">
+                  Puedes responder directamente a este correo y tu mensaje será recibido por nuestro equipo en <strong>stockachile@gmail.com</strong>.<br>
+                  <span style="color: #94a3b8;">Enviado desde info@stocka.cl · Stocka WMS</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+};
+
+window.openStoxControlTowerMessageModal = async function(orderId = null, initialChannel = null) {
   let order = null;
   if (orderId) {
     order = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
@@ -56720,7 +57340,7 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
       try {
         const { data } = await supabase
           .from('orders')
-          .select('id, external_order_number, comercio, customer_name, customer_phone, shipping_address, shipping_complement, shipping_city, raw_shopify_data, raw_jumpseller_data')
+          .select('id, external_order_number, comercio, customer_name, customer_phone, customer_email, shipping_address, shipping_complement, shipping_city, raw_shopify_data, raw_jumpseller_data')
           .eq('id', orderId)
           .maybeSingle();
         if (data) order = data;
@@ -56730,6 +57350,9 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
 
   const info = window.extractOrderContactInfoForStox(order);
   const fullAddr = [info.shippingAddress, info.shippingCity].filter(Boolean).join(', ');
+  const startChannel = initialChannel === 'email'
+    ? 'email'
+    : (initialChannel === 'whatsapp' ? 'whatsapp' : ((!info.phone && info.email) ? 'email' : 'whatsapp'));
 
   // Preparar datalist de pedidos de Torre de Control por si se abre desde el botón superior
   const recentOrders = (window.loadedOrders || []).slice(0, 150);
@@ -56737,29 +57360,46 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
     const num = o.external_order_number || o.id;
     const cust = o.customer_name || 'Sin nombre';
     const com = o.comercio || '';
-    const ph = o.customer_phone || '';
+    const ph = o.customer_phone || o.customer_email || '';
     return `<option value="#${window.escapeHtml ? window.escapeHtml(String(num)) : num} - ${window.escapeHtml ? window.escapeHtml(String(cust)) : cust} (${window.escapeHtml ? window.escapeHtml(String(com)) : com}) [ID:${o.id}]">${ph}</option>`;
   }).join('');
 
   const DEFAULT_GROUP_JID = '120363413357945543@g.us';
+  const defaultSubject = `Confirmación de dirección de entrega${info.orderNumber ? ` - Pedido #${info.orderNumber}` : ''}${info.comercio ? ` (${info.comercio})` : ''}`;
 
   const modalHtml = `
     <div style="text-align: left; font-size: 0.84rem;">
       <!-- Sub-navegación del Modal -->
-      <div style="display: flex; gap: 0.4rem; background: var(--color-bg, #f1f5f9); padding: 0.3rem; border-radius: 8px; margin-bottom: 0.85rem; border: 1px solid var(--color-border, #e2e8f0);">
+      <div style="display: flex; gap: 0.4rem; background: var(--color-bg, #f1f5f9); padding: 0.3rem; border-radius: 8px; margin-bottom: 0.8rem; border: 1px solid var(--color-border, #e2e8f0);">
         <button type="button" id="stox-ct-tab-send" onclick="window.switchStoxControlTowerTab('send')" style="flex: 1; border: none; border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; background: #10b981; color: #ffffff; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
-          <i class="ri-send-plane-fill"></i> Enviar Mensaje con Reenvío a Grupo
+          <i class="ri-send-plane-fill"></i> Contactar Cliente
         </button>
         <button type="button" id="stox-ct-tab-tracked" onclick="window.switchStoxControlTowerTab('tracked')" style="flex: 1; border: none; border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; background: transparent; color: var(--color-text-muted); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
-          <i class="ri-chat-follow-up-line"></i> Respuestas y Seguimiento Activo
+          <i class="ri-chat-follow-up-line"></i> Respuestas y Seguimiento
         </button>
       </div>
 
-      <!-- PESTAÑA 1: ENVIAR MENSAJE -->
-      <div id="stox-ct-pane-send" style="display: flex; flex-direction: column; gap: 0.75rem;">
-        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 0.55rem 0.75rem; font-size: 0.78rem; color: var(--color-text-main); line-height: 1.4;">
+      <!-- PESTAÑA 1: CONTACTAR CLIENTE -->
+      <div id="stox-ct-pane-send" style="display: flex; flex-direction: column; gap: 0.72rem;">
+        <!-- Selector de Canal: WhatsApp vs Correo Electrónico -->
+        <input type="hidden" id="stox-ct-channel" value="${startChannel}">
+        <div>
+          <label style="display: block; font-size: 0.73rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.28rem; text-transform: uppercase; letter-spacing: 0.03em;">
+            Canal de Contacto
+          </label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+            <button type="button" id="stox-ct-ch-btn-wa" onclick="window.setStoxContactChannel('whatsapp')" style="border: 1.5px solid #10b981; border-radius: 8px; padding: 0.48rem 0.65rem; font-size: 0.81rem; font-weight: 700; cursor: pointer; background: #10b981; color: #ffffff; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; transition: all 0.15s;">
+              <i class="ri-whatsapp-fill" style="font-size: 1rem;"></i> WhatsApp (Stox)
+            </button>
+            <button type="button" id="stox-ct-ch-btn-email" onclick="window.setStoxContactChannel('email')" style="border: 1.5px solid var(--color-border, #cbd5e1); border-radius: 8px; padding: 0.48rem 0.65rem; font-size: 0.81rem; font-weight: 700; cursor: pointer; background: var(--color-surface, #fff); color: var(--color-text-muted); display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; transition: all 0.15s;">
+              <i class="ri-mail-send-fill" style="font-size: 1rem;"></i> Correo (info@stocka.cl)
+            </button>
+          </div>
+        </div>
+
+        <div id="stox-ct-info-banner" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 0.52rem 0.72rem; font-size: 0.77rem; color: var(--color-text-main); line-height: 1.4;">
           <i class="ri-whatsapp-fill" style="color: #10b981; font-size: 0.95rem;"></i>
-          <strong>¿Cómo funciona?</strong> Stox enviará este mensaje al WhatsApp del contacto. Si el contacto responde (incluso si envía varios mensajes cortos seguidos), Stox <strong>acumulará sus respuestas durante una ventana de 30 minutos y enviará un único resumen consolidado</strong> al grupo seleccionado con los datos del contacto y del pedido.
+          <strong>Contacto por WhatsApp:</strong> Stox enviará este mensaje al WhatsApp del cliente. Si responde, Stox <strong>acumulará sus mensajes por 30 minutos y enviará un único resumen</strong> al grupo seleccionado.
         </div>
 
         ${!order ? `
@@ -56774,7 +57414,7 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
 
         <input type="hidden" id="stox-ct-order-id" value="${window.escapeHtml ? window.escapeHtml(info.orderId) : info.orderId}">
 
-        <!-- Datos del Contacto y Pedido -->
+        <!-- Datos del Contacto y Destino (Teléfono o Correo según canal) -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
           <div>
             <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.2rem;">
@@ -56782,11 +57422,17 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
             </label>
             <input type="text" id="stox-ct-contact-name" value="${window.escapeHtml ? window.escapeHtml(info.contactName) : info.contactName}" placeholder="Ej. Camila Torres" style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.83rem;">
           </div>
-          <div>
+          <div id="stox-ct-wa-phone-wrap">
             <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.2rem;">
               📞 Teléfono WhatsApp *
             </label>
-            <input type="text" id="stox-ct-phone" value="${window.escapeHtml ? window.escapeHtml(info.phone === 'No registrado' ? '' : info.phone) : (info.phone === 'No registrado' ? '' : info.phone)}" placeholder="Ej. +56 9 8765 4321" style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.83rem; font-family: monospace;">
+            <input type="text" id="stox-ct-phone" value="${window.escapeHtml ? window.escapeHtml(info.phone) : info.phone}" placeholder="Ej. +56 9 8765 4321" style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.83rem; font-family: monospace;">
+          </div>
+          <div id="stox-ct-email-addr-wrap" style="display: none;">
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.2rem;">
+              ✉️ Correo del Cliente *
+            </label>
+            <input type="email" id="stox-ct-email" value="${window.escapeHtml ? window.escapeHtml(info.email) : info.email}" placeholder="cliente@correo.com" style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.83rem;">
           </div>
         </div>
 
@@ -56829,22 +57475,37 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
           </div>
         </div>
 
+        <!-- Asunto del Correo (solo cuando el canal es Correo) -->
+        <div id="stox-ct-email-subject-wrap" style="display: none;">
+          <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.22rem;">
+            📌 Asunto del Correo *
+          </label>
+          <input type="text" id="stox-ct-email-subject" value="${window.escapeHtml ? window.escapeHtml(defaultSubject) : defaultSubject}" placeholder="Asunto del correo para el cliente..." style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.83rem;">
+        </div>
+
         <!-- Mensaje a enviar -->
         <div>
           <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.25rem;">
-            💬 Mensaje a enviar desde Stox *
+            💬 Mensaje a enviar *
           </label>
-          <textarea id="stox-ct-message" rows="4" placeholder="Escribe el mensaje que Stox enviará al contacto o elige una plantilla arriba..." style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.84rem; resize: vertical; line-height: 1.4;"></textarea>
+          <textarea id="stox-ct-message" rows="4" placeholder="Escribe el mensaje para el contacto o elige una plantilla arriba..." style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.65rem; border-radius: 8px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.84rem; resize: vertical; line-height: 1.4;"></textarea>
         </div>
 
-        <!-- Grupo de WhatsApp destino para reenvío de la respuesta -->
-        <div style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; padding: 0.6rem 0.75rem;">
+        <!-- Destino de respuesta según Canal -->
+        <div id="stox-ct-wa-group-wrap" style="background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; padding: 0.6rem 0.75rem;">
           <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.3rem;">
-            <i class="ri-share-forward-fill" style="color: #10b981;"></i> Si el contacto responde, reenviar su respuesta al grupo:
+            <i class="ri-share-forward-fill" style="color: #10b981;"></i> Si el contacto responde por WhatsApp, enviar resumen al grupo:
           </label>
           <select id="stox-ct-target-group" style="width: 100%; box-sizing: border-box; padding: 0.4rem 0.55rem; border-radius: 6px; border: 1px solid var(--color-border, #cbd5e1); background: var(--color-surface, #fff); color: var(--color-text-main); font-size: 0.82rem; font-weight: 600;">
             <option value="${DEFAULT_GROUP_JID}" data-name="NOTIFICACIONES STOX">📢 NOTIFICACIONES STOX (Predeterminado)</option>
           </select>
+        </div>
+
+        <div id="stox-ct-email-routing-box" style="display: none; background: rgba(37, 99, 235, 0.06); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 8px; padding: 0.55rem 0.75rem; font-size: 0.77rem; color: var(--color-text-main);">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem;">
+            <span><i class="ri-mail-check-line" style="color: #2563eb;"></i> <strong>Enviado desde:</strong> <code>info@stocka.cl</code></span>
+            <span><i class="ri-reply-all-line" style="color: #059669;"></i> <strong>Respuestas llegan a:</strong> <code>stockachile@gmail.com</code></span>
+          </div>
         </div>
       </div>
 
@@ -56861,16 +57522,18 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
   }
 
   const swalPromise = Swal.fire({
-    title: '🤖 Mensaje Stox · Torre de Control',
+    title: '💬 Contacto Stox · Torre de Control',
     html: modalHtml,
     width: '620px',
     showCancelButton: true,
-    confirmButtonColor: '#10b981',
+    confirmButtonColor: startChannel === 'email' ? '#2563eb' : '#10b981',
     cancelButtonColor: '#64748b',
-    confirmButtonText: '<i class="ri-whatsapp-line"></i> Enviar Mensaje y Activar Reenvío',
+    confirmButtonText: startChannel === 'email'
+      ? '<i class="ri-mail-send-line"></i> Enviar Correo (info@stocka.cl)'
+      : '<i class="ri-whatsapp-line"></i> Enviar WhatsApp y Activar Seguimiento',
     cancelButtonText: 'Cerrar',
     didOpen: async () => {
-      // Si se abrió desde un pedido, pre-cargar plantilla de dirección o dejar listo
+      window.setStoxContactChannel(startChannel);
       if (order) {
         window.applyStoxControlTowerTemplate('direccion');
       }
@@ -56903,8 +57566,11 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
       } catch (_) {}
     },
     preConfirm: () => {
+      const channel = (document.getElementById('stox-ct-channel')?.value || 'whatsapp').trim();
       const contactName = (document.getElementById('stox-ct-contact-name')?.value || '').trim();
       const rawPhone = (document.getElementById('stox-ct-phone')?.value || '').trim();
+      const email = (document.getElementById('stox-ct-email')?.value || '').trim();
+      const subject = (document.getElementById('stox-ct-email-subject')?.value || '').trim();
       const message = (document.getElementById('stox-ct-message')?.value || '').trim();
       const orderIdVal = (document.getElementById('stox-ct-order-id')?.value || '').trim();
       const orderNumber = (document.getElementById('stox-ct-order-number')?.value || '').trim();
@@ -56913,6 +57579,32 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
       const groupSelect = document.getElementById('stox-ct-target-group');
       const targetGroup = groupSelect?.value || DEFAULT_GROUP_JID;
       const targetGroupName = groupSelect?.selectedOptions?.[0]?.dataset?.name || 'NOTIFICACIONES STOX';
+
+      if (channel === 'email') {
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          Swal.showValidationMessage('Ingresa un correo electrónico válido para el destinatario.');
+          return false;
+        }
+        if (!subject) {
+          Swal.showValidationMessage('Ingresa un asunto para el correo.');
+          return false;
+        }
+        if (!message) {
+          Swal.showValidationMessage('Escribe el mensaje que deseas enviar al contacto.');
+          return false;
+        }
+        return {
+          channel: 'email',
+          contactName: contactName || 'Cliente',
+          email,
+          subject,
+          message,
+          orderId: orderIdVal || null,
+          orderNumber,
+          comercio,
+          shippingAddress: address
+        };
+      }
 
       let digits = rawPhone.replace(/\D/g, '');
       if (digits.length === 9 && digits.startsWith('9')) digits = '56' + digits;
@@ -56928,6 +57620,7 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
       }
 
       return {
+        channel: 'whatsapp',
         contactName: contactName || 'Cliente',
         phone: digits,
         message,
@@ -56944,8 +57637,129 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
   const { value: formValues } = await swalPromise;
   if (!formValues) return;
 
+  let userEmail = 'Torre de Control WMS';
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.email) userEmail = session.user.email;
+  } catch (_) {}
+
+  // ==========================================================================
+  // CANAL 1: ENVÍO VÍA CORREO ELECTRÓNICO (info@stocka.cl -> Reply-To stockachile@gmail.com)
+  // ==========================================================================
+  if (formValues.channel === 'email') {
+    Swal.fire({
+      title: 'Enviando correo desde info@stocka.cl...',
+      text: `Destinatario: ${formValues.contactName} (${formValues.email})`,
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+
+    try {
+      const brevoApiKey = localStorage.getItem('wms_brevo_api_key') || ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+      const senderName = formValues.comercio ? `${formValues.comercio} · Logística Stocka` : 'Stocka Logística';
+      const htmlContent = window.buildStoxContactEmailHtml(formValues);
+      const plainText = String(formValues.message || '').replace(/\*([^*]+)\*/g, '$1');
+
+      const brevoPayload = {
+        sender: { name: senderName, email: 'info@stocka.cl' },
+        replyTo: { name: 'Stocka Operaciones', email: 'stockachile@gmail.com' },
+        to: [{ email: formValues.email, name: formValues.contactName || 'Cliente' }],
+        bcc: [{ email: 'stockachile@gmail.com', name: 'Stocka Operaciones' }],
+        subject: formValues.subject,
+        htmlContent,
+        textContent: plainText
+      };
+
+      const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': brevoApiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(brevoPayload)
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`Error Brevo (${resp.status}): ${errText}`);
+      }
+
+      // Guardar en historial local
+      try {
+        const localList = JSON.parse(localStorage.getItem('stox_ct_local_tracked_v1') || '[]');
+        const arr = Array.isArray(localList) ? localList : [];
+        arr.unshift({
+          channel: 'email',
+          email: formValues.email,
+          contactName: formValues.contactName,
+          orderId: formValues.orderId,
+          orderNumber: formValues.orderNumber,
+          comercio: formValues.comercio,
+          subject: formValues.subject,
+          sentMessage: formValues.message,
+          sentBy: userEmail,
+          sentAt: new Date().toISOString()
+        });
+        localStorage.setItem('stox_ct_local_tracked_v1', JSON.stringify(arr.slice(0, 60)));
+      } catch (_) {}
+
+      // Registrar en order_audit_logs de Supabase
+      if (formValues.orderId && typeof supabase !== 'undefined') {
+        try {
+          await supabase.from('order_audit_logs').insert({
+            order_id: formValues.orderId,
+            user_email: userEmail,
+            action: 'Correo Enviado (Contacto Stox)',
+            details: {
+              comment: `Correo enviado desde info@stocka.cl a ${formValues.contactName} (${formValues.email}) con Reply-To stockachile@gmail.com. Asunto: "${formValues.subject}"`,
+              email: formValues.email,
+              subject: formValues.subject,
+              contact_name: formValues.contactName,
+              order_number: formValues.orderNumber,
+              comercio: formValues.comercio,
+              sent_message: formValues.message,
+              from_email: 'info@stocka.cl',
+              reply_to: 'stockachile@gmail.com',
+              sent_by: userEmail
+            }
+          });
+          if (typeof window.loadOrderAuditLogs === 'function') {
+            window.loadOrderAuditLogs(formValues.orderId);
+          }
+        } catch (_) {}
+      }
+
+      Swal.fire({
+        title: '¡Correo Enviado!',
+        html: `
+          <div style="font-size: 0.88rem; line-height: 1.5; text-align: left;">
+            <p style="margin: 0 0 0.5rem 0;">✅ Se envió el correo a <strong>${window.escapeHtml ? window.escapeHtml(formValues.contactName) : formValues.contactName}</strong> (<code>${window.escapeHtml ? window.escapeHtml(formValues.email) : formValues.email}</code>).</p>
+            <div style="background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.3); padding: 0.55rem 0.75rem; border-radius: 8px; font-size: 0.8rem; color: #1e40af;">
+              <div><strong>Enviado desde:</strong> <code>info@stocka.cl</code></div>
+              <div style="margin-top: 2px;"><strong>Respuestas llegarán a:</strong> <code>stockachile@gmail.com</code> (se envió copia BCC a la bandeja).</div>
+            </div>
+          </div>
+        `,
+        icon: 'success',
+        confirmButtonColor: '#2563eb'
+      });
+    } catch (err) {
+      console.error('[Stox Contact Email Error]:', err);
+      Swal.fire({
+        title: 'No se pudo enviar el correo',
+        text: err.message || 'Verifica la conexión con el servicio de correo Brevo.',
+        icon: 'error'
+      });
+    }
+    return;
+  }
+
+  // ==========================================================================
+  // CANAL 2: ENVÍO VÍA WHATSAPP STOX
+  // ==========================================================================
   Swal.fire({
-    title: 'Enviando mensaje por Stox...',
+    title: 'Enviando WhatsApp por Stox...',
     text: `Contactando a ${formValues.contactName} (+${formValues.phone})`,
     allowOutsideClick: false,
     didOpen: () => Swal.showLoading()
@@ -56954,12 +57768,6 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
   try {
     const waUrl = (window.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com').replace(/\/+$/, '');
     const waKey = window.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
-
-    let userEmail = 'Torre de Control WMS';
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user?.email) userEmail = session.user.email;
-    } catch (_) {}
 
     const payload = {
       to: formValues.phone,
@@ -57006,9 +57814,10 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
     try {
       const localList = JSON.parse(localStorage.getItem('stox_ct_local_tracked_v1') || '[]');
       const filtered = Array.isArray(localList)
-        ? localList.filter(i => String(i.phone).slice(-8) !== String(formValues.phone).slice(-8))
+        ? localList.filter(i => i.channel === 'email' || String(i.phone).slice(-8) !== String(formValues.phone).slice(-8))
         : [];
       filtered.unshift({
+        channel: 'whatsapp',
         phone: formValues.phone,
         contactName: formValues.contactName,
         orderId: formValues.orderId,
@@ -57056,7 +57865,7 @@ window.openStoxControlTowerMessageModal = async function(orderId = null) {
         <div style="font-size: 0.88rem; line-height: 1.5; text-align: left;">
           <p style="margin: 0 0 0.5rem 0;">✅ Se envió el WhatsApp a <strong>${window.escapeHtml ? window.escapeHtml(formValues.contactName) : formValues.contactName}</strong> (<code>+${formValues.phone}</code>).</p>
           <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.35); padding: 0.55rem 0.75rem; border-radius: 8px; font-size: 0.8rem; color: #065f46;">
-            <i class="ri-share-forward-fill"></i> <strong>Seguimiento Activo:</strong> Cuando el contacto responda, Stox reenviará automáticamente su respuesta junto con sus datos al grupo <strong>${window.escapeHtml ? window.escapeHtml(formValues.targetGroupName) : formValues.targetGroupName}</strong>.
+            <i class="ri-share-forward-fill"></i> <strong>Seguimiento Activo:</strong> Cuando el contacto responda, Stox acumulará sus respuestas por 30 minutos y enviará el resumen al grupo <strong>${window.escapeHtml ? window.escapeHtml(formValues.targetGroupName) : formValues.targetGroupName}</strong>.
           </div>
         </div>
       `,
@@ -102411,14 +103220,19 @@ window.openWmsOrderModal = async function(orderId) {
             <input type="text" id="wms-modal-name" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(displayName) : displayName}" placeholder="Nombre del cliente">
           </div>
           <div class="wms-modal-field">
-            <label class="wms-modal-label">Email</label>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.2rem;">
+              <label class="wms-modal-label" style="margin-bottom: 0;">Email</label>
+              <button type="button" onclick="window.openStoxControlTowerMessageModal('${order.id}', 'email')" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid #3b82f6; border-radius: 99px; padding: 0.1rem 0.48rem; font-size: 0.68rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Contactar por Correo (info@stocka.cl → respuesta a stockachile@gmail.com)">
+                <i class="ri-mail-send-line" style="color: #2563eb;"></i> Correo Stox
+              </button>
+            </div>
             <input type="email" id="wms-modal-email" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(displayEmail) : displayEmail}" placeholder="correo@ejemplo.com">
           </div>
           <div class="wms-modal-field">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.2rem;">
               <label class="wms-modal-label" style="margin-bottom: 0;">Teléfono</label>
-              <button type="button" onclick="window.openStoxControlTowerMessageModal('${order.id}')" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid #10b981; border-radius: 99px; padding: 0.1rem 0.48rem; font-size: 0.68rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Enviar mensaje con Stox y reenviar respuesta al grupo de WhatsApp">
-                <i class="ri-whatsapp-fill" style="color: #10b981;"></i> Mensaje Stox
+              <button type="button" onclick="window.openStoxControlTowerMessageModal('${order.id}')" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid #10b981; border-radius: 99px; padding: 0.1rem 0.48rem; font-size: 0.68rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Contactar al cliente desde Stox (elegir WhatsApp o Correo)">
+                <i class="ri-message-3-fill" style="color: #10b981;"></i> Contacto Stox
               </button>
             </div>
             <input type="text" id="wms-modal-phone" class="wms-input-ctrl" value="${window.escapeHtml ? window.escapeHtml(displayPhone) : displayPhone}" placeholder="+56 9 1234 5678">
@@ -121302,14 +122116,45 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
 
         </div>
 
+        <!-- Barra Desplegable de Programación de Correo (Presentación / Cotización) -->
+        <div id="lead-info-schedule-bar" style="display: none; background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(94, 23, 235, 0.08)); border-top: 1.5px solid rgba(245, 158, 11, 0.45); padding: 0.7rem 1.5rem; flex-shrink: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+              <strong style="font-size: 0.8rem; color: #b45309; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-calendar-schedule-fill" style="font-size: 1rem;"></i> Programar envío para:
+              </strong>
+              <input type="datetime-local" id="lead-info-schedule-datetime" class="form-input" style="height: 32px; font-size: 0.8rem; font-weight: 700; width: auto; padding: 0 0.6rem;">
+              <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-outline btn-sm" data-info-sched-preset="1h" style="font-size: 0.7rem; padding: 2px 7px; height: 26px;">+1 hora</button>
+                <button type="button" class="btn btn-outline btn-sm" data-info-sched-preset="tomorrow9" style="font-size: 0.7rem; padding: 2px 7px; height: 26px;">Mañana 09:00</button>
+                <button type="button" class="btn btn-outline btn-sm" data-info-sched-preset="tomorrow11" style="font-size: 0.7rem; padding: 2px 7px; height: 26px;">Mañana 11:00</button>
+                <button type="button" class="btn btn-outline btn-sm" data-info-sched-preset="24h" style="font-size: 0.7rem; padding: 2px 7px; height: 26px;">+24 hrs</button>
+                <button type="button" class="btn btn-outline btn-sm" data-info-sched-preset="48h" style="font-size: 0.7rem; padding: 2px 7px; height: 26px;">+48 hrs</button>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <select id="lead-info-schedule-engine" class="form-input" style="height: 32px; font-size: 0.75rem; font-weight: 600; width: auto; padding: 0 0.5rem;" title="Elige si deseas poder editarlo/cancelarlo en la cola de Stocka o despacharlo directo a la nube de Brevo">
+                <option value="wms_queue">🔄 Cola Editable WMS (Permite editar o cancelar antes de la hora)</option>
+                <option value="brevo_cloud">☁️ Servidor Brevo Cloud (Se envía solo desde la nube, hasta 72h)</option>
+              </select>
+              <button type="button" id="btn-confirm-schedule-lead-info" class="btn btn-primary btn-sm" style="background: linear-gradient(135deg, #d97706, #f59e0b); border: none; color: white; height: 32px; padding: 0 0.9rem; font-size: 0.78rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-calendar-check-fill"></i> Confirmar Programación
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Modal Footer -->
         <div class="modal-footer" style="padding: 0.8rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; background: var(--color-surface); flex-shrink: 0;">
           <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.4rem;">
             <i class="ri-shield-check-line" style="color: #10b981; font-size: 0.95rem;"></i>
             <span id="lead-info-footer-helper">Se enviará con copia oculta de respaldo y seguimiento de aperturas en Central de Leads.</span>
           </div>
-          <div style="display: flex; gap: 0.75rem;">
+          <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
             <button type="button" class="btn btn-outline" id="btn-cancel-send-lead-info">Cancelar</button>
+            <button type="button" class="btn btn-outline" id="btn-toggle-schedule-lead-info" style="color: #b45309; border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.08); font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-calendar-schedule-line"></i> Programar Envío
+            </button>
             <button type="submit" class="btn btn-primary" id="btn-submit-send-lead-info" style="background: ${defaultEmailMode === 'quote' ? 'linear-gradient(135deg, #059669, #10b981)' : 'linear-gradient(135deg, #1e40af, #2563eb)'}; border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.3rem; font-weight: 700;">
               <i class="ri-send-plane-fill"></i> <span id="btn-submit-send-lead-text">${defaultEmailMode === 'quote' ? 'Enviar Correo con Cotización' : 'Enviar Presentación Comercial'}</span>
             </button>
@@ -122220,6 +123065,120 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
     recalculateAndRenderQuote();
   });
 
+  // Programación de envío en modal de Presentación / Cotización
+  const infoSchedBar = document.getElementById('lead-info-schedule-bar');
+  const infoSchedDt = document.getElementById('lead-info-schedule-datetime');
+  if (infoSchedDt) {
+    const defT = new Date();
+    defT.setDate(defT.getDate() + 1);
+    defT.setHours(9, 0, 0, 0);
+    infoSchedDt.value = new Date(defT.getTime() - defT.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  }
+  document.getElementById('btn-toggle-schedule-lead-info')?.addEventListener('click', () => {
+    if (infoSchedBar) {
+      infoSchedBar.style.display = infoSchedBar.style.display === 'none' ? 'block' : 'none';
+    }
+  });
+  modal.querySelectorAll('[data-info-sched-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!infoSchedDt) return;
+      const mode = btn.getAttribute('data-info-sched-preset');
+      let t = new Date();
+      if (mode === '1h') t = new Date(Date.now() + 3600000);
+      else if (mode === '24h') t = new Date(Date.now() + 24 * 3600000);
+      else if (mode === '48h') t = new Date(Date.now() + 48 * 3600000);
+      else if (mode === 'tomorrow9') {
+        t.setDate(t.getDate() + 1);
+        t.setHours(9, 0, 0, 0);
+      } else if (mode === 'tomorrow11') {
+        t.setDate(t.getDate() + 1);
+        t.setHours(11, 0, 0, 0);
+      }
+      infoSchedDt.value = new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    });
+  });
+
+  document.getElementById('btn-confirm-schedule-lead-info')?.addEventListener('click', async () => {
+    const isQuoteMode = currentEmailMode === 'quote';
+    const email = document.getElementById('info-input-email')?.value.trim() || '';
+    const contactName = document.getElementById('info-input-contact')?.value.trim() || '';
+    const commerceName = document.getElementById('info-input-commerce')?.value.trim() || '';
+    const subject = document.getElementById('info-input-subject')?.value.trim() || (isQuoteMode ? quoteDefaultSubject : presentationDefaultSubject);
+    const cc = document.getElementById('info-input-cc')?.value.trim() || '';
+    const meetingUrl = document.getElementById('info-input-meeting')?.value.trim() || defaultMeeting;
+    const customMessage = getEditorPlainText();
+    const customMessageHtml = customMessage ? sanitizeAndStyleEmailHtml(customEditor ? customEditor.innerHTML : '') : '';
+    const customBoxStyle = boxStyleSelect ? boxStyleSelect.value : 'card';
+    const customBoxTitle = boxTitleInput ? boxTitleInput.value.trim() : '';
+    const includeSecondIntro = includeSecondIntroCheckbox ? includeSecondIntroCheckbox.checked : true;
+    const fulfillmentUrl = document.getElementById('info-input-fulfillment-url')?.value.trim() || defaultFulfillmentUrl;
+    const despachosUrl = document.getElementById('info-input-despachos-url')?.value.trim() || defaultDespachosUrl;
+    const courierFolderUrl = document.getElementById('info-input-courier-url')?.value.trim() || defaultCourierFolderUrl;
+    const cotizadorUrl = document.getElementById('info-input-cotizador-url')?.value.trim() || defaultCotizadorUrl;
+    const dtVal = infoSchedDt?.value;
+    const engineMode = document.getElementById('lead-info-schedule-engine')?.value || 'wms_queue';
+
+    if (!email || !email.includes('@')) {
+      alert('Por favor ingresa un correo destinatario válido.');
+      return;
+    }
+    if (!dtVal || new Date(dtVal).getTime() <= Date.now()) {
+      alert('Selecciona una fecha y hora futura para programar el envío.');
+      return;
+    }
+    if (isQuoteMode) recalculateAndRenderQuote();
+
+    const scheduledAtIso = new Date(dtVal).toISOString();
+    const emailPayload = {
+      emailType: 'lead_info_fulfillment',
+      emailMode: currentEmailMode,
+      quoteData: isQuoteMode ? currentQuoteResult : null,
+      emails: [email],
+      contactName,
+      commerceName: commerceName || 'Comercio',
+      subject,
+      cc,
+      meetingUrl,
+      centerMode: currentCenterMode,
+      customMessage,
+      customMessageHtml,
+      customBoxStyle,
+      customBoxTitle,
+      includeSecondIntro,
+      notes: customMessage,
+      fulfillmentUrl,
+      despachosUrl,
+      courierFolderUrl,
+      cotizadorUrl
+    };
+
+    try {
+      const btnConfirm = document.getElementById('btn-confirm-schedule-lead-info');
+      if (btnConfirm) btnConfirm.disabled = true;
+      await window.scheduleLeadEmailItem({
+        recipient_email: email,
+        contact_name: contactName,
+        commerce_name: commerceName,
+        cc_emails: cc,
+        subject,
+        email_category: isQuoteMode ? 'quote' : 'presentation',
+        scheduled_at: scheduledAtIso,
+        engine_mode: engineMode,
+        payload: emailPayload,
+        quote_params: isQuoteMode ? getQuoteInputsFromDom() : null
+      });
+      closeModal();
+      if (typeof window.renderLeadsAdmin === 'function') {
+        await window.renderLeadsAdmin(false);
+      }
+      if (typeof window.showNotification === 'function') {
+        window.showNotification(`⏰ Correo programado para ${new Date(scheduledAtIso).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} (${email}).`, 'success');
+      }
+    } catch (err) {
+      alert('Error al programar correo: ' + err.message);
+    }
+  });
+
   // Manejador del envío del formulario de información comercial / cotización
   const form = document.getElementById('form-send-lead-info');
   form?.addEventListener('submit', async (e) => {
@@ -122637,9 +123596,39 @@ window.openSendE1Modal = async function(defaultData = {}) {
 
         </div>
 
+        <!-- Barra Desplegable de Programación de Correo E1 -->
+        <div id="e1-schedule-bar" style="display: none; background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(94, 23, 235, 0.08)); border-top: 1.5px solid rgba(245, 158, 11, 0.45); padding: 0.75rem 1.5rem;">
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <strong style="font-size: 0.8rem; color: #b45309; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-calendar-schedule-fill"></i> Programar envío de Correo E1 para:
+              </strong>
+              <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-outline btn-sm" data-e1-sched-preset="1h" style="font-size: 0.7rem; padding: 2px 7px; height: 25px;">+1 hora</button>
+                <button type="button" class="btn btn-outline btn-sm" data-e1-sched-preset="tomorrow9" style="font-size: 0.7rem; padding: 2px 7px; height: 25px;">Mañana 09:00</button>
+                <button type="button" class="btn btn-outline btn-sm" data-e1-sched-preset="24h" style="font-size: 0.7rem; padding: 2px 7px; height: 25px;">+24 hrs</button>
+                <button type="button" class="btn btn-outline btn-sm" data-e1-sched-preset="48h" style="font-size: 0.7rem; padding: 2px 7px; height: 25px;">+48 hrs</button>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <input type="datetime-local" id="e1-schedule-datetime" class="form-input" style="height: 32px; font-size: 0.8rem; font-weight: 700; flex: 1; min-width: 175px;">
+              <select id="e1-schedule-engine" class="form-input" style="height: 32px; font-size: 0.75rem; font-weight: 600; flex: 1; min-width: 185px;">
+                <option value="wms_queue">🔄 Cola Editable WMS (Editar/Cancelar)</option>
+                <option value="brevo_cloud">☁️ Servidor Brevo Cloud (Hasta 72h)</option>
+              </select>
+              <button type="button" id="btn-confirm-schedule-e1" class="btn btn-primary btn-sm" style="background: linear-gradient(135deg, #d97706, #f59e0b); border: none; color: white; height: 32px; padding: 0 0.9rem; font-size: 0.78rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-calendar-check-fill"></i> Confirmar Programación E1
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Modal Footer -->
-        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface);">
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.65rem; background: var(--color-surface); flex-wrap: wrap;">
           <button type="button" class="btn btn-outline" id="btn-cancel-send-e1">Cancelar</button>
+          <button type="button" class="btn btn-outline" id="btn-toggle-schedule-e1" style="color: #b45309; border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.08); font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-calendar-schedule-line"></i> Programar Envío
+          </button>
           <button type="submit" class="btn btn-primary" id="btn-submit-send-e1" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.25rem; font-weight: 600;">
             <i class="ri-send-plane-fill"></i> Enviar Correo E1
           </button>
@@ -122657,6 +123646,87 @@ window.openSendE1Modal = async function(defaultData = {}) {
 
   document.getElementById('btn-close-send-e1')?.addEventListener('click', closeModal);
   document.getElementById('btn-cancel-send-e1')?.addEventListener('click', closeModal);
+
+  // Configuración de programación de Correo E1
+  const e1SchedBar = document.getElementById('e1-schedule-bar');
+  const e1SchedDt = document.getElementById('e1-schedule-datetime');
+  if (e1SchedDt) {
+    const defT = new Date();
+    defT.setDate(defT.getDate() + 1);
+    defT.setHours(9, 0, 0, 0);
+    e1SchedDt.value = new Date(defT.getTime() - defT.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  }
+  document.getElementById('btn-toggle-schedule-e1')?.addEventListener('click', () => {
+    if (e1SchedBar) e1SchedBar.style.display = e1SchedBar.style.display === 'none' ? 'block' : 'none';
+  });
+  modal.querySelectorAll('[data-e1-sched-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!e1SchedDt) return;
+      const mode = btn.getAttribute('data-e1-sched-preset');
+      let t = new Date();
+      if (mode === '1h') t = new Date(Date.now() + 3600000);
+      else if (mode === '24h') t = new Date(Date.now() + 24 * 3600000);
+      else if (mode === '48h') t = new Date(Date.now() + 48 * 3600000);
+      else if (mode === 'tomorrow9') {
+        t.setDate(t.getDate() + 1);
+        t.setHours(9, 0, 0, 0);
+      }
+      e1SchedDt.value = new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    });
+  });
+
+  document.getElementById('btn-confirm-schedule-e1')?.addEventListener('click', async () => {
+    const email = document.getElementById('e1-input-email')?.value.trim() || '';
+    const contactName = document.getElementById('e1-input-contact')?.value.trim() || '';
+    const commerceName = document.getElementById('e1-input-commerce')?.value.trim() || '';
+    const cc = document.getElementById('e1-input-cc')?.value.trim() || '';
+    const dtVal = e1SchedDt?.value;
+    const engineMode = document.getElementById('e1-schedule-engine')?.value || 'wms_queue';
+
+    if (!email || !email.includes('@')) {
+      alert('Por favor ingresa un correo destinatario válido.');
+      return;
+    }
+    if (!dtVal || new Date(dtVal).getTime() <= Date.now()) {
+      alert('Selecciona una fecha y hora futura para programar el envío.');
+      return;
+    }
+
+    const scheduledAtIso = new Date(dtVal).toISOString();
+    const subject = `Stocka Fulfillment - Instrucciones y Pasos de Onboarding [${commerceName || email}]`;
+    const emailPayload = {
+      emailType: 'onboarding_e1_instructions',
+      emails: [email],
+      contactName,
+      commerceName: commerceName || 'Comercio',
+      cc
+    };
+
+    try {
+      const btnConfirm = document.getElementById('btn-confirm-schedule-e1');
+      if (btnConfirm) btnConfirm.disabled = true;
+      await window.scheduleLeadEmailItem({
+        recipient_email: email,
+        contact_name: contactName,
+        commerce_name: commerceName,
+        cc_emails: cc,
+        subject,
+        email_category: 'e1',
+        scheduled_at: scheduledAtIso,
+        engine_mode: engineMode,
+        payload: emailPayload
+      });
+      closeModal();
+      if (typeof window.renderLeadsAdmin === 'function') {
+        await window.renderLeadsAdmin(false);
+      }
+      if (typeof window.showNotification === 'function') {
+        window.showNotification(`⏰ Correo E1 programado para ${new Date(scheduledAtIso).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} (${email}).`, 'success');
+      }
+    } catch (err) {
+      alert('Error al programar correo E1: ' + err.message);
+    }
+  });
 
   // Actualizar saludo en vista previa dinámicamente al escribir
   const contactInput = document.getElementById('e1-input-contact');
@@ -122883,6 +123953,457 @@ window.openSendE1Modal = async function(defaultData = {}) {
       submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Correo E1';
     }
   });
+};
+
+// =========================================================================
+// PROGRAMADOR Y COLA DE CORREOS COMERCIALES DE LEADS (COTIZACIÓN, INFO Y E1)
+// =========================================================================
+
+window.SCHEDULED_LEAD_EMAILS_KEY = 'stocka_scheduled_lead_emails_v1';
+
+window.getScheduledLeadEmails = function () {
+  try {
+    const raw = localStorage.getItem(window.SCHEDULED_LEAD_EMAILS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+window.saveScheduledLeadEmails = function (list) {
+  try {
+    localStorage.setItem(window.SCHEDULED_LEAD_EMAILS_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+  } catch (e) {
+    console.warn('Error guardando stocka_scheduled_lead_emails_v1:', e);
+  }
+};
+
+/**
+ * Programa un correo comercial (Cotización, Presentación o E1).
+ * Si engine_mode === 'brevo_cloud' y falta < 72h, lo envía de inmediato a Brevo con scheduledAt para que salga desde la nube.
+ * Si engine_mode === 'wms_queue', queda en la cola editable del WMS y el reloj despachador lo envía al llegar la hora.
+ */
+window.scheduleLeadEmailItem = async function (itemConfig) {
+  const id = `sched_email_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const nowIso = new Date().toISOString();
+  const scheduledAtIso = new Date(itemConfig.scheduled_at).toISOString();
+  const diffMs = new Date(scheduledAtIso).getTime() - Date.now();
+
+  let finalStatus = 'pending'; // 'pending' | 'brevo_scheduled' | 'sent' | 'canceled' | 'failed'
+  let brevoMessageId = null;
+
+  if (itemConfig.engine_mode === 'brevo_cloud' && diffMs > 60000 && diffMs <= 72 * 3600 * 1000) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Sesión no válida.');
+    const cloudPayload = {
+      ...(itemConfig.payload || {}),
+      scheduledAt: scheduledAtIso
+    };
+    const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify(cloudPayload)
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => null);
+      throw new Error(errJson?.error || `Error programando en Brevo Cloud (HTTP ${res.status})`);
+    }
+    const resJson = await res.json().catch(() => ({}));
+    brevoMessageId = resJson?.messageId || null;
+    finalStatus = 'brevo_scheduled';
+  }
+
+  const record = {
+    id,
+    recipient_email: (itemConfig.recipient_email || '').trim().toLowerCase(),
+    contact_name: (itemConfig.contact_name || '').trim(),
+    commerce_name: (itemConfig.commerce_name || '').trim(),
+    cc_emails: (itemConfig.cc_emails || '').trim(),
+    subject: (itemConfig.subject || '').trim(),
+    email_category: itemConfig.email_category || 'quote', // 'quote' | 'presentation' | 'e1'
+    scheduled_at: scheduledAtIso,
+    created_at: nowIso,
+    status: finalStatus,
+    engine_mode: itemConfig.engine_mode || 'wms_queue',
+    brevo_message_id: brevoMessageId,
+    payload: itemConfig.payload || {},
+    quote_params: itemConfig.quote_params || null
+  };
+
+  const list = window.getScheduledLeadEmails();
+  list.unshift(record);
+  window.saveScheduledLeadEmails(list);
+  window.startScheduledLeadEmailsWatcher();
+  return record;
+};
+
+/**
+ * Despacha inmediatamente un correo programado de la cola
+ */
+window.dispatchScheduledLeadEmailNow = async function (scheduledId) {
+  const list = window.getScheduledLeadEmails();
+  const idx = list.findIndex(item => item.id === scheduledId);
+  if (idx < 0) throw new Error('Correo programado no encontrado.');
+  const item = list[idx];
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Sesión no válida.');
+
+  const sendPayload = { ...(item.payload || {}) };
+  delete sendPayload.scheduledAt;
+
+  const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`
+    },
+    body: JSON.stringify(sendPayload)
+  });
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null);
+    item.status = 'failed';
+    item.error = errJson?.error || `HTTP ${res.status}`;
+    window.saveScheduledLeadEmails(list);
+    throw new Error(item.error);
+  }
+
+  item.status = 'sent';
+  item.sent_at = new Date().toISOString();
+  item.error = '';
+  window.saveScheduledLeadEmails(list);
+
+  // Registrar en logs locales y Supabase para trazabilidad en la Ficha 360°
+  if (item.email_category === 'e1') {
+    const e1Log = {
+      id: 'local_e1_' + Date.now(),
+      recipient_email: item.recipient_email,
+      contact_name: item.contact_name,
+      commerce_name: item.commerce_name,
+      cc_emails: item.cc_emails,
+      subject: item.subject,
+      sent_at: item.sent_at,
+      status: 'delivered'
+    };
+    try {
+      const localE1 = JSON.parse(localStorage.getItem('stocka_wms_e1_logs_v1') || '[]');
+      localE1.unshift(e1Log);
+      localStorage.setItem('stocka_wms_e1_logs_v1', JSON.stringify(localE1.slice(0, 200)));
+    } catch (e) {}
+    try {
+      await supabase.from('e1_email_logs').insert([{
+        recipient_email: item.recipient_email,
+        contact_name: item.contact_name,
+        commerce_name: item.commerce_name,
+        cc_emails: item.cc_emails,
+        subject: item.subject,
+        status: 'delivered',
+        sent_at: item.sent_at
+      }]);
+    } catch (e) {}
+  } else {
+    const infoLog = {
+      id: 'local_info_' + Date.now(),
+      recipient_email: item.recipient_email,
+      contact_name: item.contact_name,
+      commerce_name: item.commerce_name,
+      cc_emails: item.cc_emails,
+      subject: item.subject,
+      sent_at: item.sent_at,
+      status: 'delivered',
+      notes: item.payload?.notes || ''
+    };
+    try {
+      const localInfo = JSON.parse(localStorage.getItem('stocka_wms_lead_info_logs_v1') || '[]');
+      localInfo.unshift(infoLog);
+      localStorage.setItem('stocka_wms_lead_info_logs_v1', JSON.stringify(localInfo.slice(0, 200)));
+    } catch (e) {}
+    try {
+      await supabase.from('lead_info_email_logs').insert([{
+        recipient_email: item.recipient_email,
+        contact_name: item.contact_name,
+        commerce_name: item.commerce_name,
+        cc_emails: item.cc_emails,
+        subject: item.subject,
+        status: 'delivered',
+        notes: item.payload?.notes || '',
+        sent_at: item.sent_at
+      }]);
+    } catch (e) {}
+  }
+
+  window.cachedUnifiedLeads = null;
+  return item;
+};
+
+/**
+ * Reloj en segundo plano que revisa cada 20 segundos si hay correos programados listos para despachar
+ */
+window.startScheduledLeadEmailsWatcher = function () {
+  if (window._scheduledLeadEmailsTimer) return;
+  window._scheduledLeadEmailsTimer = setInterval(async () => {
+    if (window._isDispatchingScheduledEmails) return;
+    const list = window.getScheduledLeadEmails();
+    const now = Date.now();
+    const dueList = list.filter(item =>
+      item.status === 'pending' &&
+      item.scheduled_at &&
+      new Date(item.scheduled_at).getTime() <= now
+    );
+    if (dueList.length === 0) return;
+
+    window._isDispatchingScheduledEmails = true;
+    try {
+      for (const item of dueList) {
+        try {
+          await window.dispatchScheduledLeadEmailNow(item.id);
+          if (typeof window.showNotification === 'function') {
+            window.showNotification(`📨 Correo programado enviado automáticamente a ${item.recipient_email}`, 'success');
+          }
+        } catch (err) {
+          console.warn('[LeadEmailScheduler] Error enviando correo programado:', err.message);
+        }
+      }
+      if (document.getElementById('leads-table-tbody') && typeof window.renderLeadsAdmin === 'function') {
+        window.renderLeadsAdmin(true);
+      }
+    } finally {
+      window._isDispatchingScheduledEmails = false;
+    }
+  }, 20000);
+};
+
+/**
+ * Modal Gestor de Correos Programados de la Central de Leads
+ */
+window.openScheduledLeadEmailsModal = async function (encodedFilterEmail = '') {
+  const old = document.getElementById('modal-scheduled-lead-emails');
+  if (old) old.remove();
+
+  const filterEmail = encodedFilterEmail ? decodeURIComponent(encodedFilterEmail).trim().toLowerCase() : '';
+  const leads = await window.fetchUnifiedLeads(false);
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'modal-scheduled-lead-emails';
+  modal.style.zIndex = '2200';
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 200);
+  };
+
+  const escapeHtml = (s) => String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const renderContent = () => {
+    const allItems = window.getScheduledLeadEmails();
+    const displayItems = filterEmail
+      ? allItems.filter(i => (i.recipient_email || '').toLowerCase() === filterEmail)
+      : allItems;
+
+    const defLead = filterEmail
+      ? leads.find(l => (l.email || '').toLowerCase() === filterEmail)
+      : leads[0];
+
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 1080px; width: 95vw; max-height: 90vh; display: flex; flex-direction: column; padding: 0; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-xl);">
+        
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #b45309 0%, #d97706 55%, #f59e0b 100%); color: white; padding: 1.05rem 1.5rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">
+              <i class="ri-calendar-schedule-fill"></i>
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 1.12rem; font-weight: 800; color: white;">
+                Programador y Cola de Correos Comerciales • Central de Leads
+              </h3>
+              <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: rgba(255,255,255,0.9);">
+                Programa envíos de Cotizaciones 360°, Presentaciones Comerciales o Instrucciones E1 y administra la cola de salida
+              </p>
+            </div>
+          </div>
+          <button type="button" id="btn-close-sched-emails-modal" style="color: white; font-size: 1.5rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+        </div>
+
+        <!-- Barra Rápida para Crear y Programar un Correo a un Lead -->
+        <div style="background: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 0.9rem 1.4rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; flex: 1;">
+            <strong style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap;">
+              <i class="ri-mail-add-line" style="color: #d97706;"></i> Nuevo Correo Programado:
+            </strong>
+            <select id="quick-sched-email-lead-select" class="form-input" style="height: 34px; font-size: 0.8rem; font-weight: 600; min-width: 240px; flex: 1; max-width: 340px;">
+              ${leads.map(l => `
+                <option value="${encodeURIComponent(l.email)}" ${defLead && l.email === defLead.email ? 'selected' : ''}>
+                  ${escapeHtml(l.name || l.email)} ${l.company ? `(${escapeHtml(l.company)})` : ''} — ${escapeHtml(l.email)}
+                </option>
+              `).join('')}
+            </select>
+            <select id="quick-sched-email-type-select" class="form-input" style="height: 34px; font-size: 0.8rem; font-weight: 700; width: auto;">
+              <option value="agent_quote">✨ Cotización + Propuesta con Agente IA</option>
+              <option value="quote">🧮 Correo con Cotización 360°</option>
+              <option value="presentation">📨 Presentación Comercial Fulfillment</option>
+              <option value="e1">📋 Instrucciones de Onboarding (Paso E1)</option>
+            </select>
+          </div>
+          <button type="button" id="btn-open-composer-to-schedule" class="btn btn-primary btn-sm" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; height: 34px; padding: 0 1rem; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-edit-box-line"></i> Abrir Editor y Elegir Hora →
+          </button>
+        </div>
+
+        <!-- Lista de Correos Programados -->
+        <div style="flex: 1; overflow-y: auto; padding: 1.25rem 1.4rem; background: var(--color-bg); display: flex; flex-direction: column; gap: 0.75rem;">
+          ${displayItems.length === 0 ? `
+            <div style="margin: auto; text-align: center; padding: 3rem 1.5rem; color: var(--color-text-muted);">
+              <i class="ri-mail-check-line" style="font-size: 2.6rem; color: #d97706; opacity: 0.5; display: block; margin-bottom: 0.5rem;"></i>
+              <strong style="font-size: 0.95rem; color: var(--color-text-main);">No hay correos programados en la cola</strong>
+              <p style="font-size: 0.8rem; margin-top: 4px; max-width: 460px;">
+                Selecciona un prospecto arriba y haz clic en <strong>"Abrir Editor y Elegir Hora"</strong>, o usa el botón <strong>"⏰ Programar Envío"</strong> dentro de cualquier ventana de Cotización, Presentación o Correo E1.
+              </p>
+            </div>
+          ` : displayItems.map(item => {
+            const schedStr = item.scheduled_at
+              ? new Date(item.scheduled_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+              : '—';
+            const catBadge = item.email_category === 'e1'
+              ? `<span style="background: rgba(124,58,237,0.12); color: #7c3aed; padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700;">📋 Correo E1</span>`
+              : (item.email_category === 'quote'
+                ? `<span style="background: rgba(16,185,129,0.12); color: #059669; padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700;">🧮 Cotización 360°</span>`
+                : `<span style="background: rgba(37,99,235,0.12); color: #2563eb; padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700;">📨 Presentación Comercial</span>`);
+
+            let statusBadge = `<span style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 2px 9px; border-radius: 12px; font-size: 0.72rem; font-weight: 800;">⏳ En Cola para ${schedStr}</span>`;
+            if (item.status === 'brevo_scheduled') {
+              statusBadge = `<span style="background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; padding: 2px 9px; border-radius: 12px; font-size: 0.72rem; font-weight: 800;">☁️ Programado en Brevo Cloud (${schedStr})</span>`;
+            } else if (item.status === 'sent') {
+              statusBadge = `<span style="background: #d1fae5; color: #047857; padding: 2px 9px; border-radius: 12px; font-size: 0.72rem; font-weight: 800;">✅ Enviado</span>`;
+            } else if (item.status === 'canceled') {
+              statusBadge = `<span style="background: #f1f5f9; color: #64748b; padding: 2px 9px; border-radius: 12px; font-size: 0.72rem; font-weight: 700;">Cancelado</span>`;
+            } else if (item.status === 'failed') {
+              statusBadge = `<span style="background: #fee2e2; color: #dc2626; padding: 2px 9px; border-radius: 12px; font-size: 0.72rem; font-weight: 700;">⚠️ Error: ${escapeHtml(item.error || 'Reintentar')}</span>`;
+            }
+
+            return `
+              <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.9rem 1.1rem; display: flex; flex-direction: column; gap: 0.45rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    ${catBadge}
+                    <strong style="font-size: 0.88rem; color: var(--color-text-main);">${escapeHtml(item.contact_name || item.recipient_email)}</strong>
+                    ${item.commerce_name ? `<span style="font-size: 0.78rem; color: #5e17eb; font-weight: 700;">(${escapeHtml(item.commerce_name)})</span>` : ''}
+                    <span style="font-size: 0.76rem; color: var(--color-text-muted);">&lt;${escapeHtml(item.recipient_email)}&gt;</span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                    ${statusBadge}
+                    ${item.status === 'pending' || item.status === 'failed' ? `
+                      <button type="button" class="btn btn-outline btn-sm" data-email-sched-send-now="${item.id}" style="font-size: 0.72rem; padding: 2px 9px; color: #059669; border-color: rgba(16,185,129,0.4); font-weight: 700;">
+                        <i class="ri-send-plane-fill"></i> Enviar Ahora
+                      </button>
+                      <button type="button" class="btn btn-outline btn-sm" data-email-sched-cancel="${item.id}" style="font-size: 0.72rem; padding: 2px 9px; color: #dc2626; border-color: rgba(220,38,38,0.3);">
+                        Cancelar
+                      </button>
+                    ` : `
+                      <button type="button" class="btn btn-outline btn-sm" data-email-sched-remove="${item.id}" style="font-size: 0.7rem; padding: 2px 7px; color: var(--color-text-muted);">
+                        Quitar
+                      </button>
+                    `}
+                  </div>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-text-main);">
+                  <strong>Asunto:</strong> ${escapeHtml(item.subject)}
+                  ${item.cc_emails ? ` • <strong>CC:</strong> ${escapeHtml(item.cc_emails)}` : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+      </div>
+    `;
+
+    document.getElementById('btn-close-sched-emails-modal')?.addEventListener('click', closeModal);
+
+    document.getElementById('btn-open-composer-to-schedule')?.addEventListener('click', () => {
+      const leadEmail = decodeURIComponent(document.getElementById('quick-sched-email-lead-select')?.value || '');
+      const type = document.getElementById('quick-sched-email-type-select')?.value || 'quote';
+      const found = leads.find(l => (l.email || '').toLowerCase() === leadEmail.toLowerCase());
+      closeModal();
+
+      if (type === 'agent_quote') {
+        window.openLeadAgentModal(encodeURIComponent(leadEmail));
+      } else if (type === 'e1') {
+        window.openSendE1Modal({
+          email: encodeURIComponent(found?.email || leadEmail),
+          contactName: encodeURIComponent(found?.name || ''),
+          commerceName: encodeURIComponent(found?.company || ''),
+          cc: ''
+        });
+        setTimeout(() => document.getElementById('btn-toggle-schedule-e1')?.click(), 250);
+      } else {
+        window.openSendLeadInfoModal({
+          emailMode: type === 'presentation' ? 'presentation' : 'quote',
+          email: encodeURIComponent(found?.email || leadEmail),
+          contactName: encodeURIComponent(found?.name || ''),
+          commerceName: encodeURIComponent(found?.company || ''),
+          cc: ''
+        });
+        setTimeout(() => document.getElementById('btn-toggle-schedule-lead-info')?.click(), 250);
+      }
+    });
+
+    modal.querySelectorAll('[data-email-sched-send-now]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-email-sched-send-now');
+        btn.disabled = true;
+        btn.textContent = 'Enviando...';
+        try {
+          await window.dispatchScheduledLeadEmailNow(id);
+          if (typeof window.showNotification === 'function') {
+            window.showNotification('✅ Correo enviado inmediatamente con éxito.', 'success');
+          }
+          renderContent();
+          if (typeof window.renderLeadsAdmin === 'function') window.renderLeadsAdmin(true);
+        } catch (err) {
+          alert('Error al enviar correo: ' + err.message);
+          renderContent();
+        }
+      });
+    });
+
+    modal.querySelectorAll('[data-email-sched-cancel]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-email-sched-cancel');
+        const list = window.getScheduledLeadEmails();
+        const found = list.find(i => i.id === id);
+        if (found) {
+          found.status = 'canceled';
+          window.saveScheduledLeadEmails(list);
+          renderContent();
+          if (typeof window.renderLeadsAdmin === 'function') window.renderLeadsAdmin(false);
+        }
+      });
+    });
+
+    modal.querySelectorAll('[data-email-sched-remove]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-email-sched-remove');
+        const list = window.getScheduledLeadEmails().filter(i => i.id !== id);
+        window.saveScheduledLeadEmails(list);
+        renderContent();
+        if (typeof window.renderLeadsAdmin === 'function') window.renderLeadsAdmin(false);
+      });
+    });
+  };
+
+  document.body.appendChild(modal);
+  renderContent();
 };
 
 async function renderCampaignsTab(commerce) {
