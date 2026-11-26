@@ -101313,19 +101313,45 @@ function initProductFormListeners() {
             .single();
           
           if (bodegaCentral) {
-            await supabase.from('inventory').insert([{
-              product_id: newProd.id,
-              warehouse_id: bodegaCentral.id,
-              quantity: stock
-            }]);
-            
-            await supabase.from('movements').insert([{
+            const nowIso = new Date().toISOString();
+            const { data: existingInv, error: errCheckInv } = await supabase
+              .from('inventory')
+              .select('id, quantity')
+              .eq('product_id', newProd.id)
+              .eq('warehouse_id', bodegaCentral.id)
+              .maybeSingle();
+
+            if (errCheckInv) throw errCheckInv;
+
+            if (existingInv) {
+              const { error: errUpdInv } = await supabase
+                .from('inventory')
+                .update({
+                  quantity: (Number(existingInv.quantity) || 0) + stock,
+                  updated_at: nowIso
+                })
+                .eq('id', existingInv.id);
+              if (errUpdInv) throw errUpdInv;
+            } else {
+              const { error: errInsInv } = await supabase
+                .from('inventory')
+                .insert([{
+                  product_id: newProd.id,
+                  warehouse_id: bodegaCentral.id,
+                  quantity: stock,
+                  updated_at: nowIso
+                }]);
+              if (errInsInv) throw errInsInv;
+            }
+
+            const { error: errInsMov } = await supabase.from('movements').insert([{
               product_id: newProd.id,
               warehouse_id: bodegaCentral.id,
               type: 'in',
               quantity: stock,
               reference_doc: 'Stock Inicial'
             }]);
+            if (errInsMov) throw errInsMov;
           }
         }
 
@@ -137488,8 +137514,21 @@ window.rloPickerState = {
   activeVar1: '',
   activeVar2: '',
   activeSearch: '',
-  stockOnly: false
+  stockOnly: false,
+  renderLimit: 150
 };
+window.rloCatalogLoadSeq = 0;
+window.rloCatalogLoadPromise = null;
+window.rloCatalogLoadingCommerce = '';
+window.rloPickerSearchTimer = null;
+
+function normalizeRloSearchText(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
 
 // Extractor de variantes (Talla, Color, Variable 1, Variable 2) de un producto
 window.extractRloProductVariants = function(p, config) {
@@ -137920,9 +137959,38 @@ window.updateRloRegionalCouriers = function() {
 const updateRloRegionalCouriers = window.updateRloRegionalCouriers;
 
 window.loadRloCatalog = async function(commerceName) {
+  const normalizedCommerce = String(commerceName || '').trim();
   const form = document.getElementById('form-reverse-logistics-order');
-  if (form) form.dataset.currentCommerce = commerceName;
-  window.rloLoadedCommerce = commerceName || '';
+  if (form) form.dataset.currentCommerce = normalizedCommerce;
+
+  if (!normalizedCommerce) {
+    window.rloCatalogLoadSeq = (window.rloCatalogLoadSeq || 0) + 1;
+    window.rloCatalogLoadPromise = null;
+    window.rloCatalogLoadingCommerce = '';
+    window.rloLoadedCommerce = '';
+    window.rloCatalogProducts = [];
+    window.rloCatalogTallas = [];
+    window.rloCatalogColors = [];
+    window.rloCatalogVar1 = [];
+    window.rloCatalogVar2 = [];
+    window.rloVariantNaming = {
+      color: 'Color',
+      talla: 'Talla',
+      var1: 'Variable 1',
+      var2: 'Variable 2'
+    };
+    return;
+  }
+
+  // Si ya hay una descarga en curso para exactamente el mismo comercio, reutilizarla
+  if (window.rloCatalogLoadPromise && window.rloCatalogLoadingCommerce === normalizedCommerce) {
+    return window.rloCatalogLoadPromise;
+  }
+
+  const loadSeq = (window.rloCatalogLoadSeq || 0) + 1;
+  window.rloCatalogLoadSeq = loadSeq;
+  window.rloCatalogLoadingCommerce = normalizedCommerce;
+  window.rloLoadedCommerce = '';
 
   window.rloCatalogProducts = [];
   window.rloCatalogTallas = [];
@@ -137936,119 +138004,174 @@ window.loadRloCatalog = async function(commerceName) {
     var2: 'Variable 2'
   };
 
-  if (!commerceName) return;
+  const fetchAllCatalogProducts = async (selectCols) => {
+    if (typeof window.fetchAllSupabaseRows === 'function') {
+      return await window.fetchAllSupabaseRows(
+        'products',
+        selectCols,
+        (q) => q.eq('comercio', normalizedCommerce).neq('status', 'archived').order('name')
+      );
+    }
+    const allRows = [];
+    const pageSize = 1000;
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from('products')
+        .select(selectCols)
+        .eq('comercio', normalizedCommerce)
+        .neq('status', 'archived')
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      const chunk = data || [];
+      allRows.push(...chunk);
+      if (chunk.length < pageSize) break;
+      from += pageSize;
+    }
+    allRows.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+    return allRows;
+  };
 
-  // Cargar configuración de nombres de variantes del comercio
-  try {
-    let commerceCfg = null;
-    if (typeof getCommerceVariantConfig === 'function') {
-      commerceCfg = await getCommerceVariantConfig(commerceName);
-    } else {
-      const { data: addCfg } = await supabase
-        .from('comercios_adicional_config')
-        .select('plat_siglas_config')
-        .eq('comercio', commerceName)
-        .maybeSingle();
-      if (addCfg && addCfg.plat_siglas_config && addCfg.plat_siglas_config.variant_config) {
-        commerceCfg = addCfg.plat_siglas_config.variant_config;
+  const loadPromise = (async () => {
+    // Cargar configuración de nombres de variantes del comercio
+    try {
+      let commerceCfg = null;
+      if (typeof getCommerceVariantConfig === 'function') {
+        commerceCfg = await getCommerceVariantConfig(normalizedCommerce);
+      } else {
+        const { data: addCfg } = await supabase
+          .from('comercios_adicional_config')
+          .select('plat_siglas_config')
+          .eq('comercio', normalizedCommerce)
+          .maybeSingle();
+        if (addCfg && addCfg.plat_siglas_config && addCfg.plat_siglas_config.variant_config) {
+          commerceCfg = addCfg.plat_siglas_config.variant_config;
+        }
+      }
+
+      if (loadSeq !== window.rloCatalogLoadSeq) return;
+
+      if (commerceCfg && commerceCfg.naming) {
+        if (commerceCfg.naming.color) window.rloVariantNaming.color = commerceCfg.naming.color;
+        if (commerceCfg.naming.talla) window.rloVariantNaming.talla = commerceCfg.naming.talla;
+        if (commerceCfg.naming.var1) window.rloVariantNaming.var1 = commerceCfg.naming.var1;
+        if (commerceCfg.naming.var2) window.rloVariantNaming.var2 = commerceCfg.naming.var2;
+      }
+    } catch (cfgErr) {
+      console.warn('Could not load commerce variant config:', cfgErr);
+    }
+
+    try {
+      let rawProducts = [];
+      try {
+        rawProducts = await fetchAllCatalogProducts(
+          'id, sku, name, is_pack, is_virtual, color, talla, variable_1, variable_2, options, inventory(quantity, committed_quantity)'
+        );
+      } catch (errCol) {
+        console.warn('Fallback loading catalog without variable_2 column:', errCol);
+        rawProducts = await fetchAllCatalogProducts(
+          'id, sku, name, is_pack, is_virtual, color, talla, variable_1, options, inventory(quantity, committed_quantity)'
+        );
+      }
+
+      if (loadSeq !== window.rloCatalogLoadSeq) return;
+
+      window.rloCatalogProducts = (rawProducts || [])
+        .filter(p => !p.is_pack && !p.is_virtual)
+        .map(p => {
+          const totalAvailable = (p.inventory || []).reduce((acc, inv) => {
+            return acc + ((inv.quantity || 0) - (inv.committed_quantity || 0));
+          }, 0);
+          const variants = window.extractRloProductVariants(p, { naming: window.rloVariantNaming });
+          return {
+            id: p.id,
+            sku: p.sku || '',
+            name: p.name || '',
+            color: variants.color,
+            talla: variants.talla,
+            var1: variants.var1,
+            var2: variants.var2,
+            available_stock: totalAvailable,
+            _searchText: normalizeRloSearchText([p.name, p.sku, variants.talla, variants.color, variants.var1, variants.var2].filter(Boolean).join(' '))
+          };
+        });
+
+      window.rloCatalogTallas = Array.from(new Set(
+        window.rloCatalogProducts.map(p => p.talla).filter(Boolean)
+      )).sort();
+
+      window.rloCatalogColors = Array.from(new Set(
+        window.rloCatalogProducts.map(p => p.color).filter(Boolean)
+      )).sort();
+
+      window.rloCatalogVar1 = Array.from(new Set(
+        window.rloCatalogProducts.map(p => p.var1).filter(Boolean)
+      )).sort();
+
+      window.rloCatalogVar2 = Array.from(new Set(
+        window.rloCatalogProducts.map(p => p.var2).filter(Boolean)
+      )).sort();
+
+      window.rloLoadedCommerce = normalizedCommerce;
+    } catch (err) {
+      console.error('Error fetching catalog products for admin RLO modal:', err);
+    } finally {
+      if (loadSeq === window.rloCatalogLoadSeq) {
+        window.rloCatalogLoadPromise = null;
+        window.rloCatalogLoadingCommerce = '';
       }
     }
 
-    if (commerceCfg && commerceCfg.naming) {
-      if (commerceCfg.naming.color) window.rloVariantNaming.color = commerceCfg.naming.color;
-      if (commerceCfg.naming.talla) window.rloVariantNaming.talla = commerceCfg.naming.talla;
-      if (commerceCfg.naming.var1) window.rloVariantNaming.var1 = commerceCfg.naming.var1;
-      if (commerceCfg.naming.var2) window.rloVariantNaming.var2 = commerceCfg.naming.var2;
+    if (loadSeq !== window.rloCatalogLoadSeq) return;
+
+    const hasCatalog = window.rloCatalogProducts.length > 0;
+    const manualModeWrapper = document.getElementById('rlo-manual-mode-wrapper');
+    const manualModeCheckbox = document.getElementById('rlo-manual-mode');
+
+    if (hasCatalog) {
+      if (manualModeWrapper) manualModeWrapper.style.display = 'none';
+      if (manualModeCheckbox) {
+        manualModeCheckbox.checked = false;
+      }
+    } else {
+      if (manualModeWrapper) manualModeWrapper.style.display = 'flex';
+      if (manualModeCheckbox) {
+        manualModeCheckbox.checked = true;
+      }
     }
-  } catch (cfgErr) {
-    console.warn('Could not load commerce variant config:', cfgErr);
-  }
+  })();
 
-  try {
-    let rawProducts = [];
-    try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, sku, name, is_pack, is_virtual, color, talla, variable_1, variable_2, options, inventory(quantity, committed_quantity)')
-        .eq('comercio', commerceName)
-        .neq('status', 'archived')
-        .order('name');
-      if (error) throw error;
-      rawProducts = data || [];
-    } catch (errCol) {
-      console.warn('Fallback loading catalog without variable_2 column:', errCol);
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, sku, name, is_pack, is_virtual, color, talla, variable_1, options, inventory(quantity, committed_quantity)')
-        .eq('comercio', commerceName)
-        .neq('status', 'archived')
-        .order('name');
-      if (!error) rawProducts = data || [];
-    }
-    
-    window.rloCatalogProducts = rawProducts
-      .filter(p => !p.is_pack && !p.is_virtual)
-      .map(p => {
-        const totalAvailable = (p.inventory || []).reduce((acc, inv) => {
-          return acc + ((inv.quantity || 0) - (inv.committed_quantity || 0));
-        }, 0);
-        const variants = window.extractRloProductVariants(p, { naming: window.rloVariantNaming });
-        return {
-          id: p.id,
-          sku: p.sku,
-          name: p.name,
-          color: variants.color,
-          talla: variants.talla,
-          var1: variants.var1,
-          var2: variants.var2,
-          available_stock: totalAvailable
-        };
-      });
-
-    window.rloCatalogTallas = Array.from(new Set(
-      window.rloCatalogProducts.map(p => p.talla).filter(Boolean)
-    )).sort();
-
-    window.rloCatalogColors = Array.from(new Set(
-      window.rloCatalogProducts.map(p => p.color).filter(Boolean)
-    )).sort();
-
-    window.rloCatalogVar1 = Array.from(new Set(
-      window.rloCatalogProducts.map(p => p.var1).filter(Boolean)
-    )).sort();
-
-    window.rloCatalogVar2 = Array.from(new Set(
-      window.rloCatalogProducts.map(p => p.var2).filter(Boolean)
-    )).sort();
-
-  } catch (err) {
-    console.error('Error fetching catalog products for admin RLO modal:', err);
-  }
-
-  const hasCatalog = window.rloCatalogProducts.length > 0;
-  const manualModeWrapper = document.getElementById('rlo-manual-mode-wrapper');
-  const manualModeCheckbox = document.getElementById('rlo-manual-mode');
-
-  if (hasCatalog) {
-    if (manualModeWrapper) manualModeWrapper.style.display = 'none';
-    if (manualModeCheckbox) {
-      manualModeCheckbox.checked = false;
-    }
-  } else {
-    if (manualModeWrapper) manualModeWrapper.style.display = 'flex';
-    if (manualModeCheckbox) {
-      manualModeCheckbox.checked = true;
-    }
-  }
+  window.rloCatalogLoadPromise = loadPromise;
+  return loadPromise;
 };
 
 // MODAL SELECTOR DE PRODUCTOS CON FILTRO DE VARIANTES (TALLA, COLOR, VAR1, VAR2) Y NOMBRE COMPLETO
 window.openRloProductPicker = async function(direction, targetRow, customOptions = null) {
+  // Soportar llamadas como openRloProductPicker(1, { commerce, onSelect }) desde el modal de edición
+  let resolvedDirection = direction;
+  let resolvedTargetRow = targetRow;
+  let resolvedOptions = customOptions;
+
+  if (resolvedDirection === 1) resolvedDirection = 'incoming';
+  if (resolvedDirection === 2) resolvedDirection = 'outgoing';
+
+  if (
+    !resolvedOptions &&
+    resolvedTargetRow &&
+    typeof resolvedTargetRow === 'object' &&
+    !(resolvedTargetRow instanceof Element) &&
+    ('commerce' in resolvedTargetRow || 'onSelect' in resolvedTargetRow)
+  ) {
+    resolvedOptions = resolvedTargetRow;
+    resolvedTargetRow = null;
+  }
+
   let commerce = '';
-  if (customOptions && customOptions.commerce) {
-    commerce = customOptions.commerce;
+  if (resolvedOptions && resolvedOptions.commerce) {
+    commerce = String(resolvedOptions.commerce).trim();
   } else {
-    commerce = document.getElementById('rlo-select-commerce') ? document.getElementById('rlo-select-commerce').value : '';
+    commerce = document.getElementById('rlo-select-commerce') ? String(document.getElementById('rlo-select-commerce').value || '').trim() : '';
   }
 
   if (!commerce) {
@@ -138062,19 +138185,16 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
     return;
   }
 
-  if (window.rloLoadedCommerce !== commerce || !Array.isArray(window.rloCatalogProducts) || window.rloCatalogProducts.length === 0) {
-    await window.loadRloCatalog(commerce);
-  }
-
-  window.rloPickerState.direction = direction;
-  window.rloPickerState.targetRow = targetRow;
-  window.rloPickerState.onSelect = (customOptions && typeof customOptions.onSelect === 'function') ? customOptions.onSelect : null;
+  window.rloPickerState.direction = resolvedDirection;
+  window.rloPickerState.targetRow = resolvedTargetRow;
+  window.rloPickerState.onSelect = (resolvedOptions && typeof resolvedOptions.onSelect === 'function') ? resolvedOptions.onSelect : null;
   window.rloPickerState.activeTalla = '';
   window.rloPickerState.activeColor = '';
   window.rloPickerState.activeVar1 = '';
   window.rloPickerState.activeVar2 = '';
   window.rloPickerState.activeSearch = '';
-  window.rloPickerState.stockOnly = direction === 'outgoing';
+  window.rloPickerState.stockOnly = resolvedDirection === 'outgoing';
+  window.rloPickerState.renderLimit = 150;
 
   const badge = document.getElementById('rlo-picker-commerce-badge');
   if (badge) badge.textContent = commerce;
@@ -138082,19 +138202,51 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
   const searchInput = document.getElementById('rlo-picker-search');
   if (searchInput) searchInput.value = '';
 
+  const pickerModal = document.getElementById('modal-rlo-product-picker');
+  if (pickerModal) {
+    pickerModal.style.zIndex = '1350';
+    pickerModal.classList.add('active');
+  }
+
+  const needsLoad =
+    window.rloLoadedCommerce !== commerce ||
+    window.rloCatalogLoadingCommerce === commerce ||
+    !Array.isArray(window.rloCatalogProducts) ||
+    window.rloCatalogProducts.length === 0;
+
+  if (needsLoad) {
+    const listContainer = document.getElementById('rlo-picker-list-container');
+    const countSpan = document.getElementById('rlo-picker-results-count');
+    const filterBarLoading = document.getElementById('rlo-picker-variant-filters-bar');
+    if (filterBarLoading) filterBarLoading.innerHTML = '';
+    if (countSpan) countSpan.textContent = 'Cargando catálogo completo...';
+    if (listContainer) {
+      const escape = window.escapeHtml || (s => s);
+      listContainer.innerHTML = `
+        <div style="text-align: center; padding: 3rem 1rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line" style="font-size: 2.2rem; display: inline-block; animation: spin 1s linear infinite; color: var(--color-primary); margin-bottom: 0.6rem;"></i>
+          <strong style="display: block; font-size: 0.95rem; color: var(--color-text-main);">Cargando catálogo de ${escape(commerce)}...</strong>
+          <span style="font-size: 0.825rem;">Obteniendo todos los productos y su stock disponible.</span>
+        </div>
+      `;
+    }
+    await window.loadRloCatalog(commerce);
+  }
+
   // Renderizar barra de filtros dinámicos (Talla, Color, Variable 1, Variable 2)
   const filterBar = document.getElementById('rlo-picker-variant-filters-bar');
   if (filterBar) {
     let barHtml = '';
+    const escape = window.escapeHtml || (s => s);
     const naming = window.rloVariantNaming || { color: 'Color', talla: 'Talla', var1: 'Variable 1', var2: 'Variable 2' };
 
     if (window.rloCatalogTallas && window.rloCatalogTallas.length > 0) {
       barHtml += `
         <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${naming.talla}:</label>
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${escape(naming.talla)}:</label>
           <select id="rlo-picker-select-talla" class="form-input" style="padding: 0.3rem 0.6rem; font-size: 0.825rem; width: auto; min-width: 105px;">
             <option value="">Todas</option>
-            ${window.rloCatalogTallas.map(t => `<option value="${t}">${t}</option>`).join('')}
+            ${window.rloCatalogTallas.map(t => `<option value="${escape(t)}">${escape(t)}</option>`).join('')}
           </select>
         </div>
       `;
@@ -138103,10 +138255,10 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
     if (window.rloCatalogColors && window.rloCatalogColors.length > 0) {
       barHtml += `
         <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${naming.color}:</label>
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${escape(naming.color)}:</label>
           <select id="rlo-picker-select-color" class="form-input" style="padding: 0.3rem 0.6rem; font-size: 0.825rem; width: auto; min-width: 115px;">
             <option value="">Todos</option>
-            ${window.rloCatalogColors.map(c => `<option value="${c}">${c}</option>`).join('')}
+            ${window.rloCatalogColors.map(c => `<option value="${escape(c)}">${escape(c)}</option>`).join('')}
           </select>
         </div>
       `;
@@ -138115,10 +138267,10 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
     if (window.rloCatalogVar1 && window.rloCatalogVar1.length > 0) {
       barHtml += `
         <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${naming.var1}:</label>
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${escape(naming.var1)}:</label>
           <select id="rlo-picker-select-var1" class="form-input" style="padding: 0.3rem 0.6rem; font-size: 0.825rem; width: auto; min-width: 115px;">
             <option value="">Todas</option>
-            ${window.rloCatalogVar1.map(v => `<option value="${v}">${v}</option>`).join('')}
+            ${window.rloCatalogVar1.map(v => `<option value="${escape(v)}">${escape(v)}</option>`).join('')}
           </select>
         </div>
       `;
@@ -138127,10 +138279,10 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
     if (window.rloCatalogVar2 && window.rloCatalogVar2.length > 0) {
       barHtml += `
         <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${naming.var2}:</label>
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${escape(naming.var2)}:</label>
           <select id="rlo-picker-select-var2" class="form-input" style="padding: 0.3rem 0.6rem; font-size: 0.825rem; width: auto; min-width: 115px;">
             <option value="">Todas</option>
-            ${window.rloCatalogVar2.map(v => `<option value="${v}">${v}</option>`).join('')}
+            ${window.rloCatalogVar2.map(v => `<option value="${escape(v)}">${escape(v)}</option>`).join('')}
           </select>
         </div>
       `;
@@ -138151,6 +138303,7 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
     if (selTalla) {
       selTalla.addEventListener('change', (e) => {
         window.rloPickerState.activeTalla = e.target.value;
+        window.rloPickerState.renderLimit = 150;
         window.renderRloPickerProducts();
       });
     }
@@ -138159,6 +138312,7 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
     if (selColor) {
       selColor.addEventListener('change', (e) => {
         window.rloPickerState.activeColor = e.target.value;
+        window.rloPickerState.renderLimit = 150;
         window.renderRloPickerProducts();
       });
     }
@@ -138167,6 +138321,7 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
     if (selVar1) {
       selVar1.addEventListener('change', (e) => {
         window.rloPickerState.activeVar1 = e.target.value;
+        window.rloPickerState.renderLimit = 150;
         window.renderRloPickerProducts();
       });
     }
@@ -138175,6 +138330,7 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
     if (selVar2) {
       selVar2.addEventListener('change', (e) => {
         window.rloPickerState.activeVar2 = e.target.value;
+        window.rloPickerState.renderLimit = 150;
         window.renderRloPickerProducts();
       });
     }
@@ -138183,18 +138339,13 @@ window.openRloProductPicker = async function(direction, targetRow, customOptions
     if (chkStock) {
       chkStock.addEventListener('change', (e) => {
         window.rloPickerState.stockOnly = e.target.checked;
+        window.rloPickerState.renderLimit = 150;
         window.renderRloPickerProducts();
       });
     }
   }
 
   window.renderRloPickerProducts();
-
-  const pickerModal = document.getElementById('modal-rlo-product-picker');
-  if (pickerModal) {
-    pickerModal.style.zIndex = '1350';
-    pickerModal.classList.add('active');
-  }
 
   setTimeout(() => {
     if (searchInput) searchInput.focus();
@@ -138206,13 +138357,20 @@ window.closeRloProductPicker = function() {
   if (pickerModal) pickerModal.classList.remove('active');
 };
 
-window.renderRloPickerProducts = function() {
+window.loadMoreRloPickerProducts = function() {
+  window.rloPickerState.renderLimit = (window.rloPickerState.renderLimit || 150) + 150;
+  window.renderRloPickerProducts(true);
+};
+
+window.renderRloPickerProducts = function(preserveScroll = false) {
   const listContainer = document.getElementById('rlo-picker-list-container');
   const countSpan = document.getElementById('rlo-picker-results-count');
   if (!listContainer) return;
 
+  const prevScrollTop = preserveScroll ? listContainer.scrollTop : 0;
   const catalog = window.rloCatalogProducts || [];
-  const q = (window.rloPickerState.activeSearch || '').toLowerCase().trim();
+  const qNorm = normalizeRloSearchText(window.rloPickerState.activeSearch || '');
+  const qTokens = qNorm ? qNorm.split(/\s+/).filter(Boolean) : [];
   const filterTalla = window.rloPickerState.activeTalla;
   const filterColor = window.rloPickerState.activeColor;
   const filterVar1 = window.rloPickerState.activeVar1;
@@ -138220,12 +138378,14 @@ window.renderRloPickerProducts = function() {
   const stockOnly = window.rloPickerState.stockOnly;
   const isOut = window.rloPickerState.direction === 'outgoing';
   const naming = window.rloVariantNaming || { color: 'Color', talla: 'Talla', var1: 'Variable 1', var2: 'Variable 2' };
+  const renderLimit = window.rloPickerState.renderLimit || 150;
 
   const filtered = catalog.filter(p => {
-    if (q) {
-      const matchName = (p.name || '').toLowerCase().includes(q);
-      const matchSku = (p.sku || '').toLowerCase().includes(q);
-      if (!matchName && !matchSku) return false;
+    if (qTokens.length > 0) {
+      const hay = p._searchText || normalizeRloSearchText(`${p.name || ''} ${p.sku || ''}`);
+      for (let i = 0; i < qTokens.length; i++) {
+        if (!hay.includes(qTokens[i])) return false;
+      }
     }
     if (filterTalla && p.talla !== filterTalla) return false;
     if (filterColor && p.color !== filterColor) return false;
@@ -138235,11 +138395,10 @@ window.renderRloPickerProducts = function() {
     return true;
   });
 
-  if (countSpan) {
-    countSpan.textContent = `${filtered.length} producto${filtered.length === 1 ? '' : 's'} encontrado${filtered.length === 1 ? '' : 's'}`;
-  }
-
   if (filtered.length === 0) {
+    if (countSpan) {
+      countSpan.textContent = '0 productos encontrados';
+    }
     listContainer.innerHTML = `
       <div style="text-align: center; padding: 3rem 1rem; color: var(--color-text-muted);">
         <i class="ri-search-line" style="font-size: 2.2rem; opacity: 0.4; display: block; margin-bottom: 0.5rem;"></i>
@@ -138255,12 +138414,25 @@ window.renderRloPickerProducts = function() {
     const stockA = a.available_stock > 0 ? 1 : 0;
     const stockB = b.available_stock > 0 ? 1 : 0;
     if (stockA !== stockB) return stockB - stockA;
-    return a.name.localeCompare(b.name);
+    return String(a.name || '').localeCompare(String(b.name || ''));
   });
 
-  listContainer.innerHTML = sorted.map(p => {
+  const visibleItems = sorted.slice(0, renderLimit);
+  const remaining = sorted.length - visibleItems.length;
+
+  if (countSpan) {
+    const totalFmt = sorted.length.toLocaleString('es-CL');
+    if (remaining > 0) {
+      countSpan.textContent = `Mostrando ${visibleItems.length.toLocaleString('es-CL')} de ${totalFmt} productos encontrados`;
+    } else {
+      countSpan.textContent = `${totalFmt} producto${sorted.length === 1 ? '' : 's'} encontrado${sorted.length === 1 ? '' : 's'}`;
+    }
+  }
+
+  const escape = window.escapeHtml || (s => s);
+  let html = visibleItems.map(p => {
     const hasStock = (p.available_stock || 0) > 0;
-    const escape = window.escapeHtml || (s => s);
+    const safeId = String(p.id || '').replace(/'/g, "\\'");
     return `
       <div class="rlo-picker-item" style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); gap: 1rem; transition: all 0.2s; ${!hasStock && isOut ? 'opacity: 0.7;' : ''}">
         <div style="flex: 1; min-width: 0;">
@@ -138284,13 +138456,26 @@ window.renderRloPickerProducts = function() {
               : `<span class="badge badge-danger" style="font-size: 0.78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-line"></i> 0 disp.</span>`
             }
           </div>
-          <button type="button" class="btn btn-primary" onclick="window.selectRloPickerProduct('${p.id}')" style="padding: 0.45rem 1rem; font-size: 0.825rem; font-weight: 600; white-space: nowrap;">
+          <button type="button" class="btn btn-primary" onclick="window.selectRloPickerProduct('${safeId}')" style="padding: 0.45rem 1rem; font-size: 0.825rem; font-weight: 600; white-space: nowrap;">
             Seleccionar
           </button>
         </div>
       </div>
     `;
   }).join('');
+
+  if (remaining > 0) {
+    html += `
+      <div style="text-align: center; padding: 0.75rem 0 0.25rem;">
+        <button type="button" class="btn btn-outline" onclick="window.loadMoreRloPickerProducts()" style="font-size: 0.825rem; font-weight: 600; padding: 0.5rem 1.25rem;">
+          <i class="ri-add-line"></i> Mostrar más productos (${remaining.toLocaleString('es-CL')} restantes)
+        </button>
+      </div>
+    `;
+  }
+
+  listContainer.innerHTML = html;
+  listContainer.scrollTop = preserveScroll ? prevScrollTop : 0;
 };
 
 window.selectRloPickerProduct = async function(productId) {
@@ -138320,6 +138505,140 @@ window.selectRloPickerProduct = async function(productId) {
   window.closeRloProductPicker();
 };
 
+window.syncRloIncomingStockReturnUI = function(rowElement) {
+  if (!rowElement) return;
+  const cb = rowElement.querySelector('.rlo-prod-stock-return');
+  if (!cb) return;
+
+  const isReturnToStock = cb.checked;
+  const box = rowElement.querySelector('.rlo-stock-return-box');
+  const titleEl = rowElement.querySelector('.rlo-stock-return-title');
+  const badgeEl = rowElement.querySelector('.rlo-stock-return-badge');
+  const descEl = rowElement.querySelector('.rlo-stock-return-desc');
+  const commentLabel = rowElement.querySelector('.rlo-comment-label');
+  const commentInput = rowElement.querySelector('.rlo-prod-comment');
+  const commentHint = rowElement.querySelector('.rlo-comment-required-hint');
+
+  if (box) {
+    box.style.background = isReturnToStock ? 'rgba(16, 185, 129, 0.06)' : 'rgba(239, 68, 68, 0.06)';
+    box.style.borderColor = isReturnToStock ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.35)';
+  }
+  if (titleEl) {
+    titleEl.textContent = isReturnToStock
+      ? 'Retornar unidad(es) al stock disponible'
+      : 'No retorna al stock disponible (Falla / Deterioro)';
+    titleEl.style.color = isReturnToStock ? '#065f46' : '#991b1b';
+  }
+  if (badgeEl) {
+    badgeEl.textContent = isReturnToStock ? 'Suma a inventario' : 'No suma stock';
+    badgeEl.style.background = isReturnToStock ? 'rgba(16, 185, 129, 0.14)' : 'rgba(239, 68, 68, 0.14)';
+    badgeEl.style.color = isReturnToStock ? '#047857' : '#b91c1c';
+    badgeEl.style.borderColor = isReturnToStock ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)';
+  }
+  if (descEl) {
+    descEl.innerHTML = isReturnToStock
+      ? 'Al marcar esta opción, la unidad recibida en devolución o cambio <strong>regresará al stock disponible</strong>. Desmárcala si presenta falla, daño o deterioro.'
+      : 'La unidad <strong>NO regresará al stock disponible</strong> por presentar falla, daño o deterioro. Debes indicar el motivo en observaciones obligatoriamente.';
+    descEl.style.color = isReturnToStock ? '#047857' : '#991b1b';
+  }
+  if (commentLabel) {
+    commentLabel.innerHTML = isReturnToStock
+      ? 'Observaciones / Motivo <span style="font-weight: 500; color: var(--color-text-muted);">(opcional)</span>'
+      : 'Observaciones de la falla, daño o deterioro <span style="color: #dc2626; font-weight: 700;">* Obligatorio</span>';
+  }
+  if (commentInput) {
+    const isEmpty = !commentInput.value.trim();
+    commentInput.placeholder = isReturnToStock
+      ? 'Ej: Cambio de talla, producto sellado y en perfecto estado...'
+      : 'Obligatorio: describe el problema, falla, deterioro o daño que impide volver a stock...';
+    if (!isReturnToStock && isEmpty) {
+      commentInput.style.borderColor = '#ef4444';
+      commentInput.style.background = 'rgba(239, 68, 68, 0.03)';
+    } else if (!isReturnToStock) {
+      commentInput.style.borderColor = '#f59e0b';
+      commentInput.style.background = 'var(--color-surface)';
+    } else {
+      commentInput.style.borderColor = '';
+      commentInput.style.background = '';
+    }
+  }
+  if (commentHint) {
+    const isEmpty = !commentInput || !commentInput.value.trim();
+    commentHint.style.display = (!isReturnToStock && isEmpty) ? 'flex' : 'none';
+  }
+};
+
+window.updateRloProductStepSummaries = function() {
+  const escape = window.escapeHtml || (s => s);
+
+  ['incoming', 'outgoing'].forEach(direction => {
+    const containerId = direction === 'incoming' ? 'rlo-incoming-tbody' : 'rlo-outgoing-tbody';
+    const badgeId = direction === 'incoming' ? 'rlo-incoming-summary-badge' : 'rlo-outgoing-summary-badge';
+    const container = document.getElementById(containerId);
+    const badge = document.getElementById(badgeId);
+
+    if (container) {
+      const cards = container.querySelectorAll('.rlo-prod-row');
+      cards.forEach((card, idx) => {
+        const idxEl = card.querySelector('.rlo-card-index');
+        if (idxEl) idxEl.textContent = `Ítem #${idx + 1}`;
+      });
+    }
+
+    if (badge) {
+      const prods = getRloProductsFromTable(direction);
+      const totalUnits = prods.reduce((sum, p) => sum + (parseInt(p.cantidad, 10) || 0), 0);
+      if (prods.length === 0) {
+        badge.textContent = 'Sin seleccionar';
+      } else {
+        badge.textContent = `${prods.length} producto${prods.length === 1 ? '' : 's'} · ${totalUnits} u.`;
+      }
+    }
+  });
+
+  // Actualizar referencia rápida de productos entrantes en la etapa de salida
+  const incomingRefEl = document.getElementById('rlo-outgoing-incoming-ref');
+  if (incomingRefEl) {
+    const incProds = getRloProductsFromTable('incoming');
+    if (incProds.length > 0) {
+      const chips = incProds.map(p => {
+        const stockTag = p.regresar_a_inventario
+          ? `<span style="color: #059669; font-weight: 600;">(vuelve a stock)</span>`
+          : `<span style="color: #dc2626; font-weight: 600;">(no vuelve a stock)</span>`;
+        return `<span style="display: inline-flex; align-items: center; gap: 0.3rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.2rem 0.55rem; border-radius: 6px; font-size: 0.78rem; color: var(--color-text-main);"><strong>${p.cantidad}x</strong> ${escape(p.name || p.sku)} ${stockTag}</span>`;
+      }).join('');
+      incomingRefEl.innerHTML = `
+        <div style="font-weight: 700; color: var(--color-text-main); margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-arrow-left-down-line" style="color: var(--color-primary);"></i> Referencia — Productos que devuelve el cliente:
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">${chips}</div>
+      `;
+      incomingRefEl.style.display = 'block';
+    } else {
+      incomingRefEl.style.display = 'none';
+    }
+  }
+};
+
+window.syncRloOutgoingStockWarning = function(rowElement) {
+  if (!rowElement) return;
+  const warnEl = rowElement.querySelector('.rlo-outgoing-stock-warn');
+  const qtyInput = rowElement.querySelector('.rlo-prod-qty');
+  const hasProd = Boolean(rowElement.dataset.productId || rowElement.dataset.sku);
+  if (!warnEl || !qtyInput || !hasProd) {
+    if (warnEl) warnEl.style.display = 'none';
+    return;
+  }
+  const availStock = parseInt(rowElement.dataset.availStock || '0', 10);
+  const qty = parseInt(qtyInput.value || '1', 10) || 1;
+  if (qty > availStock) {
+    warnEl.innerHTML = `<i class="ri-error-warning-line"></i> Solicitaste <strong>${qty}</strong> u., pero solo hay <strong>${availStock}</strong> disponible${availStock === 1 ? '' : 's'} en WMS.`;
+    warnEl.style.display = 'flex';
+  } else {
+    warnEl.style.display = 'none';
+  }
+};
+
 window.setRloRowProduct = function(rowElement, product, direction) {
   if (!rowElement || !product) return;
 
@@ -138335,16 +138654,16 @@ window.setRloRowProduct = function(rowElement, product, direction) {
   rowElement.dataset.availStock = product.available_stock || 0;
 
   cell.innerHTML = `
-    <input type="hidden" class="rlo-prod-id" value="${product.id}">
+    <input type="hidden" class="rlo-prod-id" value="${product.id || ''}">
     <input type="hidden" class="rlo-prod-sku" value="${escape(product.sku)}">
     <input type="hidden" class="rlo-prod-name" value="${escape(product.name)}">
-    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: var(--color-bg); padding: 0.6rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
       <div style="flex: 1; min-width: 0;">
-        <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); word-break: break-word; line-height: 1.35;">
+        <div style="font-weight: 700; font-size: 0.88rem; color: var(--color-text-main); word-break: break-word; line-height: 1.35;">
           ${escape(product.name)}
         </div>
-        <div style="display: flex; gap: 0.4rem; align-items: center; margin-top: 0.25rem; flex-wrap: wrap;">
-          <span style="font-family: monospace; font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-surface); padding: 0.1rem 0.35rem; border-radius: 3px; border: 1px solid var(--color-border);">
+        <div style="display: flex; gap: 0.4rem; align-items: center; margin-top: 0.3rem; flex-wrap: wrap;">
+          <span style="font-family: monospace; font-size: 0.73rem; color: var(--color-text-muted); background: var(--color-surface); padding: 0.12rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border);">
             SKU: ${escape(product.sku)}
           </span>
           ${product.talla ? `<span class="badge" style="font-size: 0.7rem; background: rgba(59, 130, 246, 0.1); color: var(--color-primary); font-weight: 700; border: 1px solid rgba(59, 130, 246, 0.25);">${escape(naming.talla)}: ${escape(product.talla)}</span>` : ''}
@@ -138353,7 +138672,7 @@ window.setRloRowProduct = function(rowElement, product, direction) {
           ${product.var2 ? `<span class="badge" style="font-size: 0.7rem; background: rgba(245, 158, 11, 0.1); color: #b45309; font-weight: 700; border: 1px solid rgba(245, 158, 11, 0.25);">${escape(naming.var2)}: ${escape(product.var2)}</span>` : ''}
         </div>
       </div>
-      <button type="button" class="btn btn-outline rlo-btn-change" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; gap: 0.2rem;">
+      <button type="button" class="btn btn-outline rlo-btn-change" style="padding: 0.35rem 0.7rem; font-size: 0.76rem; font-weight: 600; white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; gap: 0.25rem;">
         <i class="ri-refresh-line"></i> Cambiar
       </button>
     </div>
@@ -138367,106 +138686,207 @@ window.setRloRowProduct = function(rowElement, product, direction) {
     const stockCell = rowElement.querySelector('.rlo-stock-cell');
     if (stockCell) {
       if ((product.available_stock || 0) > 0) {
-        stockCell.innerHTML = `<span class="badge badge-success" style="font-size: 0.78rem; font-weight: 700;">${product.available_stock} disp.</span>`;
+        stockCell.innerHTML = `<span class="badge badge-success" style="font-size: 0.78rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> ${product.available_stock} disp.</span>`;
       } else {
-        stockCell.innerHTML = `<span class="badge badge-danger" style="font-size: 0.78rem; font-weight: 700;">0 disp.</span>`;
+        stockCell.innerHTML = `<span class="badge badge-danger" style="font-size: 0.78rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> 0 disp.</span>`;
       }
     }
     const qtyInput = rowElement.querySelector('.rlo-prod-qty');
     if (qtyInput && product.available_stock > 0) {
       qtyInput.max = product.available_stock;
+    } else if (qtyInput) {
+      qtyInput.removeAttribute('max');
     }
+    window.syncRloOutgoingStockWarning(rowElement);
   }
+
+  window.updateRloProductStepSummaries();
 };
 
 window.addRloRow = function(direction, isManual) {
   const tbodyId = direction === 'incoming' ? 'rlo-incoming-tbody' : 'rlo-outgoing-tbody';
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return null;
-  const tr = document.createElement('tr');
-  tr.className = 'rlo-prod-row' + (isManual ? ' manual' : '');
-  
-  if (isManual) {
-    if (direction === 'incoming') {
-      tr.innerHTML = `
-        <td>
-          <div style="display: flex; gap: 0.5rem;">
-            <input type="text" class="form-input rlo-prod-sku" placeholder="SKU" required style="width: 40%;">
-            <input type="text" class="form-input rlo-prod-name" placeholder="Nombre Producto" required style="width: 60%;">
-          </div>
-        </td>
-        <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
-        <td style="text-align: center;"><input type="checkbox" class="rlo-prod-stock-return" checked style="width: 18px; height: 18px; cursor: pointer;"></td>
-        <td><input type="text" class="form-input rlo-prod-comment" placeholder="Comentario / motivo..." style="width: 100%;"></td>
-        <td style="text-align: center;">
-          <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-        </td>
-      `;
-    } else {
-      tr.innerHTML = `
-        <td>
-          <div style="display: flex; gap: 0.5rem;">
-            <input type="text" class="form-input rlo-prod-sku" placeholder="SKU" required style="width: 40%;">
-            <input type="text" class="form-input rlo-prod-name" placeholder="Nombre Producto" required style="width: 60%;">
-          </div>
-        </td>
-        <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
-        <td style="text-align: center;"><span class="badge" style="background: var(--color-bg); color: var(--color-text-muted);">Manual</span></td>
-        <td style="text-align: center;">
-          <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-        </td>
-      `;
-    }
-  } else {
-    // Catalog mode
-    if (direction === 'incoming') {
-      tr.innerHTML = `
-        <td class="rlo-prod-cell">
-          <input type="hidden" class="rlo-prod-id" value="">
-          <input type="hidden" class="rlo-prod-sku" value="">
-          <input type="hidden" class="rlo-prod-name" value="">
-          <button type="button" class="btn btn-outline rlo-btn-pick" style="width: 100%; justify-content: flex-start; text-align: left; padding: 0.55rem 0.85rem; border: 1.5px dashed var(--color-border); font-size: 0.85rem; color: var(--color-text-muted); background: var(--color-bg); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
-            <i class="ri-search-line" style="color: var(--color-primary); font-size: 1rem;"></i> Seleccionar producto devuelto...
-          </button>
-        </td>
-        <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
-        <td style="text-align: center;"><input type="checkbox" class="rlo-prod-stock-return" checked style="width: 18px; height: 18px; cursor: pointer;"></td>
-        <td><input type="text" class="form-input rlo-prod-comment" placeholder="Comentario / motivo..." style="width: 100%;"></td>
-        <td style="text-align: center;">
-          <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-        </td>
-      `;
-    } else {
-      tr.innerHTML = `
-        <td class="rlo-prod-cell">
-          <input type="hidden" class="rlo-prod-id" value="">
-          <input type="hidden" class="rlo-prod-sku" value="">
-          <input type="hidden" class="rlo-prod-name" value="">
-          <button type="button" class="btn btn-outline rlo-btn-pick" style="width: 100%; justify-content: flex-start; text-align: left; padding: 0.55rem 0.85rem; border: 1.5px dashed var(--color-border); font-size: 0.85rem; color: var(--color-text-muted); background: var(--color-bg); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
-            <i class="ri-search-line" style="color: var(--color-success); font-size: 1rem;"></i> Seleccionar producto de reemplazo...
-          </button>
-        </td>
-        <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
-        <td style="text-align: center;" class="rlo-stock-cell">
-          <span class="badge" style="background: var(--color-bg); color: var(--color-text-muted);">-</span>
-        </td>
-        <td style="text-align: center;">
-          <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-        </td>
-      `;
-    }
 
-    const btnPick = tr.querySelector('.rlo-btn-pick');
+  const isIncoming = direction === 'incoming';
+  const card = document.createElement('div');
+  card.className = 'rlo-prod-row' + (isManual ? ' manual' : '');
+  card.style.cssText = 'background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.95rem 1rem; display: flex; flex-direction: column; gap: 0.8rem; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); transition: border-color 0.2s;';
+
+  const productSelectorHtml = isManual
+    ? `
+      <div style="display: grid; grid-template-columns: minmax(120px, 34%) 1fr; gap: 0.55rem;">
+        <input type="text" class="form-input rlo-prod-sku" placeholder="SKU del producto" style="font-family: monospace; font-size: 0.84rem;">
+        <input type="text" class="form-input rlo-prod-name" placeholder="Nombre o descripción del producto *" style="font-size: 0.85rem;">
+      </div>
+    `
+    : `
+      <input type="hidden" class="rlo-prod-id" value="">
+      <input type="hidden" class="rlo-prod-sku" value="">
+      <input type="hidden" class="rlo-prod-name" value="">
+      <button type="button" class="btn btn-outline rlo-btn-pick" style="width: 100%; justify-content: flex-start; text-align: left; padding: 0.65rem 0.9rem; border: 1.5px dashed ${isIncoming ? 'rgba(59, 130, 246, 0.45)' : 'rgba(16, 185, 129, 0.5)'}; font-size: 0.86rem; font-weight: 500; color: var(--color-text-muted); background: ${isIncoming ? 'rgba(59, 130, 246, 0.03)' : 'rgba(16, 185, 129, 0.03)'}; border-radius: var(--radius-md); display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+        <i class="ri-search-line" style="color: ${isIncoming ? 'var(--color-primary)' : 'var(--color-success, #10b981)'}; font-size: 1.1rem;"></i>
+        <span>${isIncoming ? 'Buscar y seleccionar producto devuelto del catálogo...' : 'Buscar y seleccionar producto de reemplazo del catálogo...'}</span>
+      </button>
+    `;
+
+  const qtyStepperHtml = `
+    <div style="display: flex; align-items: center; gap: 0.25rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.15rem;">
+      <button type="button" class="rlo-qty-dec" title="Disminuir cantidad" style="width: 28px; height: 28px; border: none; background: var(--color-surface); color: var(--color-text-main); border-radius: 4px; cursor: pointer; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">−</button>
+      <input type="number" class="form-input rlo-prod-qty" min="1" value="1" style="width: 48px; height: 28px; padding: 0.1rem; text-align: center; font-weight: 700; font-size: 0.86rem; border: none; background: transparent; box-shadow: none;">
+      <button type="button" class="rlo-qty-inc" title="Aumentar cantidad" style="width: 28px; height: 28px; border: none; background: var(--color-surface); color: var(--color-text-main); border-radius: 4px; cursor: pointer; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">+</button>
+    </div>
+  `;
+
+  if (isIncoming) {
+    card.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.45rem;">
+          <span class="rlo-card-index" style="font-size: 0.73rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.15rem 0.55rem; border-radius: 999px;">Ítem #1</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="display: flex; align-items: center; gap: 0.45rem;">
+            <span style="font-size: 0.76rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Cantidad:</span>
+            ${qtyStepperHtml}
+          </div>
+          <button type="button" class="btn-remove-row" title="Quitar producto" style="width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid rgba(239, 68, 68, 0.25); background: rgba(239, 68, 68, 0.05); color: var(--color-danger); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 1rem;">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="rlo-prod-cell">
+        ${productSelectorHtml}
+      </div>
+
+      <!-- Control de Retorno a Inventario + Observaciones -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.8rem; align-items: stretch;">
+        <label class="rlo-stock-return-box" style="display: flex; align-items: flex-start; gap: 0.65rem; padding: 0.7rem 0.85rem; border-radius: var(--radius-md); border: 1px solid rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.06); cursor: pointer; margin: 0; transition: all 0.2s;">
+          <input type="checkbox" class="rlo-prod-stock-return" checked style="width: 18px; height: 18px; margin-top: 2px; cursor: pointer; flex-shrink: 0; accent-color: #10b981;">
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap;">
+              <span class="rlo-stock-return-title" style="font-size: 0.83rem; font-weight: 700; color: #065f46;">Retornar unidad(es) al stock disponible</span>
+              <span class="rlo-stock-return-badge" style="font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 999px; border: 1px solid rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.14); color: #047857;">Suma a inventario</span>
+            </div>
+            <div class="rlo-stock-return-desc" style="font-size: 0.75rem; color: #047857; margin-top: 0.25rem; line-height: 1.4;">
+              Al marcar esta opción, la unidad recibida en devolución o cambio <strong>regresará al stock disponible</strong>. Desmárcala si presenta falla, daño o deterioro.
+            </div>
+          </div>
+        </label>
+
+        <div style="display: flex; flex-direction: column; justify-content: center; gap: 0.3rem;">
+          <label class="rlo-comment-label" style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); margin: 0;">
+            Observaciones / Motivo <span style="font-weight: 500; color: var(--color-text-muted);">(opcional)</span>
+          </label>
+          <input type="text" class="form-input rlo-prod-comment" placeholder="Ej: Cambio de talla, producto sellado y en perfecto estado..." style="width: 100%; font-size: 0.84rem; padding: 0.55rem 0.75rem;">
+          <div class="rlo-comment-required-hint" style="display: none; align-items: center; gap: 0.3rem; font-size: 0.74rem; font-weight: 600; color: #dc2626;">
+            <i class="ri-alert-line"></i> Debes detallar la falla, daño o deterioro cuando el producto no vuelve a stock.
+          </div>
+        </div>
+      </div>
+    `;
+  } else {
+    card.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="rlo-card-index" style="font-size: 0.73rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.15rem 0.55rem; border-radius: 999px;">Ítem #1</span>
+          <div class="rlo-stock-cell" style="display: inline-flex; align-items: center;">
+            ${isManual
+              ? `<span class="badge" style="background: var(--color-bg); color: var(--color-text-muted); font-size: 0.74rem;">Manual</span>`
+              : `<span class="badge" style="background: var(--color-bg); color: var(--color-text-muted); font-size: 0.74rem; border: 1px solid var(--color-border);">Stock WMS: —</span>`
+            }
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="display: flex; align-items: center; gap: 0.45rem;">
+            <span style="font-size: 0.76rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Cantidad:</span>
+            ${qtyStepperHtml}
+          </div>
+          <button type="button" class="btn-remove-row" title="Quitar producto" style="width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid rgba(239, 68, 68, 0.25); background: rgba(239, 68, 68, 0.05); color: var(--color-danger); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 1rem;">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="rlo-prod-cell">
+        ${productSelectorHtml}
+      </div>
+
+      <div class="rlo-outgoing-stock-warn" style="display: none; align-items: center; gap: 0.4rem; background: rgba(239, 68, 68, 0.07); border: 1px solid rgba(239, 68, 68, 0.28); color: #b91c1c; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.78rem;"></div>
+    `;
+  }
+
+  // Bindings de cantidad (+/- e input)
+  const qtyInput = card.querySelector('.rlo-prod-qty');
+  const btnDec = card.querySelector('.rlo-qty-dec');
+  const btnInc = card.querySelector('.rlo-qty-inc');
+  const onQtyChange = () => {
+    let val = parseInt(qtyInput.value, 10);
+    if (isNaN(val) || val < 1) val = 1;
+    qtyInput.value = val;
+    if (!isIncoming) window.syncRloOutgoingStockWarning(card);
+    window.updateRloProductStepSummaries();
+  };
+  if (btnDec && qtyInput) {
+    btnDec.addEventListener('click', () => {
+      qtyInput.value = Math.max(1, (parseInt(qtyInput.value, 10) || 1) - 1);
+      onQtyChange();
+    });
+  }
+  if (btnInc && qtyInput) {
+    btnInc.addEventListener('click', () => {
+      const current = parseInt(qtyInput.value, 10) || 1;
+      const maxAttr = parseInt(qtyInput.max, 10);
+      qtyInput.value = (!isIncoming && !isNaN(maxAttr) && maxAttr > 0) ? Math.min(maxAttr, current + 1) : current + 1;
+      onQtyChange();
+    });
+  }
+  if (qtyInput) {
+    qtyInput.addEventListener('input', () => {
+      if (!isIncoming) window.syncRloOutgoingStockWarning(card);
+      window.updateRloProductStepSummaries();
+    });
+    qtyInput.addEventListener('change', onQtyChange);
+  }
+
+  // Bindings de inputs manuales para actualizar el resumen en vivo
+  if (isManual) {
+    card.querySelectorAll('.rlo-prod-sku, .rlo-prod-name').forEach(inp => {
+      inp.addEventListener('input', () => window.updateRloProductStepSummaries());
+    });
+  } else {
+    const btnPick = card.querySelector('.rlo-btn-pick');
     if (btnPick) {
       btnPick.addEventListener('click', () => {
-        window.openRloProductPicker(direction, tr);
+        window.openRloProductPicker(direction, card);
       });
     }
   }
 
-  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
-    if (tbody.children.length > 1) {
-      tr.remove();
+  // Bindings de retorno a inventario y observaciones obligatorias
+  if (isIncoming) {
+    const stockCb = card.querySelector('.rlo-prod-stock-return');
+    const commentInput = card.querySelector('.rlo-prod-comment');
+    if (stockCb) {
+      stockCb.addEventListener('change', () => {
+        window.syncRloIncomingStockReturnUI(card);
+        if (!stockCb.checked && commentInput && !commentInput.value.trim()) {
+          setTimeout(() => commentInput.focus(), 40);
+        }
+      });
+    }
+    if (commentInput) {
+      commentInput.addEventListener('input', () => {
+        window.syncRloIncomingStockReturnUI(card);
+      });
+    }
+    window.syncRloIncomingStockReturnUI(card);
+  }
+
+  card.querySelector('.btn-remove-row').addEventListener('click', () => {
+    if (tbody.querySelectorAll('.rlo-prod-row').length > 1) {
+      card.remove();
+      window.updateRloProductStepSummaries();
     } else {
       Swal.fire({
         title: 'Atención',
@@ -138478,8 +138898,9 @@ window.addRloRow = function(direction, isManual) {
     }
   });
 
-  tbody.appendChild(tr);
-  return tr;
+  tbody.appendChild(card);
+  window.updateRloProductStepSummaries();
+  return card;
 };
 
 function addRloRowWithDataForAdmin(direction, isManual, itemData, maxQty = 9999) {
@@ -138530,11 +138951,20 @@ function addRloRowWithDataForAdmin(direction, isManual, itemData, maxQty = 9999)
   if (commentInput && itemData.comentario) {
     commentInput.value = itemData.comentario;
   }
+
+  if (direction === 'incoming' && typeof window.syncRloIncomingStockReturnUI === 'function') {
+    window.syncRloIncomingStockReturnUI(tr);
+  } else if (direction === 'outgoing' && typeof window.syncRloOutgoingStockWarning === 'function') {
+    window.syncRloOutgoingStockWarning(tr);
+  }
+  if (typeof window.updateRloProductStepSummaries === 'function') {
+    window.updateRloProductStepSummaries();
+  }
 }
 
 function getRloProductsFromTable(direction) {
   const tbodyId = direction === 'incoming' ? 'rlo-incoming-tbody' : 'rlo-outgoing-tbody';
-  const rows = document.querySelectorAll(`#${tbodyId} tr`);
+  const rows = document.querySelectorAll(`#${tbodyId} .rlo-prod-row`);
   const isManual = document.getElementById('rlo-manual-mode') && document.getElementById('rlo-manual-mode').checked;
   const products = [];
 
@@ -138721,9 +139151,12 @@ window.updateRloWizardUI = function() {
     }
   }
 
-  // Actualizar badge en Paso 2
+  // Actualizar badge en Paso 2 y resúmenes en Pasos 3 y 4
   if (currentStep === 2) {
     window.updateRloSituacionBadge();
+  }
+  if ((currentStep === 3 || currentStep === 4) && typeof window.updateRloProductStepSummaries === 'function') {
+    window.updateRloProductStepSummaries();
   }
 
   // Si estamos en Paso 5, preparar la vista adaptada al modo de entrega
@@ -138824,6 +139257,9 @@ window.updateRloWizardUI = function() {
         <div style="border-top: 1px dashed var(--color-border); padding-top: 0.6rem; display: flex; flex-direction: column; gap: 0.35rem;">
           <div style="color: #ef4444; font-weight: 600; font-size: 0.8rem;">
             ⬅️ ${incProds.length} producto(s) que ingresan (devolución del cliente)
+            <span style="font-weight: 500; color: var(--color-text-muted);">
+              — ${incProds.filter(p => p.regresar_a_inventario).length} retornan a stock disponible${incProds.some(p => !p.regresar_a_inventario) ? `, ${incProds.filter(p => !p.regresar_a_inventario).length} sin reingreso (falla/deterioro)` : ''}
+            </span>
           </div>
           ${isCambio ? `
             <div style="color: #10b981; font-weight: 600; font-size: 0.8rem;">
@@ -138896,6 +139332,51 @@ function validateRloStep(step) {
       });
       return false;
     }
+
+    const incomingRows = document.querySelectorAll('#rlo-incoming-tbody .rlo-prod-row');
+    const isManual = document.getElementById('rlo-manual-mode') && document.getElementById('rlo-manual-mode').checked;
+    for (let row of incomingRows) {
+      const skuVal = isManual
+        ? (row.querySelector('.rlo-prod-sku')?.value || '').trim()
+        : (row.dataset.sku || row.querySelector('.rlo-prod-sku')?.value || '').trim();
+      const nameVal = isManual
+        ? (row.querySelector('.rlo-prod-name')?.value || '').trim()
+        : (row.dataset.name || row.querySelector('.rlo-prod-name')?.value || '').trim();
+      if (!skuVal && !nameVal) {
+        Swal.fire({
+          title: 'Producto sin seleccionar',
+          text: 'Tienes una fila de producto entrante vacía. Selecciónalo desde el catálogo o elimina la fila sobrante.',
+          icon: 'warning',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return false;
+      }
+
+      const stockReturnCb = row.querySelector('.rlo-prod-stock-return');
+      const commentInput = row.querySelector('.rlo-prod-comment');
+      const isReturnToStock = stockReturnCb ? stockReturnCb.checked : true;
+      const commentVal = commentInput ? commentInput.value.trim() : '';
+
+      if (!isReturnToStock && !commentVal) {
+        if (typeof window.syncRloIncomingStockReturnUI === 'function') {
+          window.syncRloIncomingStockReturnUI(row);
+        }
+        Swal.fire({
+          title: 'Observaciones obligatorias',
+          text: `El producto "${nameVal || skuVal}" fue desmarcado para NO retornar al stock disponible. Debes indicar obligatoriamente en observaciones la falla, daño o deterioro que presenta.`,
+          icon: 'warning',
+          confirmButtonText: 'Completar observación',
+          confirmButtonColor: 'var(--color-primary)'
+        }).then(() => {
+          if (commentInput) {
+            commentInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            commentInput.focus();
+          }
+        });
+        return false;
+      }
+    }
     return true;
   }
 
@@ -138916,7 +139397,7 @@ function validateRloStep(step) {
 
       const isManual = document.getElementById('rlo-manual-mode') && document.getElementById('rlo-manual-mode').checked;
       if (!isManual) {
-        const rows = document.querySelectorAll('#rlo-outgoing-tbody tr');
+        const rows = document.querySelectorAll('#rlo-outgoing-tbody .rlo-prod-row');
         for (let row of rows) {
           const prodId = row.dataset.productId || (row.querySelector('.rlo-prod-id') ? row.querySelector('.rlo-prod-id').value : null);
           const name = row.dataset.name || (row.querySelector('.rlo-prod-name') ? row.querySelector('.rlo-prod-name').value : '');
@@ -139231,6 +139712,7 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
   if (selectCommerce) {
     selectCommerce.innerHTML = '<option value="">Selecciona comercio...</option>';
     window.rloCatalogProducts = [];
+    window.rloLoadedCommerce = '';
     
     try {
       const { data: profiles } = await supabase.from('profiles').select('comercio').neq('role', 'admin');
@@ -139282,7 +139764,11 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
     if (pickerSearch) {
       pickerSearch.addEventListener('input', (e) => {
         window.rloPickerState.activeSearch = e.target.value;
-        window.renderRloPickerProducts();
+        window.rloPickerState.renderLimit = 150;
+        clearTimeout(window.rloPickerSearchTimer);
+        window.rloPickerSearchTimer = setTimeout(() => {
+          window.renderRloPickerProducts();
+        }, 80);
       });
     }
     
@@ -139445,6 +139931,20 @@ async function handleRloFormSubmit(e) {
 
   if (incomingProducts.length === 0) {
     alert('Debe ingresar al menos un producto entrante.');
+    return;
+  }
+  const missingObsProd = incomingProducts.find(p => !p.regresar_a_inventario && !(p.comentario || '').trim());
+  if (missingObsProd) {
+    Swal.fire({
+      title: 'Observaciones obligatorias',
+      text: `El producto "${missingObsProd.name || missingObsProd.sku}" fue desmarcado para no volver al stock disponible. Debes indicar en observaciones el motivo (falla, daño o deterioro).`,
+      icon: 'warning',
+      confirmButtonText: 'Ir a corregir',
+      confirmButtonColor: 'var(--color-primary)'
+    }).then(() => {
+      window.currentRloWizardStep = 3;
+      window.updateRloWizardUI();
+    });
     return;
   }
   if (type === 'CAMBIO' && outgoingProducts.length === 0) {
@@ -140972,8 +141472,8 @@ window.openEditReverseLogisticsModal = async function(dataOrId) {
       }
       const dl = modal.querySelector('#erl-catalog-datalist');
       if (!dl) return;
-      const cat = window.rloState?.catalog || [];
-      dl.innerHTML = cat.map(p => `<option value="${esc(p.sku || p.title)}">${esc(p.title)} (Stock: ${p.stock})</option>`).join('');
+      const cat = window.rloCatalogProducts || [];
+      dl.innerHTML = cat.slice(0, 1000).map(p => `<option value="${esc(p.sku || p.name)}">${esc(p.name)} (Stock: ${p.available_stock || 0})</option>`).join('');
     };
 
     await refreshCatalogDatalist(currentCommerce);
@@ -141086,11 +141586,11 @@ window.openEditReverseLogisticsModal = async function(dataOrId) {
       if (!skuInput || !nameInput) return;
       skuInput.addEventListener('input', () => {
         const val = skuInput.value.trim().toLowerCase();
-        const cat = window.rloState?.catalog || [];
-        const match = cat.find(p => (p.sku && p.sku.toLowerCase() === val) || (p.title && p.title.toLowerCase() === val));
+        const cat = window.rloCatalogProducts || [];
+        const match = cat.find(p => (p.sku && p.sku.toLowerCase() === val) || (p.name && p.name.toLowerCase() === val));
         if (match) {
           skuInput.value = match.sku || '';
-          nameInput.value = match.title || '';
+          nameInput.value = match.name || '';
           rowEl.dataset.productId = match.id || '';
         }
       });

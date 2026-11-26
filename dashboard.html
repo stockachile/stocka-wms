@@ -1820,13 +1820,15 @@
 
           <!-- PASO 2: PRODUCTOS QUE INGRESAN (DEVOLUCIÓN) -->
           <div id="rlo-wizard-step-2" class="rl-wizard-step-container" style="display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.9rem; flex-wrap: wrap; gap: 0.75rem;">
               <div>
-                <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
-                  <i class="ri-login-box-line" style="color: var(--color-danger); font-size: 1.25rem;"></i> Productos que Ingresan (Devolución del Cliente)
+                <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                  <i class="ri-login-box-line" style="color: var(--color-danger); font-size: 1.25rem;"></i>
+                  <span>Productos que Ingresan (Devolución del Cliente)</span>
+                  <span id="rlo-incoming-summary-badge" class="badge" style="font-size: 0.73rem; font-weight: 700; background: rgba(239, 68, 68, 0.08); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.2);">0 productos</span>
                 </h4>
                 <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem;">
-                  Indica los productos que el cliente devuelve y si están aptos para reingresar al stock físico.
+                  Selecciona cada producto que devuelve el cliente, indica la cantidad y define si la unidad puede regresar al stock disponible.
                 </p>
               </div>
 
@@ -1839,57 +1841,51 @@
               </div>
             </div>
 
-            <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface); margin-bottom: 1rem;">
-              <table class="data-table" style="font-size: 0.85rem; width: 100%; margin: 0;">
-                <thead>
-                  <tr style="background: var(--color-bg);">
-                    <th style="width: 44%;">Producto</th>
-                    <th style="width: 10%; text-align: center;">Cantidad</th>
-                    <th style="width: 22%; text-align: center;">¿Apto para Stock?</th>
-                    <th style="width: 18%;">Motivo / Comentario</th>
-                    <th style="width: 6%; text-align: center;"></th>
-                  </tr>
-                </thead>
-                <tbody id="rlo-incoming-tbody">
-                  <!-- Dynamic Rows -->
-                </tbody>
-              </table>
+            <!-- Guía informativa sobre retorno a stock -->
+            <div style="display: flex; align-items: flex-start; gap: 0.75rem; background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.25); border-left: 4px solid #10b981; border-radius: var(--radius-md); padding: 0.8rem 1rem; margin-bottom: 1rem;">
+              <div style="width: 30px; height: 30px; border-radius: 50%; background: rgba(16, 185, 129, 0.14); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">
+                <i class="ri-information-line" style="font-size: 1.1rem; color: #059669;"></i>
+              </div>
+              <div style="font-size: 0.815rem; color: var(--color-text-main); line-height: 1.45;">
+                <strong style="color: #065f46;">¿Cuándo marcar "Retornar a stock disponible"?</strong>
+                Al seleccionar esta opción, la unidad que se recibe en devolución o cambio <strong>regresará automáticamente al stock disponible</strong> para venta.
+                <strong style="color: #b91c1c;">Desmárcala</strong> si el producto presenta algún problema, falla, daño o deterioro, e ingresa las <strong>observaciones obligatorias</strong> detallando el estado.
+              </div>
             </div>
 
-            <button type="button" id="btn-rlo-add-incoming" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-color: var(--color-primary); color: var(--color-primary); padding: 0.5rem 1.1rem; border-radius: var(--radius-md);">
-              <i class="ri-add-line" style="font-size: 1.1rem;"></i> Agregar Producto que Ingresa
+            <div id="rlo-incoming-tbody" style="display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1rem;">
+              <!-- Dynamic Product Cards -->
+            </div>
+
+            <button type="button" id="btn-rlo-add-incoming" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; border-color: var(--color-primary); color: var(--color-primary); padding: 0.55rem 1.15rem; border-radius: var(--radius-md); background: rgba(59, 130, 246, 0.03);">
+              <i class="ri-add-circle-line" style="font-size: 1.1rem;"></i> Agregar otro producto que ingresa
             </button>
           </div>
 
           <!-- PASO 3: PRODUCTOS QUE SALEN (REEMPLAZO) -->
           <div id="rlo-wizard-step-3" class="rl-wizard-step-container" style="display: none;">
-            <div style="margin-bottom: 1rem;">
-              <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
-                <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.25rem;"></i> Productos que Salen (Reemplazo / Despacho)
+            <div style="margin-bottom: 0.9rem;">
+              <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.25rem;"></i>
+                <span>Productos que Salen (Reemplazo / Despacho)</span>
+                <span id="rlo-outgoing-summary-badge" class="badge" style="font-size: 0.73rem; font-weight: 700; background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.25);">0 productos</span>
               </h4>
               <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem;">
-                Selecciona el producto del catálogo que se despachará o entregará al cliente. El sistema valida el stock disponible en bodega.
+                Selecciona el producto del catálogo que se despachará o entregará al cliente como reemplazo. El sistema valida el stock disponible en bodega.
               </p>
             </div>
 
-            <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface); margin-bottom: 1rem;">
-              <table class="data-table" style="font-size: 0.85rem; width: 100%; margin: 0;">
-                <thead>
-                  <tr style="background: var(--color-bg);">
-                    <th style="width: 68%;">Producto de Reemplazo (Catálogo con Variantes)</th>
-                    <th style="width: 15%; text-align: center;">Cantidad Saliente</th>
-                    <th style="width: 10%; text-align: center;">Stock WMS</th>
-                    <th style="width: 7%; text-align: center;"></th>
-                  </tr>
-                </thead>
-                <tbody id="rlo-outgoing-tbody">
-                  <!-- Dynamic Rows -->
-                </tbody>
-              </table>
+            <!-- Referencia rápida de los productos que ingresan -->
+            <div id="rlo-outgoing-incoming-ref" style="display: none; background: var(--color-bg); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: 0.7rem 0.95rem; margin-bottom: 1rem; font-size: 0.81rem; color: var(--color-text-muted);">
+              <!-- Dinámico -->
             </div>
 
-            <button type="button" id="btn-rlo-add-outgoing" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-color: var(--color-success, #10b981); color: var(--color-success, #10b981); padding: 0.5rem 1.1rem; border-radius: var(--radius-md);">
-              <i class="ri-add-line" style="font-size: 1.1rem;"></i> Agregar Producto de Salida
+            <div id="rlo-outgoing-tbody" style="display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1rem;">
+              <!-- Dynamic Product Cards -->
+            </div>
+
+            <button type="button" id="btn-rlo-add-outgoing" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; border-color: var(--color-success, #10b981); color: var(--color-success, #10b981); padding: 0.55rem 1.15rem; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.03);">
+              <i class="ri-add-circle-line" style="font-size: 1.1rem;"></i> Agregar otro producto de salida
             </button>
           </div>
 
@@ -2106,7 +2102,7 @@
   <script type="module" src="./js/consolidate_orders.js?v=1.0.6"></script>
   <script type="module" src="./js/picking_requests.js?v=1.0.6"></script>
   <script type="module" src="./js/order_editor.js?v=1.0.3"></script>
-  <script type="module" src="./js/app.js?v=1.2.5"></script>
+  <script type="module" src="./js/app.js?v=1.2.8"></script>
   <script type="module" src="./js/inventory_coverage.js?v=1.2.2"></script>
   <script type="module" src="./js/tour.js?v=1.0.1"></script>
   <script type="module" src="./js/order_page.js?v=1.0.17"></script>
