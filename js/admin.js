@@ -24067,8 +24067,16 @@ window.syncReverseLogisticsOnOrdersDispatched = async function(orderIds) {
     }
 
     for (const rl of rlRecords) {
+      const isPortalRma = typeof window.isPortalRmaRecord === 'function'
+        ? window.isPortalRmaRecord(rl)
+        : Boolean(rl.rma_number || ['seller_portal', 'stocka_global_portal', 'stocka_global'].includes(String(rl.portal_origin || '').toLowerCase()));
+      const rlWf = String(rl.workflow_status || '').toLowerCase();
+      if (isPortalRma && ['solicitado', 'esperando_pago', 'aprobado_esperando_retorno', 'en_transito_retorno', 'recibido_en_revision', 'rechazado', 'cancelado'].includes(rlWf)) {
+        continue;
+      }
+
       const orderId = rl.wms_order_id;
-      const type = (rl.tipo || '').toUpperCase();
+      const type = (rl.tipo_movimiento || rl.tipo || '').toUpperCase();
       
       let order = (window.loadedOrders || []).find(o => o.id === orderId);
       if (!order) {
@@ -24113,14 +24121,20 @@ window.syncReverseLogisticsOnOrdersDispatched = async function(orderIds) {
       for (const item of incomingItems) {
         if (item.regresar_a_inventario === false) continue;
 
-        let prodId = item.product_id || null;
-        const qty = parseInt(item.cantidad || item.quantity) || 1;
+        let prodId = item.product_id || item.id_devuelto || null;
+        const qty = parseInt(item.qty_devuelto || item.cantidad || item.quantity) || 1;
+        let itemSku = item.sku || null;
+        if (!itemSku && item.producto_devuelto) {
+          const bracketMatch = String(item.producto_devuelto).match(/^\[([^\]]+)\]/);
+          if (bracketMatch) itemSku = bracketMatch[1].trim();
+          else if (String(item.producto_devuelto).includes(' - ')) itemSku = String(item.producto_devuelto).split(' - ')[0].trim();
+        }
 
-        if (!prodId && item.sku) {
+        if (!prodId && itemSku) {
           const { data: prodData } = await supabase
             .from('products')
             .select('id')
-            .eq('sku', item.sku)
+            .eq('sku', itemSku)
             .limit(1)
             .maybeSingle();
           if (prodData) prodId = prodData.id;
@@ -24164,9 +24178,10 @@ window.syncReverseLogisticsOnOrdersDispatched = async function(orderIds) {
         }
       }
 
-      // Actualizar estado en reverse_logistics a 'procesado'
+      // Actualizar estado en reverse_logistics a 'procesado' y workflow_status a 'completado'
       const updateRlPayload = {
-        status: 'procesado'
+        status: 'procesado',
+        workflow_status: 'completado'
       };
       if (!rl.sucursal && targetWhName) {
         updateRlPayload.sucursal = targetWhName;
@@ -24740,6 +24755,7 @@ window.createFormalReverseLogisticsForPickupCancel = async function(order, opts 
   const rlLinkUpdate = { wms_order_id: insertedLiOrder.id };
   if (isFinalizado) {
     rlLinkUpdate.status = 'procesado';
+    rlLinkUpdate.workflow_status = 'completado';
   }
   await supabase
     .from('reverse_logistics')
@@ -41839,6 +41855,13 @@ function renderAdminMovementsTableBody() {
              </div>`
           : '');
 
+    const canEditManualMov = typeof window.isManualEditableKardexMovement === 'function' && window.isManualEditableKardexMovement(m);
+    const editManualBtnHtml = canEditManualMov
+      ? `<button type="button" class="btn btn-outline btn-sm btn-edit-kardex-mov" data-mov-id="${m.id}" title="Editar este ajuste manual (fecha, cantidad, tipo o comentario)" style="height: 26px; padding: 0 0.48rem; font-size: 0.72rem; border-color: rgba(124, 58, 237, 0.45); color: var(--color-accent); background: rgba(124, 58, 237, 0.08); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 700;">
+           <i class="ri-edit-line"></i> Editar
+         </button>`
+      : '';
+
     const reverseActionBtnHtml = isReversed
       ? `<button type="button" class="btn btn-outline btn-sm btn-view-reversal-info" data-mov-id="${m.id}" title="Este movimiento ya fue reversado. Clic para ver auditoría." style="height: 26px; padding: 0 0.48rem; font-size: 0.72rem; border-color: rgba(245, 158, 11, 0.45); color: #b45309; background: rgba(245, 158, 11, 0.08); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 700;">
            <i class="ri-check-double-line"></i> Reversado
@@ -41872,6 +41895,7 @@ function renderAdminMovementsTableBody() {
             <button class="btn btn-outline btn-sm btn-quick-inspect-sku" data-prod-id="${m.productId}" data-prod-sku="${m.sku}" data-prod-name="${escapeHtmlAttr(m.name)}" title="Ver Kardex Express de este producto" style="height: 26px; padding: 0 0.5rem; font-size: 0.75rem; border-color: var(--color-border); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;">
               <i class="ri-history-line"></i> Kardex
             </button>
+            ${editManualBtnHtml}
             ${reverseActionBtnHtml}
           </div>
         </td>
@@ -41886,6 +41910,20 @@ function renderAdminMovementsTableBody() {
       const pSku = e.currentTarget.getAttribute('data-prod-sku');
       const pName = e.currentTarget.getAttribute('data-prod-name');
       openAdminProductMovementsModal(pId, pSku, pName);
+    });
+  });
+
+  // Attach Kardex manual movement edit click
+  tbody.querySelectorAll('.btn-edit-kardex-mov').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const movId = e.currentTarget.getAttribute('data-mov-id');
+      const mov = (state.allMovements || []).find(item => String(item.id) === String(movId));
+      if (mov && typeof window.openEditManualKardexMovementModal === 'function') {
+        window.openEditManualKardexMovementModal(mov, async () => {
+          await renderAdminMovements();
+        });
+      }
     });
   });
 
@@ -42253,6 +42291,246 @@ window.showKardexReversalAuditInfo = function(mov) {
     `,
     confirmButtonText: 'Cerrar',
     confirmButtonColor: '#6366f1'
+  });
+};
+
+window.isManualEditableKardexMovement = function(mov) {
+  if (!mov || !mov.id) return false;
+  if (mov.reversedAt || mov.reversed_at) return false;
+  if (mov.reversedFromMovementId || mov.reversed_from_movement_id) return false;
+  if (mov.orderId || mov.order_id) return false;
+  if (mov.transferId || mov.transfer_id) return false;
+
+  const ref = String(mov.referenceDoc || mov.reference_doc || '').trim();
+  if (!/^Ajuste:/i.test(ref)) return false;
+  if (/\[#(TRF|ING)-[A-Z0-9-]+\]/i.test(ref)) return false;
+  if (/Folio\s+/i.test(ref)) return false;
+  if (/Reverso\s+Kardex/i.test(ref)) return false;
+  return true;
+};
+
+window.openEditManualKardexMovementModal = function(mov, onSuccessCallback) {
+  if (!mov || !mov.id) return;
+  if (!window.isManualEditableKardexMovement(mov)) {
+    alert('Solo se pueden editar ajustes creados manualmente. Los movimientos generados por el sistema no son editables.');
+    return;
+  }
+
+  const esc = typeof window.escapeHtml === 'function'
+    ? window.escapeHtml
+    : (s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+
+  const modalId = 'modal-edit-manual-kardex-mov';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  const origType = String(mov.type || 'in').toLowerCase() === 'out' ? 'out' : 'in';
+  const origQty = Math.max(1, parseInt(mov.quantity, 10) || 1);
+  const origSigned = origType === 'in' ? origQty : -origQty;
+  const rawRef = String(mov.referenceDoc || mov.reference_doc || '').trim();
+  const cleanOrigComment = rawRef.replace(/^\s*Ajuste:\s*/i, '').trim();
+  const sku = mov.sku || 'N/A';
+  const prodName = mov.name || 'Producto';
+  const warehouseName = mov.warehouseName || 'Bodega Principal';
+
+  const toLocalDateTimeInputValue = (d) => {
+    const dt = d instanceof Date && !Number.isNaN(d.getTime()) ? d : new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  };
+
+  const origDateObj = mov.date instanceof Date
+    ? mov.date
+    : new Date(mov.dateStr || mov.date || Date.now());
+  const origDateInputVal = toLocalDateTimeInputValue(origDateObj);
+  const nowMaxVal = toLocalDateTimeInputValue(new Date());
+
+  let selectedType = origType;
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '10010';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 560px; width: 95%; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
+      <div class="modal-header" style="padding: 1.2rem 1.4rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1.05rem; color: var(--color-text-main);">
+          <i class="ri-edit-line" style="color: var(--color-accent);"></i> Editar Movimiento Manual
+        </h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.35rem 1.4rem; display: flex; flex-direction: column; gap: 1rem;">
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.75rem 0.9rem; font-size: 0.83rem; display: flex; flex-direction: column; gap: 0.25rem;">
+          <div><strong>SKU:</strong> ${esc(sku)} — ${esc(prodName)}</div>
+          <div style="color: var(--color-text-muted);"><strong>Bodega:</strong> ${esc(warehouseName)} · <strong>Registro actual:</strong> ${origType === 'in' ? `+${origQty}` : `-${origQty}`} uds</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 140px; gap: 0.75rem; align-items: end;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main);">Sentido del Movimiento</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem;">
+              <button type="button" id="edit-mov-type-in" style="height: 38px; border-radius: var(--radius-md); font-weight: 700; font-size: 0.84rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; border: ${origType === 'in' ? '2px solid #059669' : '1px solid var(--color-border)'}; background: ${origType === 'in' ? 'rgba(5, 150, 105, 0.12)' : 'var(--color-bg)'}; color: ${origType === 'in' ? '#059669' : 'var(--color-text-main)'};">
+                <i class="ri-add-circle-line"></i> Entrada (+)
+              </button>
+              <button type="button" id="edit-mov-type-out" style="height: 38px; border-radius: var(--radius-md); font-weight: 700; font-size: 0.84rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; border: ${origType === 'out' ? '2px solid #d97706' : '1px solid var(--color-border)'}; background: ${origType === 'out' ? 'rgba(217, 119, 6, 0.12)' : 'var(--color-bg)'}; color: ${origType === 'out' ? '#d97706' : 'var(--color-text-main)'};">
+                <i class="ri-indeterminate-circle-line"></i> Salida (−)
+              </button>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="edit-mov-qty" class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main);">Cantidad</label>
+            <input type="number" id="edit-mov-qty" min="1" step="1" value="${origQty}" class="form-input" style="width: 100%; height: 38px; text-align: center; font-weight: 700; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); box-sizing: border-box;">
+          </div>
+        </div>
+
+        <div id="edit-mov-stock-impact" style="font-size: 0.8rem; padding: 0.6rem 0.8rem; border-radius: var(--radius-md); background: rgba(100, 116, 139, 0.08); border: 1px solid var(--color-border); color: var(--color-text-muted); display: flex; align-items: center; gap: 0.45rem;">
+          <i class="ri-information-line"></i>
+          <span>Sin cambios en el stock físico actual (solo metadatos).</span>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="edit-mov-date" class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main);">Fecha y Hora del Movimiento</label>
+          <input type="datetime-local" id="edit-mov-date" value="${origDateInputVal}" max="${nowMaxVal}" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="edit-mov-comment" class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main);">Comentario de Referencia (Obligatorio)</label>
+          <input type="text" id="edit-mov-comment" value="${esc(cleanOrigComment)}" placeholder="Motivo o detalle del ajuste manual" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
+          <div style="margin-top: 0.25rem; font-size: 0.74rem; color: var(--color-text-muted);">Se guardará en Kardex con el prefijo <code>Ajuste:</code> para mantener la trazabilidad.</div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.4rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.7rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-save-edit-manual-mov" style="background-color: var(--color-accent); border-color: var(--color-accent); color: white;">
+          <i class="ri-save-line"></i> Guardar Cambios
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const btnIn = document.getElementById('edit-mov-type-in');
+  const btnOut = document.getElementById('edit-mov-type-out');
+  const qtyInput = document.getElementById('edit-mov-qty');
+  const dateInput = document.getElementById('edit-mov-date');
+  const commentInput = document.getElementById('edit-mov-comment');
+  const impactEl = document.getElementById('edit-mov-stock-impact');
+  const saveBtn = document.getElementById('btn-save-edit-manual-mov');
+
+  const updateImpactPreview = () => {
+    const qty = parseInt(qtyInput.value, 10);
+    if (Number.isNaN(qty) || qty <= 0) {
+      impactEl.style.background = 'rgba(220, 38, 38, 0.1)';
+      impactEl.style.borderColor = 'rgba(220, 38, 38, 0.35)';
+      impactEl.style.color = '#dc2626';
+      impactEl.innerHTML = '<i class="ri-error-warning-line"></i><span>La cantidad debe ser un entero mayor a 0.</span>';
+      return;
+    }
+    const newSigned = selectedType === 'in' ? qty : -qty;
+    const diff = newSigned - origSigned;
+    if (diff === 0) {
+      impactEl.style.background = 'rgba(100, 116, 139, 0.08)';
+      impactEl.style.borderColor = 'var(--color-border)';
+      impactEl.style.color = 'var(--color-text-muted)';
+      impactEl.innerHTML = '<i class="ri-information-line"></i><span>Sin cambios en el stock físico actual (solo fecha/comentario).</span>';
+    } else if (diff > 0) {
+      impactEl.style.background = 'rgba(5, 150, 105, 0.1)';
+      impactEl.style.borderColor = 'rgba(5, 150, 105, 0.35)';
+      impactEl.style.color = '#059669';
+      impactEl.innerHTML = `<i class="ri-arrow-up-circle-line"></i><span>El stock físico en <strong>${esc(warehouseName)}</strong> aumentará atómicamente en <strong>+${diff} ud${diff === 1 ? '' : 's'}</strong>.</span>`;
+    } else {
+      impactEl.style.background = 'rgba(217, 119, 6, 0.1)';
+      impactEl.style.borderColor = 'rgba(217, 119, 6, 0.35)';
+      impactEl.style.color = '#b45309';
+      impactEl.innerHTML = `<i class="ri-arrow-down-circle-line"></i><span>El stock físico en <strong>${esc(warehouseName)}</strong> disminuirá atómicamente en <strong>${diff} ud${Math.abs(diff) === 1 ? '' : 's'}</strong>.</span>`;
+    }
+  };
+
+  const setType = (t) => {
+    selectedType = t === 'out' ? 'out' : 'in';
+    btnIn.style.border = selectedType === 'in' ? '2px solid #059669' : '1px solid var(--color-border)';
+    btnIn.style.background = selectedType === 'in' ? 'rgba(5, 150, 105, 0.12)' : 'var(--color-bg)';
+    btnIn.style.color = selectedType === 'in' ? '#059669' : 'var(--color-text-main)';
+
+    btnOut.style.border = selectedType === 'out' ? '2px solid #d97706' : '1px solid var(--color-border)';
+    btnOut.style.background = selectedType === 'out' ? 'rgba(217, 119, 6, 0.12)' : 'var(--color-bg)';
+    btnOut.style.color = selectedType === 'out' ? '#d97706' : 'var(--color-text-main)';
+    updateImpactPreview();
+  };
+
+  btnIn.addEventListener('click', () => setType('in'));
+  btnOut.addEventListener('click', () => setType('out'));
+  qtyInput.addEventListener('input', updateImpactPreview);
+
+  saveBtn.addEventListener('click', async () => {
+    const newQty = parseInt(qtyInput.value, 10);
+    if (Number.isNaN(newQty) || newQty <= 0) {
+      alert('Ingresa una cantidad válida mayor a 0.');
+      qtyInput.focus();
+      return;
+    }
+
+    const newComment = commentInput.value.trim().replace(/^\s*Ajuste:\s*/i, '').trim();
+    if (!newComment) {
+      alert('Debes ingresar un comentario de referencia.');
+      commentInput.focus();
+      return;
+    }
+
+    if (!dateInput.value) {
+      alert('Debes indicar una fecha y hora válida.');
+      dateInput.focus();
+      return;
+    }
+
+    const parsedDate = new Date(dateInput.value);
+    if (Number.isNaN(parsedDate.getTime())) {
+      alert('Fecha u hora inválida.');
+      dateInput.focus();
+      return;
+    }
+    if (parsedDate.getTime() > Date.now() + 5 * 60 * 1000) {
+      alert('La fecha del movimiento no puede ser futura.');
+      dateInput.focus();
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+    try {
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('edit_manual_kardex_movement', {
+        p_movement_id: mov.id,
+        p_new_type: selectedType,
+        p_new_quantity: newQty,
+        p_new_date: parsedDate.toISOString(),
+        p_new_comment: newComment
+      });
+
+      if (rpcErr) {
+        const msg = String(rpcErr.message || '');
+        if (rpcErr.code === 'PGRST202' || rpcErr.code === '42883' || msg.includes('edit_manual_kardex_movement')) {
+          throw new Error('Falta ejecutar la migración SQL "20261130_atomic_stock_adjustment_rpc.sql" en Supabase para habilitar la edición atómica de movimientos manuales.');
+        }
+        throw rpcErr;
+      }
+
+      const diff = Number(rpcRes?.stock_diff || 0);
+      const diffMsg = diff !== 0
+        ? ` Stock físico ajustado en ${diff > 0 ? `+${diff}` : diff} ud${Math.abs(diff) === 1 ? '' : 's'} (saldo actual: ${rpcRes?.new_inventory_quantity}).`
+        : '';
+      alert(`¡Movimiento manual actualizado correctamente!${diffMsg}`);
+      modal.remove();
+      if (typeof onSuccessCallback === 'function') {
+        await onSuccessCallback(rpcRes);
+      }
+    } catch (err) {
+      console.error('[openEditManualKardexMovementModal] Error:', err);
+      alert('Error al editar movimiento: ' + err.message);
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
+    }
   });
 };
 
@@ -43220,15 +43498,25 @@ async function openAdminProductMovementsModal(productId, sku, name) {
                  </div>`
               : '');
 
+        const canEditManualModalMov = typeof window.isManualEditableKardexMovement === 'function' && window.isManualEditableKardexMovement(m);
+        const modalEditBtnHtml = canEditManualModalMov
+          ? `<button type="button" class="btn btn-outline btn-sm btn-modal-edit-mov" data-mov-id="${m.id}" title="Editar este ajuste manual (fecha, cantidad, tipo o comentario)" style="height: 25px; padding: 0 0.45rem; font-size: 0.71rem; border-color: rgba(124, 58, 237, 0.45); color: var(--color-accent); background: rgba(124, 58, 237, 0.08); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 700;">
+               <i class="ri-edit-line"></i> Editar
+             </button>`
+          : '';
+
         const modalActionBtnHtml = isReversed
           ? `<button type="button" class="btn btn-outline btn-sm btn-modal-view-reversal-info" data-mov-id="${m.id}" title="Ver detalle del reverso" style="height: 25px; padding: 0 0.45rem; font-size: 0.71rem; border-color: rgba(245, 158, 11, 0.45); color: #b45309; background: rgba(245, 158, 11, 0.08); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 700;">
                <i class="ri-check-double-line"></i> Reversado
              </button>`
           : (isCounterMovement
               ? `<span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600;">Contramov.</span>`
-              : `<button type="button" class="btn btn-outline btn-sm btn-modal-reverse-mov" data-mov-id="${m.id}" title="${isTransferMov ? 'Movimiento de transferencia — gestionar desde Transferencias' : 'Reversar este movimiento mediante contramovimiento auditado'}" style="height: 25px; padding: 0 0.45rem; font-size: 0.71rem; border-color: ${isTransferMov ? 'rgba(79, 70, 229, 0.4)' : 'rgba(217, 119, 6, 0.45)'}; color: ${isTransferMov ? '#4f46e5' : '#b45309'}; background: ${isTransferMov ? 'rgba(79, 70, 229, 0.06)' : 'rgba(245, 158, 11, 0.08)'}; border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 700;">
-                   <i class="ri-arrow-go-back-line"></i> Reversar
-                 </button>`);
+              : `<div style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center;">
+                   ${modalEditBtnHtml}
+                   <button type="button" class="btn btn-outline btn-sm btn-modal-reverse-mov" data-mov-id="${m.id}" title="${isTransferMov ? 'Movimiento de transferencia — gestionar desde Transferencias' : 'Reversar este movimiento mediante contramovimiento auditado'}" style="height: 25px; padding: 0 0.45rem; font-size: 0.71rem; border-color: ${isTransferMov ? 'rgba(79, 70, 229, 0.4)' : 'rgba(217, 119, 6, 0.45)'}; color: ${isTransferMov ? '#4f46e5' : '#b45309'}; background: ${isTransferMov ? 'rgba(79, 70, 229, 0.06)' : 'rgba(245, 158, 11, 0.08)'}; border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 700;">
+                     <i class="ri-arrow-go-back-line"></i> Reversar
+                   </button>
+                 </div>`);
 
         return `
           <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; ${isReversed ? 'background-color: rgba(245, 158, 11, 0.035);' : ''}" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='${isReversed ? 'rgba(245, 158, 11, 0.035)' : 'transparent'}'">
@@ -43300,7 +43588,23 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         </table>
       `;
 
-      // Attach reversal & audit listeners inside Kardex Express modal
+      // Attach manual edit, reversal & audit listeners inside Kardex Express modal
+      modalBody.querySelectorAll('.btn-modal-edit-mov').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const movId = e.currentTarget.getAttribute('data-mov-id');
+          const mov = (state.allMovements || []).find(item => String(item.id) === String(movId));
+          if (mov && typeof window.openEditManualKardexMovementModal === 'function') {
+            window.openEditManualKardexMovementModal({ ...mov, sku, name }, async () => {
+              await openAdminProductMovementsModal(productId, sku, name);
+              if (document.getElementById('admin-movs-tbody')) {
+                await renderAdminMovements();
+              }
+            });
+          }
+        });
+      });
+
       modalBody.querySelectorAll('.btn-modal-reverse-mov').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -127956,12 +128260,21 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
           </div>
         </div>
 
+        <div id="direct-adjust-date-group" class="form-group" style="margin-bottom: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+            <label for="direct-adjust-date" class="form-label" style="font-weight: 600; margin: 0; color: var(--color-text-main);">4. Fecha y Hora del Movimiento <span style="font-weight: 400; font-size: 0.78rem; color: var(--color-text-muted);">(Opcional — por defecto ahora)</span></label>
+            <button type="button" id="btn-direct-adjust-date-now" style="font-size: 0.75rem; font-weight: 600; color: var(--color-accent); background: transparent; border: none; cursor: pointer; padding: 0.1rem 0.35rem;">Usar ahora</button>
+          </div>
+          <input type="datetime-local" id="direct-adjust-date" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
+          <div style="margin-top: 0.3rem; font-size: 0.74rem; color: var(--color-text-muted);">Si el movimiento ocurrió antes, puedes indicar la fecha exacta para el registro en Kardex (no se permiten fechas futuras).</div>
+        </div>
+
         <div class="form-group" style="margin-bottom: 0;">
           <div class="alert alert-warning" style="background: rgba(217, 119, 6, 0.1); border: 1px solid #d97706; color: #d97706; padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; box-sizing: border-box;">
             <i class="ri-error-warning-line" style="font-size: 1.1rem; flex-shrink: 0;"></i>
             <span><strong>Importante:</strong> Dejar un comentario de referencia detallado es fundamental para ayudar a la trazabilidad y auditoría de los movimientos del inventario.</span>
           </div>
-          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">4. Comentario de Referencia (Obligatorio)</label>
+          <label id="direct-adjust-comment-label" class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">5. Comentario de Referencia (Obligatorio)</label>
           <input type="text" id="direct-adjust-comment" class="form-input" placeholder="Ej: +2 unidades encontradas en bodega, -1 unidad por falla, inventario físico, etc." required style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
         </div>
       </div>
@@ -127983,6 +128296,30 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
   const inputColHeaderEl = document.getElementById('direct-adjust-input-col-header');
   const previewColHeaderEl = document.getElementById('direct-adjust-preview-col-header');
   const setModeNoteEl = document.getElementById('direct-adjust-set-mode-note');
+  const dateGroupEl = document.getElementById('direct-adjust-date-group');
+  const dateInputEl = document.getElementById('direct-adjust-date');
+  const btnDateNow = document.getElementById('btn-direct-adjust-date-now');
+  const commentLabelEl = document.getElementById('direct-adjust-comment-label');
+
+  const toLocalDateTimeInputValue = (d) => {
+    const dt = d instanceof Date ? d : new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  };
+  const setDateInputToNow = () => {
+    if (!dateInputEl) return;
+    const nowStr = toLocalDateTimeInputValue(new Date());
+    dateInputEl.max = nowStr;
+    dateInputEl.value = nowStr;
+    dateInputEl.setAttribute('data-custom', '0');
+  };
+  setDateInputToNow();
+  if (dateInputEl) {
+    dateInputEl.addEventListener('change', () => dateInputEl.setAttribute('data-custom', '1'));
+  }
+  if (btnDateNow) {
+    btnDateNow.addEventListener('click', setDateInputToNow);
+  }
 
   const updateRowPreview = (prodId) => {
     const key = String(prodId);
@@ -128053,6 +128390,8 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
     inputColHeaderEl.textContent = isDelta ? 'Ajuste (+/-)' : 'Nuevo Stock';
     previewColHeaderEl.textContent = isDelta ? 'Stock Estimado' : 'Diferencia';
     setModeNoteEl.style.display = isDelta ? 'none' : 'flex';
+    if (dateGroupEl) dateGroupEl.style.display = isDelta ? 'block' : 'none';
+    if (commentLabelEl) commentLabelEl.textContent = isDelta ? '5. Comentario de Referencia (Obligatorio)' : '4. Comentario de Referencia (Obligatorio)';
 
     selectedProducts.forEach(p => {
       const input = modal.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
@@ -128114,7 +128453,8 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
     if (!selectEl) return;
     selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
     (warehouses || []).forEach(w => {
-      selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna || ''})</option>`;
+      const whLabel = w.comuna ? `${w.name} (${w.comuna})` : w.name;
+      selectEl.innerHTML += `<option value="${w.id}">${whLabel}</option>`;
     });
     if (window.adminInventoryWarehouseFilter) {
       selectEl.value = String(window.adminInventoryWarehouseFilter);
@@ -128230,17 +128570,35 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
       return;
     }
 
+    let movementDateIso = null;
+    if (adjustMode === 'delta' && dateInputEl && dateInputEl.value && dateInputEl.getAttribute('data-custom') === '1') {
+      const parsedDate = new Date(dateInputEl.value);
+      if (Number.isNaN(parsedDate.getTime())) {
+        alert('Por favor, ingresa una fecha y hora válida para el movimiento.');
+        dateInputEl.focus();
+        return;
+      }
+      if (parsedDate.getTime() > Date.now() + 5 * 60 * 1000) {
+        alert('La fecha del movimiento no puede ser futura.');
+        dateInputEl.focus();
+        return;
+      }
+      movementDateIso = parsedDate.toISOString();
+    }
+
     confirmBtn.disabled = true;
     confirmBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
 
     try {
       let modifiedProductIds = [];
-      const { data: rpcRes, error: rpcErr } = await supabase.rpc('adjust_inventory_stock_atomic', {
+      const rpcPayload = {
         p_warehouse_id: warehouseId,
         p_mode: adjustMode,
         p_items: rpcItems,
-        p_comment: comment
-      });
+        p_comment: comment,
+        p_movement_date: movementDateIso
+      };
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('adjust_inventory_stock_atomic', rpcPayload);
 
       if (rpcErr) {
         const errMsg = String(rpcErr.message || '');
@@ -128290,15 +128648,17 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
             if (invErr) throw invErr;
           }
 
+          const movPayload = {
+            product_id: item.product_id,
+            warehouse_id: warehouseId,
+            type: diff > 0 ? 'in' : 'out',
+            quantity: Math.abs(diff),
+            reference_doc: `Ajuste: ${comment}`
+          };
+          if (movementDateIso) movPayload.date = movementDateIso;
           const { error: movErr } = await supabase
             .from('movements')
-            .insert([{
-              product_id: item.product_id,
-              warehouse_id: warehouseId,
-              type: diff > 0 ? 'in' : 'out',
-              quantity: Math.abs(diff),
-              reference_doc: `Ajuste: ${comment}`
-            }]);
+            .insert([movPayload]);
           if (movErr) throw movErr;
 
           modifiedProductIds.push(item.product_id);
@@ -136191,7 +136551,13 @@ window.fetchAndRenderAdminReturnsData = async function() {
           statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;"><i class="ri-check-line"></i> Confirmado</span>`;
         }
 
-        if (r.rma_number || r.workflow_status) {
+        const wfVal = String(r.workflow_status || '').toLowerCase();
+        const isPortalRma = typeof window.isPortalRmaRecord === 'function'
+          ? window.isPortalRmaRecord(r)
+          : Boolean(r.rma_number || ['seller_portal', 'stocka_global_portal', 'stocka_global'].includes(String(r.portal_origin || '').toLowerCase()));
+        const hasPortalWorkflow = isPortalRma || ['solicitado', 'esperando_pago', 'aprobado_esperando_retorno', 'en_transito_retorno', 'recibido_en_revision', 'reemplazo_en_preparacion', 'cambio_en_preparacion'].includes(wfVal);
+
+        if (hasPortalWorkflow) {
           confirmAction = `
             <button class="btn btn-primary" onclick="window.openRmaManagementModal('${r.id}')" style="padding: 0.25rem 0.6rem; font-size: 0.78rem; background: #5c24ff; border-color: #5c24ff; color: white; display: inline-flex; align-items: center; gap: 0.25rem; font-weight:800;" title="Abrir expediente RMA (Fotos/Videos, Aprobar, Marcar Pagado o Recepción QC Ñuñoa)">
               <i class="ri-shield-check-line"></i> Gestionar RMA
@@ -136993,7 +137359,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
         
-        const updateRlPayload = { status: 'procesado' };
+        const updateRlPayload = { status: 'procesado', workflow_status: 'completado' };
         if (selectedWhName) {
           updateRlPayload.sucursal = selectedWhName;
         }
@@ -139294,6 +139660,7 @@ async function handleRloFormSubmit(e) {
       sucursal: finalSucursal,
       creado_por: creatorMetaRl.created_by_email || creatorMetaRl.created_by_name || 'Administrador',
       status: isFinalizado ? 'procesado' : 'pendiente',
+      workflow_status: isFinalizado ? 'completado' : 'pendiente',
       
       customer_name: customerName,
       customer_email: customerEmail,
@@ -141016,10 +141383,15 @@ window.openEditReverseLogisticsModal = async function(dataOrId) {
       const totalOutgoingQty = outgoingProducts.reduce((acc, p) => acc + p.qty, 0);
       const cantidadTotal = tipo === 'CAMBIO' ? Math.max(totalIncomingQty, totalOutgoingQty) : totalIncomingQty;
 
+      const isPortalRmaEdit = typeof window.isPortalRmaRecord === 'function'
+        ? window.isPortalRmaRecord(record)
+        : Boolean(record.rma_number || ['seller_portal', 'stocka_global_portal', 'stocka_global'].includes(String(record.portal_origin || '').toLowerCase()));
+
       const updatePayload = {
         comercio,
         tipo_movimiento: tipo,
         status: newStatus,
+        ...(!isPortalRmaEdit ? { workflow_status: String(newStatus || '').toLowerCase() === 'procesado' ? 'completado' : 'pendiente' } : {}),
         referencia_pedido: refPedido,
         modo_entrega: modoEntregaVal,
         transporte,
@@ -147883,6 +148255,22 @@ window.AUTOMATIONS_CATALOG = [
     condition: 'Existe orden WMS vinculada (`wms_order_id` o folio `LI-...`).',
     action: 'Reingresa de forma idempotente las unidades devueltas a `inventory` (movimiento `in`) y cierra la orden de Logística Inversa en `estado_wms = "Entregado"`.',
     techSource: 'Trigger `trg_auto_reverse_logistics_to_entregado`'
+  },
+  {
+    id: 'auto-wms-order-to-reverse-logistics-completado',
+    title: 'WMS → Logística Inversa: Pedido Despachado / Entregado completa solicitud LI',
+    category: 'stock_couriers',
+    categoryLabel: 'Inventario & Logística',
+    badgeColor: '#7c3aed',
+    badgeBg: 'rgba(124, 58, 237, 0.12)',
+    icon: 'ri-repeat-2-line',
+    mode: 'Trigger SQL Tiempo Real',
+    status: 'active',
+    canToggleInDb: true,
+    trigger: 'Una orden WMS de Logística Inversa (`LI-...` o `RMA-...`) pasa a `Despachado` o `Entregado` por panel Admin, courier, Picker o webhook.',
+    condition: 'Existe un registro vinculado en `reverse_logistics` pendiente (o RMA de portal en preparación al llegar a `Entregado`).',
+    action: 'Marca automáticamente la solicitud en `reverse_logistics` como `procesado` / `completado` y ejecuta de forma idempotente el reingreso de stock/cuarentena.',
+    techSource: 'Trigger `trg_auto_order_to_reverse_logistics_sync`'
   },
   {
     id: 'auto-picker-to-pickeado',

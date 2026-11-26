@@ -6062,7 +6062,7 @@ async function renderCatalog() {
             <i class="ri-list-check"></i> Catálogo Master
           </button>
           <button class="integration-tab catalog-tab" data-tab="tab-sku-mappings" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.45rem;">
-            <i class="${catalogV2Enabled ? 'ri-inbox-2-line' : 'ri-equalizer-line'}"></i> ${catalogV2Enabled ? 'Bandeja de Canales & Equivalencias' : 'Equivalencias SKU'} ${eqTabBadgesHtml}
+            <i class="${catalogV2Enabled ? 'ri-inbox-2-line' : 'ri-equalizer-line'}"></i> ${catalogV2Enabled ? 'Bandeja de Canales & Equivalencias' : 'Equivalencias SKU'} <span id="eq-tab-badges-slot" style="display: inline-flex; align-items: center; gap: 0.3rem;">${eqTabBadgesHtml}</span>
           </button>
           <button class="integration-tab catalog-tab" data-tab="tab-catalog-packs" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
             <i class="ri-stack-line"></i> Packs / Combos
@@ -6301,19 +6301,21 @@ async function renderCatalog() {
             ` : ''}
 
             <div class="card-body" style="padding: 0; overflow-x: auto;">
-              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 960px;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
                     ${catalogV2Enabled ? `
-                      <th style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto (Canal)</th>
-                      <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Canal / SKU Externo / Estado</th>
-                      <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Vincular a Master (×N)</th>
+                      <th class="eq-inbox-sortable" data-eq-sort="name" style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por Nombre">Producto (Canal) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="platform" style="padding: 0.85rem 0.85rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por Canal">Canal <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="sku" style="padding: 0.85rem 0.85rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por SKU Externo">SKU Externo <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="state" style="padding: 0.85rem 0.85rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por Estado">Estado <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="master_sku" style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por SKU Master vinculado">Vincular a Master (×N) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
                       <th style="padding: 0.85rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 130px;">Acciones</th>
                     ` : `
-                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto (Plataforma)</th>
-                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma Origen</th>
-                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo</th>
-                      <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Equivalencia (Catálogo WMS / ×N)</th>
+                      <th class="eq-inbox-sortable" data-eq-sort="name" style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por Nombre">Producto (Plataforma) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="platform" style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por Plataforma">Plataforma Origen <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="sku" style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por SKU Externo">SKU Externo <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                      <th class="eq-inbox-sortable" data-eq-sort="master_sku" style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por SKU Master">Equivalencia (Catálogo WMS / ×N) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
                     `}
                   </tr>
                 </thead>
@@ -6327,7 +6329,7 @@ async function renderCatalog() {
             <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
               <div>
                 <h3 style="margin: 0 0 0.35rem 0; font-size: 1.18rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <i class="ri-link" style="color: var(--color-primary);"></i> Equivalencias Registradas en el Sistema (${(mappings || []).length})
+                  <i class="ri-link" style="color: var(--color-primary);"></i> Equivalencias Registradas en el Sistema <span id="eq-registered-count">(${(mappings || []).length})</span>
                 </h3>
                 <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">Listado completo de reglas de equivalencia activas en el WMS.</p>
               </div>
@@ -6343,11 +6345,11 @@ async function renderCatalog() {
               <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
-                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma</th>
-                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo (Tienda)</th>
-                    <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Maestro WMS (Predomina)</th>
-                    <th style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 120px;">Multiplicador</th>
-                    <th style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 145px;">Estado</th>
+                    <th class="eq-reg-sortable" data-reg-sort="platform" style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por Plataforma">Plataforma <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                    <th class="eq-reg-sortable" data-reg-sort="platform_sku" style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por SKU Externo">SKU Externo (Tienda) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                    <th class="eq-reg-sortable" data-reg-sort="master_sku" style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; cursor: pointer; user-select: none;" title="Ordenar por SKU Maestro">SKU Maestro WMS (Predomina) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                    <th class="eq-reg-sortable" data-reg-sort="quantity_multiplier" style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 135px; cursor: pointer; user-select: none; white-space: nowrap;" title="Ordenar por Multiplicador">Multiplicador <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
+                    <th class="eq-reg-sortable" data-reg-sort="status" style="padding: 0.85rem 1.25rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 145px; cursor: pointer; user-select: none;" title="Ordenar por Estado">Estado <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i></th>
                     <th style="padding: 0.85rem 1.5rem; text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 130px;">Acciones</th>
                   </tr>
                 </thead>
@@ -27272,7 +27274,12 @@ async function fetchAndRenderReturnsData() {
           ? `<div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.2rem;"><i class="ri-user-line"></i> ${r.customer_name}</div>`
           : '';
 
-        const rmaActionBtn = (window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED && (r.rma_number || r.workflow_status))
+        const wfVal = String(r.workflow_status || '').toLowerCase();
+        const isPortalRma = typeof window.isPortalRmaRecord === 'function'
+          ? window.isPortalRmaRecord(r)
+          : Boolean(r.rma_number || ['seller_portal', 'stocka_global_portal', 'stocka_global'].includes(String(r.portal_origin || '').toLowerCase()));
+        const hasPortalWorkflow = isPortalRma || ['solicitado', 'esperando_pago', 'aprobado_esperando_retorno', 'en_transito_retorno', 'recibido_en_revision', 'reemplazo_en_preparacion', 'cambio_en_preparacion'].includes(wfVal);
+        const rmaActionBtn = (window.STOCKA_RETURNS_PORTAL_SELLER_ENABLED && hasPortalWorkflow)
           ? `<button class="btn btn-primary" onclick="window.openRmaManagementModal('${r.id}')" style="padding: 0.25rem 0.6rem; font-size: 0.78rem; background: #5c24ff; border-color: #5c24ff; color: #fff; font-weight: 800;" title="Ver fotos/videos, aprobar, marcar pagado o recepcionar RMA"><i class="ri-shield-check-line"></i> Gestionar RMA</button>`
           : '';
 
@@ -43666,43 +43673,61 @@ function renderMasterCatalogRows(products) {
   const sortCol = window.catalogSortCol || 'sku';
   const sortAsc = window.catalogSortAsc !== false;
 
+  const resolveProdOrigin = (p) => {
+    if (p.shopify_product_id) return 'shopify';
+    if (p.raw_meli_data) return 'mercadolibre';
+    if (p.raw_falabella_data) return 'falabella';
+    if (p.raw_paris_data) return 'paris';
+    if (p.raw_ripley_data) return 'ripley';
+    if (p.raw_woocommerce_data) return 'woocommerce';
+    if (p.raw_jumpseller_data) return 'jumpseller';
+    if (p.raw_walmart_data) return 'walmart';
+    if (p.raw_tiendanube_data) return 'tiendanube';
+    return 'manual';
+  };
+
   const sortedProducts = [...products].sort((a, b) => {
     let valA, valB;
+    let isNumeric = false;
     if (sortCol === 'sku') {
-      valA = (a.sku || '').toString().toLowerCase();
-      valB = (b.sku || '').toString().toLowerCase();
+      valA = (a.sku || '').toString().trim();
+      valB = (b.sku || '').toString().trim();
     } else if (sortCol === 'name') {
-      valA = (a.name || '').toString().toLowerCase();
-      valB = (b.name || '').toString().toLowerCase();
+      valA = (a.name || '').toString().trim();
+      valB = (b.name || '').toString().trim();
     } else if (sortCol === 'barcode') {
-      valA = ((a.barcode_wms && a.barcode_wms.trim()) || a.barcode || '').toString().toLowerCase();
-      valB = ((b.barcode_wms && b.barcode_wms.trim()) || b.barcode || '').toString().toLowerCase();
+      valA = ((a.barcode_wms && a.barcode_wms.trim()) || a.barcode || '').toString().trim();
+      valB = ((b.barcode_wms && b.barcode_wms.trim()) || b.barcode || '').toString().trim();
     } else if (sortCol === 'stock') {
+      isNumeric = true;
       valA = parseInt(window.catalogInitialStockMap?.[a.id] || 0, 10);
       valB = parseInt(window.catalogInitialStockMap?.[b.id] || 0, 10);
     } else if (sortCol === 'current_stock') {
+      isNumeric = true;
       valA = (a.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
       valB = (b.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
     } else if (sortCol === 'price') {
+      isNumeric = true;
       valA = parseFloat(a.price || 0);
       valB = parseFloat(b.price || 0);
     } else if (sortCol === 'origin') {
-      let origA = a.shopify_product_id ? 'shopify' : (a.raw_meli_data ? 'meli' : (a.raw_falabella_data ? 'falabella' : 'manual'));
-      let origB = b.shopify_product_id ? 'shopify' : (b.raw_meli_data ? 'meli' : (b.raw_falabella_data ? 'falabella' : 'manual'));
-      valA = origA;
-      valB = origB;
+      valA = resolveProdOrigin(a);
+      valB = resolveProdOrigin(b);
     } else if (sortCol === 'medidas') {
-      valA = (parseFloat(a.length) || 0) * (parseFloat(a.width) || 0) * (parseFloat(a.height) || 0);
-      valB = (parseFloat(b.length) || 0) * (parseFloat(b.width) || 0) * (parseFloat(b.height) || 0);
+      isNumeric = true;
+      valA = (parseFloat(a.length || a.largo) || 0) * (parseFloat(a.width || a.ancho) || 0) * (parseFloat(a.height || a.alto) || 0);
+      valB = (parseFloat(b.length || b.largo) || 0) * (parseFloat(b.width || b.ancho) || 0) * (parseFloat(b.height || b.alto) || 0);
     } else if (sortCol === 'volumen') {
+      isNumeric = true;
       valA = parseFloat(a.volumen || 0);
       valB = parseFloat(b.volumen || 0);
     } else if (sortCol === 'weight') {
+      isNumeric = true;
       valA = parseFloat(a.weight || 0);
       valB = parseFloat(b.weight || 0);
     } else if (sortCol === 'venc') {
-      valA = (a.expiration_date || '').toString().toLowerCase();
-      valB = (b.expiration_date || '').toString().toLowerCase();
+      valA = (a.expiration_date || '').toString().trim();
+      valB = (b.expiration_date || '').toString().trim();
     } else if (sortCol === 'status') {
       valA = (a.status || 'active').toString().toLowerCase();
       valB = (b.status || 'active').toString().toLowerCase();
@@ -43710,13 +43735,15 @@ function renderMasterCatalogRows(products) {
       return 0;
     }
 
-    if (valA < valB) return sortAsc ? -1 : 1;
-    if (valA > valB) return sortAsc ? 1 : -1;
-    return 0;
+    if (isNumeric) {
+      return sortAsc ? (valA - valB) : (valB - valA);
+    }
+    const cmp = String(valA).localeCompare(String(valB), 'es', { numeric: true, sensitivity: 'base' });
+    return sortAsc ? cmp : -cmp;
   });
 
-  // Actualizar indicadores visuales de ordenación en las cabeceras
-  document.querySelectorAll('.sortable-header').forEach(header => {
+  // Actualizar indicadores visuales de ordenación en las cabeceras del Catálogo Master
+  document.querySelectorAll('#tab-catalog-master .sortable-header').forEach(header => {
     const col = header.getAttribute('data-sort');
     const icon = header.querySelector('.sort-icon');
     if (icon) {
@@ -44072,18 +44099,222 @@ function getSellerBrokenEquivalences(mappings, masterProducts) {
   });
 }
 
+function rebuildSellerMappingsMap() {
+  const map = {};
+  (window.currentMappingsArray || []).forEach(m => {
+    if (!map[m.platform]) map[m.platform] = {};
+    map[m.platform][m.platform_sku] = m.master_sku;
+  });
+  window.currentMappingsMap = map;
+  return map;
+}
+
+function upsertSellerMappingInMemory(savedRow) {
+  if (!savedRow) return;
+  if (!Array.isArray(window.currentMappingsArray)) window.currentMappingsArray = [];
+  const pNorm = normSellerSkuKey(savedRow.platform_sku);
+  const idx = window.currentMappingsArray.findIndex(
+    m => m.platform === savedRow.platform && normSellerSkuKey(m.platform_sku) === pNorm
+  );
+  if (idx >= 0) {
+    window.currentMappingsArray[idx] = { ...window.currentMappingsArray[idx], ...savedRow };
+  } else {
+    window.currentMappingsArray.push(savedRow);
+  }
+  rebuildSellerMappingsMap();
+}
+
+function removeSellerMappingFromMemory({ id, platform, platformSku }) {
+  if (!Array.isArray(window.currentMappingsArray)) return;
+  const pNorm = normSellerSkuKey(platformSku);
+  window.currentMappingsArray = window.currentMappingsArray.filter(m => {
+    if (id && String(m.id) === String(id)) return false;
+    if (platform && pNorm && m.platform === platform && normSellerSkuKey(m.platform_sku) === pNorm) return false;
+    return true;
+  });
+  rebuildSellerMappingsMap();
+}
+
+function buildSellerInboxStatePillHtml(state, currentMult, isBrokenMapping, justSavedLabel) {
+  const savedChip = justSavedLabel
+    ? ` <span style="display: inline-flex; align-items: center; gap: 0.15rem; background: rgba(16, 185, 129, 0.16); color: #059669; padding: 0.12rem 0.4rem; border-radius: 9999px; font-size: 0.68rem; font-weight: 700;"><i class="ri-check-line"></i> ${escapeHtml(justSavedLabel)}</span>`
+    : '';
+  if (state === 'pending') {
+    return `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-time-line"></i> Pendiente</span>${savedChip}`;
+  }
+  if (state === 'mapped') {
+    return (isBrokenMapping
+      ? `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.35); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-error-warning-line"></i> Equivalencia Rota</span>`
+      : `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-link"></i> Vinculado${currentMult > 1 ? ` ×${currentMult}` : ''}</span>`) + savedChip;
+  }
+  if (state === 'in_master') {
+    return `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-check-double-line"></i> En Master</span>${savedChip}`;
+  }
+  if (state === 'ignored') {
+    return `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(107, 114, 128, 0.14); color: #4b5563; border: 1px solid rgba(107, 114, 128, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-eye-off-line"></i> Ignorado (No WMS)</span>${savedChip}`;
+  }
+  return '';
+}
+
+function buildSellerInboxActionsHtml(sp, state, isObserver) {
+  if (isObserver) return '<span style="font-size: 0.75rem; color: var(--color-text-muted);">—</span>';
+  if (state === 'ignored') {
+    return `<button type="button" class="btn btn-sm btn-restore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.65rem; font-size: 0.76rem; font-weight: 600; background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;"><i class="ri-refresh-line"></i> Restaurar</button>`;
+  }
+  if (state === 'pending') {
+    return `<button type="button" class="btn btn-sm btn-ignore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.65rem; font-size: 0.76rem; font-weight: 600; background: rgba(107, 114, 128, 0.1); color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;" title="Marcar como no gestionado por bodega STOCKA (ej. Meli FULL)"><i class="ri-eye-off-line"></i> Ignorar</button>`;
+  }
+  return '<span style="font-size: 0.75rem; color: var(--color-text-muted);">—</span>';
+}
+
+function syncSellerInboxStateAndRegistered({ rerenderInbox = false } = {}) {
+  const allSynced = window.currentAllSyncedProducts || [];
+  const masterProducts = window.currentMasterProducts || [];
+  const mappings = window.currentMappingsArray || [];
+  const catalogV2 = window.currentSellerCatalogV2 === true;
+
+  const masterSkusSet = new Set(masterProducts.map(p => normSellerSkuKey(p.sku)).filter(Boolean));
+  const mappingsByPlatformNorm = {};
+  const mappingsGlobalNorm = {};
+  mappings.forEach(m => {
+    const pKey = normSellerSkuKey(m.platform_sku);
+    if (!pKey) return;
+    if (m.platform === 'Todas') mappingsGlobalNorm[pKey] = m;
+    else {
+      if (!mappingsByPlatformNorm[m.platform]) mappingsByPlatformNorm[m.platform] = {};
+      mappingsByPlatformNorm[m.platform][pKey] = m;
+    }
+  });
+
+  const classifiedAll = allSynced.map(sp => ({
+    sp,
+    ...classifySellerSyncedProductState(sp, masterSkusSet, mappingsByPlatformNorm, mappingsGlobalNorm)
+  }));
+
+  const brokenCount = getSellerBrokenEquivalences(mappings, masterProducts).length;
+  const totalPendingCount = classifiedAll.filter(i => i.state === 'pending').length;
+
+  const tabBadgesSlot = document.getElementById('eq-tab-badges-slot');
+  if (tabBadgesSlot) {
+    tabBadgesSlot.innerHTML = `
+      ${brokenCount > 0 ? `<span style="background: #ef4444; color: white; border-radius: 9999px; padding: 0.08rem 0.45rem; font-size: 0.7rem; font-weight: 700;" title="Equivalencias rotas">${brokenCount} rotas</span>` : ''}
+      ${catalogV2 && totalPendingCount > 0 ? `<span style="background: rgba(245, 158, 11, 0.18); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 9999px; padding: 0.06rem 0.45rem; font-size: 0.7rem; font-weight: 700;" title="Publicaciones pendientes de vincular o ignorar">${totalPendingCount} pend.</span>` : ''}
+    `;
+  }
+
+  const platformFilter = window._sellerCatalogV2PlatformFilter || 'ALL';
+  const scoped = platformFilter === 'ALL' ? classifiedAll : classifiedAll.filter(i => i.sp.platform === platformFilter);
+  const counts = {
+    pending: scoped.filter(i => i.state === 'pending').length,
+    mapped: scoped.filter(i => i.state === 'mapped').length,
+    in_master: scoped.filter(i => i.state === 'in_master').length,
+    ignored: scoped.filter(i => i.state === 'ignored').length,
+    all: scoped.length
+  };
+  Object.entries(counts).forEach(([key, val]) => {
+    const el = document.getElementById(`v2-status-count-${key}`);
+    if (el) el.textContent = val;
+  });
+
+  const regCountEl = document.getElementById('eq-registered-count');
+  if (regCountEl) regCountEl.textContent = `(${mappings.length})`;
+  renderRegisteredEquivalences(mappings);
+
+  const regSearchVal = (document.getElementById('eq-registered-search')?.value || '').toLowerCase().trim();
+  if (regSearchVal) {
+    document.querySelectorAll('#eq-registered-tbody .eq-registered-row').forEach(r => {
+      r.style.display = r.textContent.toLowerCase().includes(regSearchVal) ? '' : 'none';
+    });
+  }
+
+  if (rerenderInbox) {
+    if (catalogV2) {
+      renderSellerV2ChannelInbox();
+    } else {
+      const showAll = document.getElementById('eq-show-all-synced')?.checked;
+      renderEquivalencesRows(showAll ? allSynced : (window.currentUnmappedSyncedProducts || []), window.currentMappingsMap || {});
+    }
+  }
+}
+
+function patchSellerInboxRowInPlace(row, { platform, sku, justSavedLabel = '' }) {
+  if (!row) return;
+  const sp = (window.currentAllSyncedProducts || []).find(item => item.platform === platform && item.sku === sku)
+    || { platform, sku, is_ignored: false, ignored_reason: null };
+  const masterProducts = window.currentMasterProducts || [];
+  const mappings = window.currentMappingsArray || [];
+  const isObserver = userRole === 'observer';
+
+  const masterSkusSet = new Set(masterProducts.map(p => normSellerSkuKey(p.sku)).filter(Boolean));
+  const masterIdsSet = new Set(masterProducts.map(p => p.id).filter(Boolean));
+  const mappingsByPlatformNorm = {};
+  const mappingsGlobalNorm = {};
+  mappings.forEach(m => {
+    const pKey = normSellerSkuKey(m.platform_sku);
+    if (!pKey) return;
+    if (m.platform === 'Todas') mappingsGlobalNorm[pKey] = m;
+    else {
+      if (!mappingsByPlatformNorm[m.platform]) mappingsByPlatformNorm[m.platform] = {};
+      mappingsByPlatformNorm[m.platform][pKey] = m;
+    }
+  });
+
+  const { state, mappedRow } = classifySellerSyncedProductState(sp, masterSkusSet, mappingsByPlatformNorm, mappingsGlobalNorm);
+  const currentMult = Math.max(1, parseInt(mappedRow?.quantity_multiplier, 10) || 1);
+  const isBrokenMapping = mappedRow && !(
+    (mappedRow.master_product_id && masterIdsSet.has(mappedRow.master_product_id)) ||
+    (mappedRow.master_sku && masterSkusSet.has(normSellerSkuKey(mappedRow.master_sku)))
+  );
+
+  const stateSlot = row.querySelector('.eq-row-state-slot');
+  if (stateSlot) {
+    stateSlot.innerHTML = buildSellerInboxStatePillHtml(state, currentMult, isBrokenMapping, justSavedLabel);
+  }
+  const actionsSlot = row.querySelector('.eq-row-actions-slot');
+  if (actionsSlot) {
+    actionsSlot.innerHTML = buildSellerInboxActionsHtml(sp, state, isObserver);
+  }
+  const reasonSlot = row.querySelector('.eq-row-reason-slot');
+  if (reasonSlot) {
+    reasonSlot.innerHTML = (state === 'ignored' && sp.ignored_reason)
+      ? `<div style="margin-top: 0.2rem; font-size: 0.74rem; color: var(--color-text-muted);"><i class="ri-information-line"></i> Motivo: <strong>${escapeHtml(sp.ignored_reason)}</strong></div>`
+      : '';
+  }
+  const skuInput = row.querySelector('.eq-mapping-input');
+  if (skuInput) {
+    skuInput.value = mappedRow ? mappedRow.master_sku : '';
+    skuInput.placeholder = state === 'in_master' ? `Ya coincide directo (${sku})` : 'Vincular a SKU Master...';
+    skuInput.style.borderColor = isBrokenMapping ? '#ef4444' : '#10b981';
+    setTimeout(() => {
+      if (skuInput) skuInput.style.borderColor = isBrokenMapping ? '#ef4444' : 'var(--color-border)';
+    }, 1400);
+  }
+  const multInput = row.querySelector('.eq-multiplier-input');
+  if (multInput) multInput.value = currentMult;
+
+  row.style.opacity = state === 'ignored' ? '0.62' : '1';
+  row.style.backgroundColor = 'rgba(16, 185, 129, 0.13)';
+  setTimeout(() => {
+    if (row) row.style.backgroundColor = 'transparent';
+  }, 900);
+}
+
 async function upsertSellerSkuEquivalence({ commerce, platform, platformSku, masterSku, masterProductId, quantityMultiplier }) {
   const mult = Math.max(1, parseInt(quantityMultiplier, 10) || 1);
-  let { error } = await supabase
+  const fullPayload = {
+    comercio: commerce,
+    platform: platform,
+    platform_sku: platformSku,
+    master_sku: masterSku,
+    master_product_id: masterProductId || null,
+    quantity_multiplier: mult
+  };
+
+  let { data, error } = await supabase
     .from('sku_equivalences')
-    .upsert({
-      comercio: commerce,
-      platform: platform,
-      platform_sku: platformSku,
-      master_sku: masterSku,
-      master_product_id: masterProductId || null,
-      quantity_multiplier: mult
-    }, { onConflict: 'comercio,platform,platform_sku' });
+    .upsert(fullPayload, { onConflict: 'comercio,platform,platform_sku' })
+    .select('*')
+    .maybeSingle();
 
   if (error && /column|schema cache|quantity_multiplier|master_product_id/i.test(error.message || '')) {
     const fb = await supabase
@@ -44093,22 +44324,35 @@ async function upsertSellerSkuEquivalence({ commerce, platform, platformSku, mas
         platform: platform,
         platform_sku: platformSku,
         master_sku: masterSku
-      }, { onConflict: 'comercio,platform,platform_sku' });
+      }, { onConflict: 'comercio,platform,platform_sku' })
+      .select('*')
+      .maybeSingle();
+    data = fb.data;
     error = fb.error;
   }
   if (error) throw error;
 
+  const savedRow = data || { ...fullPayload };
+  upsertSellerMappingInMemory(savedRow);
+
   if (platform && platform !== 'Todas') {
-    try {
-      await supabase.rpc('set_synced_product_ignored', {
-        p_comercio: commerce,
-        p_platform: platform,
-        p_sku: platformSku,
-        p_is_ignored: false,
-        p_reason: null
-      });
-    } catch (_) {}
+    const sp = (window.currentAllSyncedProducts || []).find(i => i.platform === platform && i.sku === platformSku);
+    if (sp && sp.is_ignored === true) {
+      sp.is_ignored = false;
+      sp.ignored_reason = null;
+      try {
+        await supabase.rpc('set_synced_product_ignored', {
+          p_comercio: commerce,
+          p_platform: platform,
+          p_sku: platformSku,
+          p_is_ignored: false,
+          p_reason: null
+        });
+      } catch (_) {}
+    }
   }
+
+  return savedRow;
 }
 
 function getSellerChannelStatusBadgeHtml(status) {
@@ -44220,13 +44464,51 @@ function renderSellerV2ChannelInbox() {
     counterLabel.textContent = `Mostrando ${visible.length} de ${scopedByPlatform.length} publicaciones`;
   }
 
+  // Ordenar filas de la Bandeja Unificada según columna activa
+  const eqSortCol = window._sellerCatalogV2SortCol || 'name';
+  const eqSortAsc = window._sellerCatalogV2SortAsc !== false;
+  const stateOrder = { pending: 1, mapped: 2, in_master: 3, ignored: 4 };
+
+  visible.sort((a, b) => {
+    let cmp = 0;
+    if (eqSortCol === 'name') {
+      cmp = String(a.sp.name || '').localeCompare(String(b.sp.name || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'platform') {
+      cmp = String(a.sp.platform || '').localeCompare(String(b.sp.platform || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'sku') {
+      cmp = String(a.sp.sku || '').localeCompare(String(b.sp.sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'state') {
+      cmp = (stateOrder[a.state] || 9) - (stateOrder[b.state] || 9);
+    } else if (eqSortCol === 'master_sku') {
+      cmp = String(a.mappedRow?.master_sku || '').localeCompare(String(b.mappedRow?.master_sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    }
+    if (cmp === 0) {
+      cmp = String(a.sp.sku || '').localeCompare(String(b.sp.sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    }
+    return eqSortAsc ? cmp : -cmp;
+  });
+
+  document.querySelectorAll('.eq-inbox-sortable').forEach(header => {
+    const col = header.getAttribute('data-eq-sort');
+    const icon = header.querySelector('.sort-icon');
+    if (icon) {
+      if (col === eqSortCol) {
+        icon.className = eqSortAsc ? 'sort-icon ri-arrow-up-line' : 'sort-icon ri-arrow-down-line';
+        icon.style.color = 'var(--color-primary)';
+      } else {
+        icon.className = 'sort-icon ri-arrow-up-down-line';
+        icon.style.color = 'var(--color-text-muted)';
+      }
+    }
+  });
+
   if (visible.length === 0) {
     const emptyMsg = statusFilter === 'pending'
       ? '¡Excelente! No tienes publicaciones pendientes por vincular o ignorar en este filtro.'
       : 'No hay publicaciones que coincidan con el filtro seleccionado.';
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" style="text-align: center; padding: 2.25rem; color: var(--color-text-muted);">
+        <td colspan="6" style="text-align: center; padding: 2.25rem; color: var(--color-text-muted);">
           <i class="ri-checkbox-circle-line" style="font-size: 1.75rem; color: #10b981; display: block; margin-bottom: 0.4rem;"></i>
           ${emptyMsg}
         </td>
@@ -44238,7 +44520,7 @@ function renderSellerV2ChannelInbox() {
   const maxRender = 250;
   const sliced = visible.slice(0, maxRender);
   const truncationNotice = visible.length > maxRender
-    ? `<tr><td colspan="4" style="text-align: center; padding: 0.75rem; font-size: 0.82rem; color: var(--color-text-muted); background: var(--color-bg);">Mostrando los primeros ${maxRender} de ${visible.length} resultados. Usa el buscador o filtros por canal para acotar.</td></tr>`
+    ? `<tr><td colspan="6" style="text-align: center; padding: 0.75rem; font-size: 0.82rem; color: var(--color-text-muted); background: var(--color-bg);">Mostrando los primeros ${maxRender} de ${visible.length} resultados. Usa el buscador o filtros por canal para acotar.</td></tr>`
     : '';
 
   tbody.innerHTML = sliced.map(({ sp, state, mappedRow }) => {
@@ -44253,54 +44535,36 @@ function renderSellerV2ChannelInbox() {
       ? `<img src="${escapeHtml(sp.image_url)}" alt="" style="width: 38px; height: 38px; object-fit: cover; border-radius: 6px; border: 1px solid var(--color-border); flex-shrink: 0;">`
       : `<div style="width: 38px; height: 38px; border-radius: 6px; background: var(--color-bg); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;"><i class="ri-image-line"></i></div>`;
 
-    let inboxStatePill = '';
-    if (state === 'pending') {
-      inboxStatePill = `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-time-line"></i> Pendiente</span>`;
-    } else if (state === 'mapped') {
-      inboxStatePill = isBrokenMapping
-        ? `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.35); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-error-warning-line"></i> Equivalencia Rota</span>`
-        : `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-link"></i> Vinculado${currentMult > 1 ? ` ×${currentMult}` : ''}</span>`;
-    } else if (state === 'in_master') {
-      inboxStatePill = `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-check-double-line"></i> En Master</span>`;
-    } else if (state === 'ignored') {
-      inboxStatePill = `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(107, 114, 128, 0.14); color: #4b5563; border: 1px solid rgba(107, 114, 128, 0.3); padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;"><i class="ri-eye-off-line"></i> Ignorado (No WMS)</span>`;
-    }
+    const inboxStatePill = buildSellerInboxStatePillHtml(state, currentMult, isBrokenMapping, '');
 
     const ignoredReasonHtml = (state === 'ignored' && sp.ignored_reason)
       ? `<div style="margin-top: 0.2rem; font-size: 0.74rem; color: var(--color-text-muted);"><i class="ri-information-line"></i> Motivo: <strong>${escapeHtml(sp.ignored_reason)}</strong></div>`
       : '';
 
-    let actionsHtml = '';
-    if (!isObserver) {
-      if (state === 'ignored') {
-        actionsHtml = `<button type="button" class="btn btn-sm btn-restore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.65rem; font-size: 0.76rem; font-weight: 600; background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;"><i class="ri-refresh-line"></i> Restaurar</button>`;
-      } else if (state === 'pending') {
-        actionsHtml = `<button type="button" class="btn btn-sm btn-ignore-synced-sku" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="padding: 0.3rem 0.65rem; font-size: 0.76rem; font-weight: 600; background: rgba(107, 114, 128, 0.1); color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;" title="Marcar como no gestionado por bodega STOCKA (ej. Meli FULL)"><i class="ri-eye-off-line"></i> Ignorar</button>`;
-      }
-    }
+    const actionsHtml = buildSellerInboxActionsHtml(sp, state, isObserver);
 
     return `
-      <tr class="eq-row" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; ${state === 'ignored' ? 'opacity: 0.72;' : ''}" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.65rem 1.25rem; font-size: 0.86rem; color: var(--color-text-main); max-width: 340px;">
+      <tr class="eq-row" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.25s, opacity 0.2s; ${state === 'ignored' ? 'opacity: 0.62;' : ''}" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.65rem 1.25rem; font-size: 0.86rem; color: var(--color-text-main); max-width: 320px;">
           <div style="display: flex; align-items: center; gap: 0.65rem;">
             ${thumbHtml}
             <div style="min-width: 0;">
               <div style="font-weight: 600; line-height: 1.3; word-break: break-word;">${escapeHtml(sp.name || '(Sin nombre)')}${getSellerChannelStatusBadgeHtml(sp.status)}</div>
               ${sp.barcode ? `<div style="font-size: 0.72rem; color: var(--color-text-muted); font-family: monospace; margin-top: 0.15rem;">EAN: ${escapeHtml(sp.barcode)}</div>` : ''}
-              ${ignoredReasonHtml}
+              <div class="eq-row-reason-slot">${ignoredReasonHtml}</div>
             </div>
           </div>
         </td>
-        <td style="padding: 0.65rem 1rem; white-space: nowrap;">
-          <div style="display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start;">
-            <div style="display: flex; align-items: center; gap: 0.4rem;">
-              <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.18rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600;">${escapeHtml(sp.platform)}</span>
-              ${inboxStatePill}
-            </div>
-            <span style="font-size: 0.85rem; font-family: monospace; font-weight: 700; color: var(--color-text-main);">${escapeHtml(sp.sku)}</span>
-          </div>
+        <td style="padding: 0.65rem 0.85rem; white-space: nowrap;">
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.74rem; font-weight: 600;">${escapeHtml(sp.platform)}</span>
         </td>
-        <td style="padding: 0.65rem 1rem; min-width: 280px;">
+        <td style="padding: 0.65rem 0.85rem; white-space: nowrap;">
+          <span style="font-size: 0.85rem; font-family: monospace; font-weight: 700; color: var(--color-text-main);">${escapeHtml(sp.sku)}</span>
+        </td>
+        <td style="padding: 0.65rem 0.85rem; white-space: nowrap;">
+          <span class="eq-row-state-slot">${inboxStatePill}</span>
+        </td>
+        <td style="padding: 0.65rem 1rem; min-width: 265px;">
           <div style="display: flex; align-items: center; gap: 0.4rem;">
             <input type="text" class="form-input eq-mapping-input"
                    list="master-skus-list"
@@ -44309,7 +44573,7 @@ function renderSellerV2ChannelInbox() {
                    value="${escapeHtml(currentMapping)}"
                    placeholder="${state === 'in_master' ? 'Ya coincide directo (' + escapeHtml(sp.sku) + ')' : 'Vincular a SKU Master...'}"
                    ${isObserver ? 'disabled' : ''}
-                   style="margin: 0; padding: 0.38rem 0.65rem; font-size: 0.82rem; font-family: monospace; border: 1px solid ${isBrokenMapping ? '#ef4444' : 'var(--color-border)'}; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); flex: 1; min-width: 150px;">
+                   style="margin: 0; padding: 0.38rem 0.65rem; font-size: 0.82rem; font-family: monospace; border: 1px solid ${isBrokenMapping ? '#ef4444' : 'var(--color-border)'}; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); flex: 1; min-width: 145px;">
             <div style="display: inline-flex; align-items: center; gap: 0.2rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.4rem; height: 32px;" title="Multiplicador: cuántas unidades del SKU Master se descuentan por cada 1 unidad vendida (ej. 6 para Pack x6)">
               <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted);">×</span>
               <input type="number" class="eq-multiplier-input" min="1" max="999" step="1"
@@ -44321,8 +44585,8 @@ function renderSellerV2ChannelInbox() {
             </div>
           </div>
         </td>
-        <td style="padding: 0.65rem 1rem; white-space: nowrap;">
-          ${actionsHtml || '<span style="font-size: 0.75rem; color: var(--color-text-muted);">—</span>'}
+        <td class="eq-row-actions-slot" style="padding: 0.65rem 1rem; white-space: nowrap;">
+          ${actionsHtml}
         </td>
       </tr>
     `;
@@ -44337,6 +44601,23 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
 
   const tbody = document.getElementById('eq-matrix-tbody');
   if (!tbody) return;
+
+  const eqSortCol = window._sellerCatalogV2SortCol || 'name';
+  const eqSortAsc = window._sellerCatalogV2SortAsc !== false;
+
+  document.querySelectorAll('.eq-inbox-sortable').forEach(header => {
+    const col = header.getAttribute('data-eq-sort');
+    const icon = header.querySelector('.sort-icon');
+    if (icon) {
+      if (col === eqSortCol) {
+        icon.className = eqSortAsc ? 'sort-icon ri-arrow-up-line' : 'sort-icon ri-arrow-down-line';
+        icon.style.color = 'var(--color-primary)';
+      } else {
+        icon.className = 'sort-icon ri-arrow-up-down-line';
+        icon.style.color = 'var(--color-text-muted)';
+      }
+    }
+  });
 
   if (unmappedProducts.length === 0) {
     tbody.innerHTML = `
@@ -44356,13 +44637,29 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
     multLookup[m.platform][m.platform_sku] = Math.max(1, parseInt(m.quantity_multiplier, 10) || 1);
   });
 
-  tbody.innerHTML = unmappedProducts.map(sp => {
+  const sortedUnmapped = [...unmappedProducts].sort((a, b) => {
+    let cmp = 0;
+    if (eqSortCol === 'name') {
+      cmp = String(a.name || '').localeCompare(String(b.name || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'platform') {
+      cmp = String(a.platform || '').localeCompare(String(b.platform || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'sku') {
+      cmp = String(a.sku || '').localeCompare(String(b.sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (eqSortCol === 'master_sku') {
+      const mA = (mappingsMap[a.platform] && mappingsMap[a.platform][a.sku]) || '';
+      const mB = (mappingsMap[b.platform] && mappingsMap[b.platform][b.sku]) || '';
+      cmp = String(mA).localeCompare(String(mB), 'es', { numeric: true, sensitivity: 'base' });
+    }
+    return eqSortAsc ? cmp : -cmp;
+  });
+
+  tbody.innerHTML = sortedUnmapped.map(sp => {
     const currentMapping = (mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]) || '';
     const currentMult = (multLookup[sp.platform] && multLookup[sp.platform][sp.sku]) || 1;
     const statusBadge = getSellerChannelStatusBadgeHtml(sp.status);
 
     return `
-      <tr class="eq-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+      <tr class="eq-row" data-platform="${escapeHtml(sp.platform)}" data-sku="${escapeHtml(sp.sku)}" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.25s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
         <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${escapeHtml(sp.name)}${statusBadge}</td>
         <td style="padding: 0.75rem 2rem;">
           <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${escapeHtml(sp.platform)}</span>
@@ -44442,11 +44739,43 @@ function renderRegisteredEquivalences(mappings) {
     return;
   }
 
+  const regSortCol = window._sellerCatalogRegSortCol || 'status';
+  const regSortAsc = window._sellerCatalogRegSortAsc !== false;
+
+  document.querySelectorAll('.eq-reg-sortable').forEach(header => {
+    const col = header.getAttribute('data-reg-sort');
+    const icon = header.querySelector('.sort-icon');
+    if (icon) {
+      if (col === regSortCol) {
+        icon.className = regSortAsc ? 'sort-icon ri-arrow-up-line' : 'sort-icon ri-arrow-down-line';
+        icon.style.color = 'var(--color-primary)';
+      } else {
+        icon.className = 'sort-icon ri-arrow-up-down-line';
+        icon.style.color = 'var(--color-text-muted)';
+      }
+    }
+  });
+
   const sortedMappings = [...mappings].sort((a, b) => {
-    const aBroken = brokenIds.has(a.id) ? 0 : 1;
-    const bBroken = brokenIds.has(b.id) ? 0 : 1;
-    if (aBroken !== bBroken) return aBroken - bBroken;
-    return String(a.platform || '').localeCompare(String(b.platform || '')) || String(a.platform_sku || '').localeCompare(String(b.platform_sku || ''));
+    let cmp = 0;
+    if (regSortCol === 'platform') {
+      cmp = String(a.platform || '').localeCompare(String(b.platform || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (regSortCol === 'platform_sku') {
+      cmp = String(a.platform_sku || '').localeCompare(String(b.platform_sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (regSortCol === 'master_sku') {
+      cmp = String(a.master_sku || '').localeCompare(String(b.master_sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else if (regSortCol === 'quantity_multiplier') {
+      cmp = (parseInt(a.quantity_multiplier, 10) || 1) - (parseInt(b.quantity_multiplier, 10) || 1);
+    } else if (regSortCol === 'status') {
+      const aBroken = brokenIds.has(a.id) ? 0 : 1;
+      const bBroken = brokenIds.has(b.id) ? 0 : 1;
+      cmp = aBroken - bBroken;
+    }
+    if (cmp === 0) {
+      cmp = String(a.platform || '').localeCompare(String(b.platform || ''), 'es', { sensitivity: 'base' })
+        || String(a.platform_sku || '').localeCompare(String(b.platform_sku || ''), 'es', { numeric: true, sensitivity: 'base' });
+    }
+    return regSortAsc ? cmp : -cmp;
   });
 
   tbody.innerHTML = sortedMappings.map(m => {
@@ -44581,9 +44910,8 @@ function openCreateManualEquivalenceModal(commerce) {
         quantityMultiplier: multVal
       });
 
-      alert('Equivalencia creada/actualizada correctamente.');
       modal.remove();
-      renderCatalog();
+      syncSellerInboxStateAndRegistered({ rerenderInbox: true });
     } catch (err) {
       alert('Error al guardar la equivalencia: ' + err.message);
       submitBtn.disabled = false;
@@ -45118,36 +45446,39 @@ function setupCatalogListeners(commerce, mainPlatform) {
       showWmsWarningInModal('form-new-product');
     });
   }
-  document.querySelectorAll('.btn-edit-product').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const prodId = e.currentTarget.getAttribute('data-id');
-      openEditProductModal(prodId);
-      showWmsWarningInModal('form-edit-product');
-    });
-  });
-  document.querySelectorAll('.btn-print-label').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const prodId = e.currentTarget.getAttribute('data-id');
-      window.openIndividualLabelModal(prodId);
-    });
-  });
-
-  // 5. Delete Product handler
-  document.querySelectorAll('.btn-delete-product').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const prodId = e.currentTarget.getAttribute('data-id');
-      if (confirm('¿Estás seguro de que deseas eliminar este producto? Esto también eliminará su inventario asociado en todas las bodegas.')) {
-        try {
-          const { error } = await supabase.from('products').delete().eq('id', prodId);
-          if (error) throw error;
-          alert('Producto eliminado correctamente.');
-          renderCatalog();
-        } catch (err) {
-          alert('Error al eliminar producto: ' + err.message);
+  // 4 & 5. Edit / Print / Delete Product handlers (delegados en #catalog-master-tbody para sobrevivir ordenamientos de columnas)
+  const masterTbodyActions = document.getElementById('catalog-master-tbody');
+  if (masterTbodyActions) {
+    masterTbodyActions.addEventListener('click', async (e) => {
+      const editBtn = e.target.closest('.btn-edit-product');
+      if (editBtn) {
+        const prodId = editBtn.getAttribute('data-id');
+        openEditProductModal(prodId);
+        showWmsWarningInModal('form-edit-product');
+        return;
+      }
+      const printBtn = e.target.closest('.btn-print-label');
+      if (printBtn) {
+        const prodId = printBtn.getAttribute('data-id');
+        window.openIndividualLabelModal(prodId);
+        return;
+      }
+      const deleteBtn = e.target.closest('.btn-delete-product');
+      if (deleteBtn) {
+        const prodId = deleteBtn.getAttribute('data-id');
+        if (confirm('¿Estás seguro de que deseas eliminar este producto? Esto también eliminará su inventario asociado en todas las bodegas.')) {
+          try {
+            const { error } = await supabase.from('products').delete().eq('id', prodId);
+            if (error) throw error;
+            alert('Producto eliminado correctamente.');
+            renderCatalog();
+          } catch (err) {
+            alert('Error al eliminar producto: ' + err.message);
+          }
         }
       }
     });
-  });
+  }
 
   // 6. Import from Main Platform handler
   const btnImport = document.getElementById('btn-import-from-main');
@@ -45569,21 +45900,25 @@ function setupCatalogListeners(commerce, mainPlatform) {
         btnAutoMap.disabled = true;
         btnAutoMap.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Procesando...`;
         try {
-          let { error } = await supabase
+          let { data: upsertedRows, error } = await supabase
             .from('sku_equivalences')
-            .upsert(mappingsToInsert, { onConflict: 'comercio,platform,platform_sku' });
+            .upsert(mappingsToInsert, { onConflict: 'comercio,platform,platform_sku' })
+            .select('*');
 
           if (error && /column|schema cache|quantity_multiplier|master_product_id/i.test(error.message || '')) {
             const legacyRows = mappingsToInsert.map(({ comercio, platform, platform_sku, master_sku }) => ({ comercio, platform, platform_sku, master_sku }));
             const fb = await supabase
               .from('sku_equivalences')
-              .upsert(legacyRows, { onConflict: 'comercio,platform,platform_sku' });
+              .upsert(legacyRows, { onConflict: 'comercio,platform,platform_sku' })
+              .select('*');
+            upsertedRows = fb.data;
             error = fb.error;
           }
 
           if (error) throw error;
+          (upsertedRows || mappingsToInsert).forEach(r => upsertSellerMappingInMemory(r));
           alert(`¡Éxito! Se mapearon automáticamente ${mappingsToInsert.length} equivalencias.`);
-          renderCatalog();
+          syncSellerInboxStateAndRegistered({ rerenderInbox: true });
         } catch (err) {
           alert('Error al realizar auto-mapeo: ' + err.message);
         } finally {
@@ -45621,7 +45956,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   });
 
-  // 8. Auto-save Equivalences (SKU + Multiplicador ×N) y Acciones V2 permitidas para Seller (Ignorar / Restaurar)
+  // 8. Auto-save Equivalences (SKU + Multiplicador ×N) y Acciones V2 permitidas para Seller (Ignorar / Restaurar) SIN recargar toda la pantalla
   const eqMatrixTbody = document.getElementById('eq-matrix-tbody');
   if (eqMatrixTbody) {
     eqMatrixTbody.addEventListener('change', async (e) => {
@@ -45654,8 +45989,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
             .eq('platform_sku', platformSku);
 
           if (error) throw error;
-          skuInput.style.borderColor = 'var(--color-success)';
-          renderCatalog();
+          removeSellerMappingFromMemory({ platform, platformSku });
+          patchSellerInboxRowInPlace(row, { platform, sku: platformSku, justSavedLabel: 'Desvinculado' });
+          syncSellerInboxStateAndRegistered({ rerenderInbox: false });
         } else {
           const matchedMaster = (window.currentMasterProducts || []).find(p => normSellerSkuKey(p.sku) === normSellerSkuKey(enteredValue));
           if (!matchedMaster) {
@@ -45676,8 +46012,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
             quantityMultiplier: multVal
           });
 
-          skuInput.style.borderColor = 'var(--color-success)';
-          renderCatalog();
+          patchSellerInboxRowInPlace(row, { platform, sku: platformSku, justSavedLabel: 'Guardado' });
+          syncSellerInboxStateAndRegistered({ rerenderInbox: false });
         }
       } catch (err) {
         skuInput.style.borderColor = 'var(--color-danger)';
@@ -45686,9 +46022,10 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
 
     eqMatrixTbody.addEventListener('click', async (e) => {
-      // Acción V2 Seller: Ignorar publicación externa (No gestionada por bodega STOCKA)
+      // Acción V2 Seller: Ignorar publicación externa (No gestionada por bodega STOCKA) — sin recargar la tabla
       const ignoreBtn = e.target.closest('.btn-ignore-synced-sku');
       if (ignoreBtn) {
+        const row = ignoreBtn.closest('tr');
         const platform = ignoreBtn.getAttribute('data-platform');
         const sku = ignoreBtn.getAttribute('data-sku');
         let reason = null;
@@ -45751,7 +46088,14 @@ function setupCatalogListeners(commerce, mainPlatform) {
             p_reason: reason
           });
           if (error) throw error;
-          renderCatalog();
+
+          const sp = (window.currentAllSyncedProducts || []).find(item => item.platform === platform && item.sku === sku);
+          if (sp) {
+            sp.is_ignored = true;
+            sp.ignored_reason = reason;
+          }
+          patchSellerInboxRowInPlace(row, { platform, sku, justSavedLabel: 'Ignorado' });
+          syncSellerInboxStateAndRegistered({ rerenderInbox: false });
         } catch (err) {
           alert('Error al marcar como ignorado: ' + err.message);
           ignoreBtn.disabled = false;
@@ -45760,9 +46104,10 @@ function setupCatalogListeners(commerce, mainPlatform) {
         return;
       }
 
-      // Acción V2 Seller: Restaurar publicación ignorada
+      // Acción V2 Seller: Restaurar publicación ignorada — sin recargar la tabla
       const restoreBtn = e.target.closest('.btn-restore-synced-sku');
       if (restoreBtn) {
+        const row = restoreBtn.closest('tr');
         const platform = restoreBtn.getAttribute('data-platform');
         const sku = restoreBtn.getAttribute('data-sku');
         restoreBtn.disabled = true;
@@ -45776,7 +46121,14 @@ function setupCatalogListeners(commerce, mainPlatform) {
             p_reason: null
           });
           if (error) throw error;
-          renderCatalog();
+
+          const sp = (window.currentAllSyncedProducts || []).find(item => item.platform === platform && item.sku === sku);
+          if (sp) {
+            sp.is_ignored = false;
+            sp.ignored_reason = null;
+          }
+          patchSellerInboxRowInPlace(row, { platform, sku, justSavedLabel: 'Restaurado' });
+          syncSellerInboxStateAndRegistered({ rerenderInbox: false });
         } catch (err) {
           alert('Error al restaurar publicación: ' + err.message);
           restoreBtn.disabled = false;
@@ -45827,10 +46179,12 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // Eliminar todas las equivalencias rotas de una sola vez
-  const btnDeleteAllBroken = document.getElementById('btn-delete-all-broken-eq');
-  if (btnDeleteAllBroken) {
-    btnDeleteAllBroken.addEventListener('click', async () => {
+  // Eliminar todas las equivalencias rotas de una sola vez (delegado, sin recargar)
+  const brokenAlertContainer = document.getElementById('eq-broken-alert-container');
+  if (brokenAlertContainer) {
+    brokenAlertContainer.addEventListener('click', async (e) => {
+      const btnDeleteAllBroken = e.target.closest('#btn-delete-all-broken-eq');
+      if (!btnDeleteAllBroken) return;
       const brokenList = getSellerBrokenEquivalences(window.currentMappingsArray || [], window.currentMasterProducts || []);
       if (brokenList.length === 0) return;
       const preview = brokenList.map(b => `${b.platform}: ${b.platform_sku} → ${b.master_sku}`).join('\n');
@@ -45840,10 +46194,12 @@ function setupCatalogListeners(commerce, mainPlatform) {
       btnDeleteAllBroken.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Limpiando...`;
       try {
         const ids = brokenList.map(b => b.id).filter(Boolean);
+        const idSet = new Set(ids.map(String));
         const { error } = await supabase.from('sku_equivalences').delete().in('id', ids);
         if (error) throw error;
-        alert(`Se eliminaron ${ids.length} equivalencias rotas correctamente.`);
-        renderCatalog();
+        window.currentMappingsArray = (window.currentMappingsArray || []).filter(m => !idSet.has(String(m.id)));
+        rebuildSellerMappingsMap();
+        syncSellerInboxStateAndRegistered({ rerenderInbox: false });
       } catch (err) {
         alert('Error al eliminar equivalencias rotas: ' + err.message);
         btnDeleteAllBroken.disabled = false;
@@ -45868,7 +46224,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // Actualizar multiplicador en línea en la tabla de equivalencias registradas
+  // Actualizar multiplicador y eliminar equivalencias en tabla registrada (delegado, sin recargar)
   const regTbody = document.getElementById('eq-registered-tbody');
   if (regTbody) {
     regTbody.addEventListener('change', async (e) => {
@@ -45882,6 +46238,15 @@ function setupCatalogListeners(commerce, mainPlatform) {
           .update({ quantity_multiplier: multVal })
           .eq('id', id);
         if (error) throw error;
+        const mObj = (window.currentMappingsArray || []).find(m => String(m.id) === String(id));
+        if (mObj) {
+          mObj.quantity_multiplier = multVal;
+          const matchingRow = Array.from(document.querySelectorAll('#eq-matrix-tbody tr.eq-row'))
+            .find(r => r.getAttribute('data-platform') === mObj.platform && r.getAttribute('data-sku') === mObj.platform_sku);
+          if (matchingRow) {
+            patchSellerInboxRowInPlace(matchingRow, { platform: mObj.platform, sku: mObj.platform_sku, justSavedLabel: `×${multVal}` });
+          }
+        }
         e.target.parentElement.style.borderColor = '#10b981';
         setTimeout(() => {
           if (e.target.parentElement) e.target.parentElement.style.borderColor = 'var(--color-border)';
@@ -45890,29 +46255,38 @@ function setupCatalogListeners(commerce, mainPlatform) {
         alert('Error al actualizar multiplicador: ' + err.message);
       }
     });
-  }
 
-  // Eliminar equivalencia registrada
-  document.querySelectorAll('.btn-delete-equivalence').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const id = e.currentTarget.getAttribute('data-id');
-      const platform = e.currentTarget.getAttribute('data-platform');
-      const platformSku = e.currentTarget.getAttribute('data-platform-sku');
-      if (confirm(`¿Estás seguro de que deseas eliminar la equivalencia para ${platform} (SKU: ${platformSku})?`)) {
-        try {
-          const { error } = await supabase
-            .from('sku_equivalences')
-            .delete()
-            .eq('id', id);
-          if (error) throw error;
-          alert('Equivalencia eliminada correctamente.');
-          renderCatalog();
-        } catch (err) {
-          alert('Error al eliminar equivalencia: ' + err.message);
+    regTbody.addEventListener('click', async (e) => {
+      const delBtn = e.target.closest('.btn-delete-equivalence');
+      if (!delBtn) return;
+      const id = delBtn.getAttribute('data-id');
+      const platform = delBtn.getAttribute('data-platform');
+      const platformSku = delBtn.getAttribute('data-platform-sku');
+      if (!confirm(`¿Eliminar la equivalencia para ${platform} (SKU: ${platformSku})?`)) return;
+
+      delBtn.disabled = true;
+      delBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>`;
+      try {
+        const { error } = await supabase
+          .from('sku_equivalences')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+
+        removeSellerMappingFromMemory({ id, platform, platformSku });
+        const matchingRow = Array.from(document.querySelectorAll('#eq-matrix-tbody tr.eq-row'))
+          .find(r => r.getAttribute('data-platform') === platform && r.getAttribute('data-sku') === platformSku);
+        if (matchingRow) {
+          patchSellerInboxRowInPlace(matchingRow, { platform, sku: platformSku, justSavedLabel: 'Desvinculado' });
         }
+        syncSellerInboxStateAndRegistered({ rerenderInbox: false });
+      } catch (err) {
+        alert('Error al eliminar equivalencia: ' + err.message);
+        delBtn.disabled = false;
+        delBtn.innerHTML = `<i class="ri-delete-bin-line"></i> Eliminar`;
       }
     });
-  });
+  }
 
   // 3. Botón de validación de consistencia
   const btnValidate = document.getElementById('btn-run-consistency-check');
@@ -47204,13 +47578,13 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // Manejo de ordenación por cabeceras de tabla
+  // Manejo de ordenación por cabeceras de tabla (Catálogo Master + Bandeja de Canales + Equivalencias Registradas)
   if (!window.catalogSortListenerAdded) {
     window.catalogSortListenerAdded = true;
     document.addEventListener('click', (e) => {
-      const header = e.target.closest('.sortable-header');
-      if (header) {
-        const col = header.getAttribute('data-sort');
+      const masterHeader = e.target.closest('#tab-catalog-master .sortable-header');
+      if (masterHeader) {
+        const col = masterHeader.getAttribute('data-sort');
         if (window.catalogSortCol === col) {
           window.catalogSortAsc = !window.catalogSortAsc;
         } else {
@@ -47218,6 +47592,44 @@ function setupCatalogListeners(commerce, mainPlatform) {
           window.catalogSortAsc = true;
         }
         renderMasterCatalogRows(window.currentMasterProducts || []);
+        return;
+      }
+
+      const inboxHeader = e.target.closest('.eq-inbox-sortable');
+      if (inboxHeader) {
+        const col = inboxHeader.getAttribute('data-eq-sort');
+        if (window._sellerCatalogV2SortCol === col) {
+          window._sellerCatalogV2SortAsc = !window._sellerCatalogV2SortAsc;
+        } else {
+          window._sellerCatalogV2SortCol = col;
+          window._sellerCatalogV2SortAsc = true;
+        }
+        if (window.currentSellerCatalogV2 === true) {
+          renderSellerV2ChannelInbox();
+        } else {
+          const showAll = document.getElementById('eq-show-all-synced')?.checked;
+          const listToShow = showAll ? (window.currentAllSyncedProducts || []) : (window.currentUnmappedSyncedProducts || []);
+          renderEquivalencesRows(listToShow, window.currentMappingsMap || {});
+        }
+        return;
+      }
+
+      const regHeader = e.target.closest('.eq-reg-sortable');
+      if (regHeader) {
+        const col = regHeader.getAttribute('data-reg-sort');
+        if (window._sellerCatalogRegSortCol === col) {
+          window._sellerCatalogRegSortAsc = !window._sellerCatalogRegSortAsc;
+        } else {
+          window._sellerCatalogRegSortCol = col;
+          window._sellerCatalogRegSortAsc = true;
+        }
+        renderRegisteredEquivalences(window.currentMappingsArray || []);
+        const regSearchVal = (document.getElementById('eq-registered-search')?.value || '').toLowerCase().trim();
+        if (regSearchVal) {
+          document.querySelectorAll('#eq-registered-tbody .eq-registered-row').forEach(r => {
+            r.style.display = r.textContent.toLowerCase().includes(regSearchVal) ? '' : 'none';
+          });
+        }
       }
     });
   }
@@ -47297,23 +47709,27 @@ function showImportPreviewModal(previewData) {
       }));
 
       try {
-        let { error } = await supabase
+        let { data: upsertedRows, error } = await supabase
           .from('sku_equivalences')
-          .upsert(validRowsFull, { onConflict: 'comercio,platform,platform_sku' });
+          .upsert(validRowsFull, { onConflict: 'comercio,platform,platform_sku' })
+          .select('*');
 
         if (error && /column|schema cache|quantity_multiplier|master_product_id/i.test(error.message || '')) {
           const validRowsLegacy = validRowsFull.map(({ comercio, platform, platform_sku, master_sku }) => ({ comercio, platform, platform_sku, master_sku }));
           const fb = await supabase
             .from('sku_equivalences')
-            .upsert(validRowsLegacy, { onConflict: 'comercio,platform,platform_sku' });
+            .upsert(validRowsLegacy, { onConflict: 'comercio,platform,platform_sku' })
+            .select('*');
+          upsertedRows = fb.data;
           error = fb.error;
         }
 
         if (error) throw error;
 
+        (upsertedRows || validRowsFull).forEach(r => upsertSellerMappingInMemory(r));
         alert(`Se han importado exitosamente ${validRowsFull.length} equivalencias.`);
         modal.classList.remove('active');
-        renderCatalog();
+        syncSellerInboxStateAndRegistered({ rerenderInbox: true });
       } catch (err) {
         alert('Error al realizar la importación masiva: ' + err.message);
         btnConfirm.disabled = false;
@@ -57339,12 +57755,21 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
           </div>
         </div>
 
+        <div id="direct-adjust-date-group" class="form-group" style="margin-bottom: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+            <label for="direct-adjust-date" class="form-label" style="font-weight: 600; margin: 0; color: var(--color-text-main);">4. Fecha y Hora del Movimiento <span style="font-weight: 400; font-size: 0.78rem; color: var(--color-text-muted);">(Opcional — por defecto ahora)</span></label>
+            <button type="button" id="btn-direct-adjust-date-now" style="font-size: 0.75rem; font-weight: 600; color: var(--color-accent); background: transparent; border: none; cursor: pointer; padding: 0.1rem 0.35rem;">Usar ahora</button>
+          </div>
+          <input type="datetime-local" id="direct-adjust-date" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
+          <div style="margin-top: 0.3rem; font-size: 0.74rem; color: var(--color-text-muted);">Si el movimiento ocurrió antes, puedes indicar la fecha exacta para el registro en Kardex (no se permiten fechas futuras).</div>
+        </div>
+
         <div class="form-group" style="margin-bottom: 0;">
           <div class="alert alert-warning" style="background: rgba(217, 119, 6, 0.1); border: 1px solid #d97706; color: #d97706; padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; box-sizing: border-box;">
             <i class="ri-error-warning-line" style="font-size: 1.1rem; flex-shrink: 0;"></i>
             <span><strong>Importante:</strong> Dejar un comentario de referencia detallado es fundamental para ayudar a la trazabilidad y auditoría de los movimientos del inventario.</span>
           </div>
-          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">4. Comentario de Referencia (Obligatorio)</label>
+          <label id="direct-adjust-comment-label" class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">5. Comentario de Referencia (Obligatorio)</label>
           <input type="text" id="direct-adjust-comment" class="form-input" placeholder="Ej: +2 unidades encontradas en bodega, -1 unidad por falla, inventario físico, etc." required style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
         </div>
       </div>
@@ -57366,6 +57791,30 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
   const inputColHeaderEl = document.getElementById('direct-adjust-input-col-header');
   const previewColHeaderEl = document.getElementById('direct-adjust-preview-col-header');
   const setModeNoteEl = document.getElementById('direct-adjust-set-mode-note');
+  const dateGroupEl = document.getElementById('direct-adjust-date-group');
+  const dateInputEl = document.getElementById('direct-adjust-date');
+  const btnDateNow = document.getElementById('btn-direct-adjust-date-now');
+  const commentLabelEl = document.getElementById('direct-adjust-comment-label');
+
+  const toLocalDateTimeInputValue = (d) => {
+    const dt = d instanceof Date ? d : new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  };
+  const setDateInputToNow = () => {
+    if (!dateInputEl) return;
+    const nowStr = toLocalDateTimeInputValue(new Date());
+    dateInputEl.max = nowStr;
+    dateInputEl.value = nowStr;
+    dateInputEl.setAttribute('data-custom', '0');
+  };
+  setDateInputToNow();
+  if (dateInputEl) {
+    dateInputEl.addEventListener('change', () => dateInputEl.setAttribute('data-custom', '1'));
+  }
+  if (btnDateNow) {
+    btnDateNow.addEventListener('click', setDateInputToNow);
+  }
 
   const updateRowPreview = (prodId) => {
     const key = String(prodId);
@@ -57436,6 +57885,8 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
     inputColHeaderEl.textContent = isDelta ? 'Ajuste (+/-)' : 'Nuevo Stock';
     previewColHeaderEl.textContent = isDelta ? 'Stock Estimado' : 'Diferencia';
     setModeNoteEl.style.display = isDelta ? 'none' : 'flex';
+    if (dateGroupEl) dateGroupEl.style.display = isDelta ? 'block' : 'none';
+    if (commentLabelEl) commentLabelEl.textContent = isDelta ? '5. Comentario de Referencia (Obligatorio)' : '4. Comentario de Referencia (Obligatorio)';
 
     selectedProducts.forEach(p => {
       const input = modal.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
@@ -57503,7 +57954,8 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
         selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
         if (warehouses) {
           warehouses.forEach(w => {
-            selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna || ''})</option>`;
+            const whLabel = w.comuna ? `${w.name} (${w.comuna})` : w.name;
+            selectEl.innerHTML += `<option value="${w.id}">${whLabel}</option>`;
           });
         }
       }
@@ -57593,17 +58045,35 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
       return;
     }
 
+    let movementDateIso = null;
+    if (adjustMode === 'delta' && dateInputEl && dateInputEl.value && dateInputEl.getAttribute('data-custom') === '1') {
+      const parsedDate = new Date(dateInputEl.value);
+      if (Number.isNaN(parsedDate.getTime())) {
+        alert('Por favor, ingresa una fecha y hora válida para el movimiento.');
+        dateInputEl.focus();
+        return;
+      }
+      if (parsedDate.getTime() > Date.now() + 5 * 60 * 1000) {
+        alert('La fecha del movimiento no puede ser futura.');
+        dateInputEl.focus();
+        return;
+      }
+      movementDateIso = parsedDate.toISOString();
+    }
+
     confirmBtn.disabled = true;
     confirmBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
 
     try {
       let modifiedProductIds = [];
-      const { data: rpcRes, error: rpcErr } = await supabase.rpc('adjust_inventory_stock_atomic', {
+      const rpcPayload = {
         p_warehouse_id: warehouseId,
         p_mode: adjustMode,
         p_items: rpcItems,
-        p_comment: comment
-      });
+        p_comment: comment,
+        p_movement_date: movementDateIso
+      };
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('adjust_inventory_stock_atomic', rpcPayload);
 
       if (rpcErr) {
         const errMsg = String(rpcErr.message || '');
@@ -57653,15 +58123,17 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
             if (invErr) throw invErr;
           }
 
+          const movPayload = {
+            product_id: item.product_id,
+            warehouse_id: warehouseId,
+            type: diff > 0 ? 'in' : 'out',
+            quantity: Math.abs(diff),
+            reference_doc: `Ajuste: ${comment}`
+          };
+          if (movementDateIso) movPayload.date = movementDateIso;
           const { error: movErr } = await supabase
             .from('movements')
-            .insert([{
-              product_id: item.product_id,
-              warehouse_id: warehouseId,
-              type: diff > 0 ? 'in' : 'out',
-              quantity: Math.abs(diff),
-              reference_doc: `Ajuste: ${comment}`
-            }]);
+            .insert([movPayload]);
           if (movErr) throw movErr;
 
           modifiedProductIds.push(item.product_id);
