@@ -132,8 +132,21 @@ window.loadBatchPickingRequests = async function(orderIds, force = false) {
     }
 
     if (data && Array.isArray(data)) {
+      const allPools = [
+        ...(Array.isArray(window.clientLoadedOrders) ? window.clientLoadedOrders : []),
+        ...(Array.isArray(window.loadedOrders) ? window.loadedOrders : []),
+        ...(Array.isArray(window.allOrders) ? window.allOrders : [])
+      ];
       data.forEach(req => {
         window.pickingRequestsCache.set(req.order_id, req);
+        const cardEl = document.getElementById(`picking-req-card-${req.order_id}`);
+        if (cardEl && typeof window.renderOrderPickingRequestCard === 'function') {
+          const ordObj = (window._pickingOrdersMap && window._pickingOrdersMap.get(String(req.order_id)))
+            || allPools.find(o => o && String(o.id) === String(req.order_id));
+          if (ordObj) {
+            cardEl.outerHTML = window.renderOrderPickingRequestCard(ordObj);
+          }
+        }
       });
     }
   } catch (err) {

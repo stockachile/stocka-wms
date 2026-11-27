@@ -401,6 +401,16 @@ function resolveOrderPaymentInfo(order) {
     return { paymentStatus: 'NO PAGADO', isPorPagar };
   }
 
+  const isWooCodUnpaid = Boolean(
+    order.raw_woocommerce_data &&
+    String(order.raw_woocommerce_data.payment_method || '').toLowerCase().trim() === 'cod' &&
+    !order.raw_woocommerce_data.date_paid
+  );
+
+  if (rawFin === 'pago al retirar' || rawFin === 'pago_al_retirar' || isWooCodUnpaid) {
+    return { paymentStatus: 'PAGO AL RETIRAR', isPorPagar };
+  }
+
   const paidStates = new Set([
     'paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado',
     'authorized', 'autorizado', 'shipped', 'delivered', 'acknowledged',
@@ -412,7 +422,7 @@ function resolveOrderPaymentInfo(order) {
 
   if (order.raw_woocommerce_data) {
     const wcSt = String(order.raw_woocommerce_data.status || '').toLowerCase();
-    if (wcSt === 'processing' || wcSt === 'completed' || order.raw_woocommerce_data.date_paid) {
+    if (order.raw_woocommerce_data.date_paid || wcSt === 'processing' || wcSt === 'completed') {
       return { paymentStatus: 'PAGADO', isPorPagar };
     }
   }

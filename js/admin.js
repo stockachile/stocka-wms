@@ -4063,11 +4063,15 @@ window.getOriginalPlatformStatus = function(order) {
     else if (status === 'completed') color = '#10b981';
     else if (status === 'cancelled') color = '#ef4444';
     else if (status === 'pending') color = '#f59e0b';
+    const wcDetails = [
+      { label: 'Estado', value: status, color: color }
+    ];
+    if (String(raw.payment_method || '').toLowerCase().trim() === 'cod' && !raw.date_paid) {
+      wcDetails.push({ label: 'Pago', value: 'PAGO AL RETIRAR', color: '#d97706' });
+    }
     return {
       platform: 'WooCommerce',
-      details: [
-        { label: 'Estado', value: status, color: color }
-      ]
+      details: wcDetails
     };
   }
   if (order.raw_jumpseller_data) {
@@ -4122,6 +4126,9 @@ window.getOrderPaymentBadgeHtml = function(order) {
   if (['paid', 'pagado', 'completed', 'approved'].includes(rawFin)) {
     return `<span style="background: var(--badge-success-bg); color: var(--badge-success-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Pagado</span>`;
   }
+  if (['pago al retirar', 'pago_al_retirar'].includes(rawFin)) {
+    return `<span style="background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-hand-coin-line"></i> Pago al retirar</span>`;
+  }
   if (['partially_refunded', 'parcialmente_reembolsado'].includes(rawFin)) {
     return `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-refund-line"></i> Parcialmente Reembolsado</span>`;
   }
@@ -4171,8 +4178,8 @@ window.isOrderStockCommittedEligible = function(order) {
     return false;
   }
 
-  // Estados pagados explícitos (SÍ comprometen stock)
-  const paidList = ['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado'];
+  // Estados pagados explícitos y pago al retirar (COD) que SÍ comprometen stock
+  const paidList = ['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado', 'pago al retirar', 'pago_al_retirar'];
   if (paidList.includes(payStatus) || paidList.includes(shopFin)) {
     return true;
   }
@@ -6009,6 +6016,16 @@ window.resolveOrderPaymentForPicker = function(order) {
     return { paymentStatus: 'NO PAGADO', isPorPagar };
   }
 
+  const isWooCodUnpaid = Boolean(
+    order.raw_woocommerce_data &&
+    String(order.raw_woocommerce_data.payment_method || '').toLowerCase().trim() === 'cod' &&
+    !order.raw_woocommerce_data.date_paid
+  );
+
+  if (rawFin === 'pago al retirar' || rawFin === 'pago_al_retirar' || isWooCodUnpaid) {
+    return { paymentStatus: 'PAGO AL RETIRAR', isPorPagar };
+  }
+
   const paidStates = new Set([
     'paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado',
     'authorized', 'autorizado', 'shipped', 'delivered', 'acknowledged',
@@ -6020,7 +6037,7 @@ window.resolveOrderPaymentForPicker = function(order) {
 
   if (order.raw_woocommerce_data) {
     const wcSt = String(order.raw_woocommerce_data.status || '').toLowerCase();
-    if (wcSt === 'processing' || wcSt === 'completed' || order.raw_woocommerce_data.date_paid) {
+    if (order.raw_woocommerce_data.date_paid || wcSt === 'processing' || wcSt === 'completed') {
       return { paymentStatus: 'PAGADO', isPorPagar };
     }
   }
@@ -11472,7 +11489,7 @@ window.isWmsOrderPaidForOverdue = function(order) {
       payStatus = 'paid';
     }
   }
-  return payStatus === 'paid' || payStatus === 'authorized' || payStatus === 'pagado';
+  return payStatus === 'paid' || payStatus === 'authorized' || payStatus === 'pagado' || payStatus === 'pago al retirar' || payStatus === 'pago_al_retirar';
 };
 
 window.dedupeWmsOrdersList = function(orders) {
@@ -15088,6 +15105,8 @@ async function renderAdminOrders() {
       }
       if (payStatus === 'paid' || payStatus === 'authorized') {
         tags.add('PAGADO');
+      } else if (payStatus === 'pago al retirar' || payStatus === 'pago_al_retirar') {
+        tags.add('PAGO AL RETIRAR');
       } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
         tags.add('PAGO PENDIENTE');
       } else if (payStatus === 'partially_refunded' || payStatus === 'parcialmente_reembolsado') {
@@ -18051,6 +18070,12 @@ window.applyWmsFiltersAndRender = function() {
       payColor = '#065f46';
       payBorder = '1px solid #a7f3d0';
       payIcon = 'ri-checkbox-circle-line';
+    } else if (payStatus === 'pago al retirar' || payStatus === 'pago_al_retirar') {
+      payTag = 'PAGO AL RETIRAR';
+      payBg = '#fef3c7';
+      payColor = '#92400e';
+      payBorder = '1px solid #f59e0b';
+      payIcon = 'ri-hand-coin-line';
     } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
       payTag = 'PAGO PENDIENTE';
       payBg = '#991b1b';
@@ -104393,6 +104418,15 @@ window.registerPickupIfNeeded = async function(order) {
   const sucursal = rawSucursal === 'Matriz Ñuñoa' ? 'Sucursal Ñuñoa' : rawSucursal;
   const comercio = order.comercio || '';
   const customerName = order.customer_name || 'Cliente';
+  const payStatusLower = String(order.payment_status || '').toLowerCase().trim();
+  const isPagoAlRetirar =
+    payStatusLower === 'pago al retirar' ||
+    payStatusLower === 'pago_al_retirar' ||
+    (order.raw_woocommerce_data && String(order.raw_woocommerce_data.payment_method || '').toLowerCase().trim() === 'cod' && !order.raw_woocommerce_data.date_paid);
+  const totalAmt = Number(order.total_value || order.raw_woocommerce_data?.total || 0);
+  const pagoAlRetirarPrefix = isPagoAlRetirar
+    ? `⚠️ PAGO AL RETIRAR${totalAmt > 0 ? ` ($${Math.round(totalAmt).toLocaleString('es-CL')})` : ''} | `
+    : '';
 
   // Helper para generar PIN
   const generatePin = () => {
@@ -104433,7 +104467,7 @@ window.registerPickupIfNeeded = async function(order) {
           nombre_apellido: customerName,
           estado_pedido: 'NO PREPARADO',
           sucursal: sucursal,
-          observaciones: `${customerName} | Ingreso automático desde WMS`,
+          observaciones: `${pagoAlRetirarPrefix}${customerName} | Ingreso automático desde WMS`.slice(0, 1000),
           pin_retiro: pin,
           marcar_retirado_web: false,
           avisado_x_mail: false,
@@ -104483,7 +104517,7 @@ window.registerPickupIfNeeded = async function(order) {
             nombre_apellido: String(customerName || '').slice(0, 255),
             estado_pedido: 'NO PREPARADO',
             sucursal: String(sucursal || '').slice(0, 100),
-            observaciones: `${String(customerName || '').slice(0, 255)} | Ingreso automático desde WMS`.slice(0, 1000),
+            observaciones: `${pagoAlRetirarPrefix}${String(customerName || '').slice(0, 255)} | Ingreso automático desde WMS`.slice(0, 1000),
             pin_retiro: String(pin || '').slice(0, 50),
             marcar_retirado_web: false,
             avisado_x_mail: false,

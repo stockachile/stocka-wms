@@ -641,12 +641,24 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
       const totalValue = Number(order.total || 0);
 
+      const resolveWooPaymentStatus = (wcOrder, wcStatus) => {
+        const st = String(wcStatus || wcOrder?.status || '').toLowerCase().trim();
+        const payMethod = String(wcOrder?.payment_method || '').toLowerCase().trim();
+        if (wcOrder?.date_paid) return 'PAID';
+        if (payMethod === 'cod') {
+          if (st === 'refunded') return 'REFUNDED';
+          if (['cancelled', 'failed', 'trash'].includes(st)) return 'PENDING';
+          return 'PAGO AL RETIRAR';
+        }
+        return (st === 'processing' || st === 'completed') ? 'PAID' : 'PENDING';
+      };
+
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
         external_order_number: finalOrderNumber,
         external_platform: 'WooCommerce',
-        payment_status: order.date_paid ? 'PAID' : (statusName === 'processing' || statusName === 'completed' ? 'PAID' : 'PENDING'),
+        payment_status: resolveWooPaymentStatus(order, statusName),
         total_value: totalValue,
         customer_email: order.billing?.email || 'no-email@woocommerce.cl',
         customer_phone: order.billing?.phone || order.shipping?.phone || 'No especificado',

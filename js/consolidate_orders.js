@@ -731,9 +731,6 @@ export function getConsolidationBadgeHtml(order) {
   const border = isCritical ? '#f87171' : (isPrep ? '#fbbf24' : '#2dd4bf');
   const icon = isCritical ? 'ri-alarm-warning-fill' : 'ri-links-line';
 
-  // Mostrar botón de acción sólo al Administrador (la decisión la toma el Admin)
-  const isAdminView = Boolean(document.querySelector('[data-sidebar-role="admin"]') || window.location.pathname.toLowerCase().includes('admin'));
-
   return `
     <span class="badge consolidation-badge-candidate"
           ${isAdminView ? `onclick="event.stopPropagation(); window.openConsolidateOrdersModal('${order.id}');"` : ''}

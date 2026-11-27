@@ -420,6 +420,7 @@ async function run() {
         origen,
         status,
         payment_status,
+        total_value,
         comercio,
         customer_name,
         customer_email,
@@ -1668,6 +1669,15 @@ async function registerPickupIfNeeded(order) {
   const sucursal = order.sucursal_pickeo || 'Sucursal Ñuñoa';
   const comercio = order.comercio || '';
   const customerName = order.customer_name || 'Cliente';
+  const payStatusLower = String(order.payment_status || '').toLowerCase().trim();
+  const isPagoAlRetirar =
+    payStatusLower === 'pago al retirar' ||
+    payStatusLower === 'pago_al_retirar' ||
+    (order.raw_woocommerce_data && String(order.raw_woocommerce_data.payment_method || '').toLowerCase().trim() === 'cod' && !order.raw_woocommerce_data.date_paid);
+  const totalAmt = Number(order.total_value || order.raw_woocommerce_data?.total || 0);
+  const pagoAlRetirarPrefix = isPagoAlRetirar
+    ? `⚠️ PAGO AL RETIRAR${totalAmt > 0 ? ` ($${Math.round(totalAmt).toLocaleString('es-CL')})` : ''} | `
+    : '';
 
   // Helper para generar PIN
   const generatePin = () => {
@@ -1707,7 +1717,7 @@ async function registerPickupIfNeeded(order) {
           nombre_apellido: customerName,
           estado_pedido: 'NO PREPARADO',
           sucursal: sucursal,
-          observaciones: `${customerName} | Ingreso automático desde WMS`,
+          observaciones: `${pagoAlRetirarPrefix}${customerName} | Ingreso automático desde WMS`.slice(0, 1000),
           pin_retiro: pin,
           marcar_retirado_web: false,
           avisado_x_mail: false,
@@ -1755,7 +1765,7 @@ async function registerPickupIfNeeded(order) {
           nombre_apellido: customerName,
           estado_pedido: 'NO PREPARADO',
           sucursal: sucursal,
-          observaciones: `${customerName} | Ingreso automático desde WMS`,
+          observaciones: `${pagoAlRetirarPrefix}${customerName} | Ingreso automático desde WMS`.slice(0, 1000),
           pin_retiro: pin,
           marcar_retirado_web: false,
           avisado_x_mail: false,

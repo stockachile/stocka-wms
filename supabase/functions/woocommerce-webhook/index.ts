@@ -699,6 +699,18 @@ async function handleVerifyConnection(req: Request, merchantIdQuery: string, com
 // FUNCIONES DE MANEJO DE PEDIDOS
 // ==========================================
 
+function resolveWooPaymentStatus(order: any, statusName?: string): string {
+  const st = String(statusName || order?.status || "").toLowerCase().trim();
+  const payMethod = String(order?.payment_method || "").toLowerCase().trim();
+  if (order?.date_paid) return "PAID";
+  if (payMethod === "cod") {
+    if (st === "refunded") return "REFUNDED";
+    if (["cancelled", "failed", "trash"].includes(st)) return "PENDING";
+    return "PAGO AL RETIRAR";
+  }
+  return (st === "processing" || st === "completed") ? "PAID" : "PENDING";
+}
+
 async function resolveWooOrderNumber(comercio: string, rawNumber: string | number): Promise<{ finalNumber: string, sigla: string }> {
   let orderNumber = String(rawNumber || "").trim();
   let siglaComercio = "";
@@ -930,7 +942,7 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
     comercio: comercio,
     external_order_number: finalOrderNumber,
     external_platform: "WooCommerce",
-    payment_status: order.date_paid ? "PAID" : (order.status === "processing" || order.status === "completed" ? "PAID" : "PENDING"),
+    payment_status: resolveWooPaymentStatus(order, statusName),
     total_value: totalValue,
     customer_email: order.billing?.email || "no-email@woocommerce.cl",
     customer_phone: order.billing?.phone || order.shipping?.phone || "No especificado",
@@ -1250,7 +1262,7 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
     !isCancelled && isActive && statusName !== "pending" && wasCancelledInWms && !wasManuallyProcessedInWms && !estadosWmsProtegidos.includes(currentWmsState);
 
   const updatedData: Record<string, any> = {
-    payment_status: order.date_paid ? "PAID" : (statusName === "processing" || statusName === "completed" ? "PAID" : "PENDING"),
+    payment_status: resolveWooPaymentStatus(order, statusName),
     raw_woocommerce_data: {
       ...order,
       ...(existingRaw.admin_notes ? { admin_notes: existingRaw.admin_notes } : {}),

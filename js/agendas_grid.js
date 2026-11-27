@@ -752,6 +752,7 @@
           }
         }
         if (['paid', 'pagado', 'completed', 'approved'].includes(rawFin)) return 'PAGADO';
+        if (['pago al retirar', 'pago_al_retirar'].includes(rawFin)) return 'PAGO AL RETIRAR';
         if (['pending', 'pendiente', 'unpaid', 'no pagado'].includes(rawFin)) return 'PENDIENTE';
         if (['partially_refunded', 'parcialmente_reembolsado'].includes(rawFin)) return 'PARCIALMENTE REEMBOLSADO';
         if (['refunded', 'reembolsado'].includes(rawFin)) return 'REEMBOLSADO';
