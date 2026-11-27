@@ -454,10 +454,21 @@ window.invalidateConsolidationCandidatesCache = function() {
 };
 
 const _healedConsolidationOrderIds = new Set();
+const _healedConsolidationTrackingIds = new Set();
+const _WMS_STATE_RANK = {
+  'Pendiente': 0,
+  'En procesamiento': 1,
+  'En preparación': 2,
+  'Pickeado': 3,
+  'Listo para retiro': 4,
+  'Despachado': 5,
+  'Entregado': 6
+};
 
 /**
  * Auto-repara y sincroniza hacia Picker cualquier pedido que ya haya sido marcado como consolidado
- * pero que aún no tenga su Solicitud Especial de Picking creada en `order_picking_requests` / `active_orders`.
+ * pero que aún no tenga su Solicitud Especial de Picking creada en `order_picking_requests` / `active_orders`,
+ * y reconcilia automáticamente tracking, courier, operador y estado WMS desde el Pedido Ancla hacia sus secundarios.
  */
 function autoHealConsolidatedOrdersPickingRequests(orders) {
   if (!Array.isArray(orders) || orders.length === 0) return;
@@ -466,6 +477,42 @@ function autoHealConsolidatedOrdersPickingRequests(orders) {
     if (!order || !order.id) continue;
     const info = getOrderConsolidationInfo(order);
     if (!info.isConsolidated) continue;
+
+    // 1. Reconciliar herencia de tracking/courier/estado desde el Pedido Principal (Ancla) si el secundario quedó desfasado
+    if (info.role === 'secondary' && info.primaryOrderId && !_healedConsolidationTrackingIds.has(String(order.id))) {
+      const primaryOrder = orders.find(o => String(o.id) === String(info.primaryOrderId));
+      if (primaryOrder) {
+        const pTrack = String(primaryOrder.tracking_number || '').trim();
+        const sTrack = String(order.tracking_number || '').trim();
+        const pRank = _WMS_STATE_RANK[primaryOrder.estado_wms] ?? -1;
+        const sRank = _WMS_STATE_RANK[order.estado_wms] ?? -1;
+        const needsTrackSync = Boolean(pTrack && sTrack !== pTrack);
+        const needsStateSync = Boolean(pRank > sRank && pRank >= 2);
+
+        if (needsTrackSync || needsStateSync) {
+          _healedConsolidationTrackingIds.add(String(order.id));
+          const syncPayload = {};
+          if (pTrack) {
+            syncPayload.tracking_number = primaryOrder.tracking_number;
+            if (primaryOrder.tracking_url) syncPayload.tracking_url = primaryOrder.tracking_url;
+            if (primaryOrder.courier) syncPayload.courier = primaryOrder.courier;
+            if (primaryOrder.operador) syncPayload.operador = primaryOrder.operador;
+          }
+          if (primaryOrder.agenda && !order.agenda) syncPayload.agenda = primaryOrder.agenda;
+          if (primaryOrder.sucursal_pickeo && !order.sucursal_pickeo) syncPayload.sucursal_pickeo = primaryOrder.sucursal_pickeo;
+          if (needsStateSync) {
+            syncPayload.estado_wms = primaryOrder.estado_wms;
+            syncPayload.status = primaryOrder.status;
+            if (primaryOrder.stock_descontado) syncPayload.stock_descontado = true;
+            if (primaryOrder.ready_for_pickup_at) syncPayload.ready_for_pickup_at = primaryOrder.ready_for_pickup_at;
+            if (primaryOrder.delivered_at) syncPayload.delivered_at = primaryOrder.delivered_at;
+            if (primaryOrder.closed_at) syncPayload.closed_at = primaryOrder.closed_at;
+          }
+          syncConsolidatedChildrenFromPrimary(primaryOrder.id, syncPayload).catch(() => {});
+        }
+      }
+    }
+
     if (_healedConsolidationOrderIds.has(String(order.id))) continue;
 
     // Si el pedido ya tiene solicitud registrada en BD o ya fue pickeado/completado, no sobreescribir

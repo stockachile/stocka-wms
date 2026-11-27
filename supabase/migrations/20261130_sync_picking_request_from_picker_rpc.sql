@@ -83,3 +83,58 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.sync_picking_request_from_picker(text[], jsonb, text, text, timestamptz) TO anon, authenticated, service_role;
+
+-- =====================================================================================
+-- Trigger en public.orders: Propagación automática desde Pedido Ancla (Principal)
+-- hacia Pedidos Secundarios Consolidados cuando se actualizan por crons/webhooks/UI
+-- =====================================================================================
+CREATE OR REPLACE FUNCTION public.fn_propagate_consolidated_primary_to_children()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Evitar recursión infinita y actuar solo cuando el pedido actualizado es un Pedido Principal Consolidado
+  IF pg_trigger_depth() > 1 THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.is_consolidated IS TRUE AND NEW.consolidated_into_order_id IS NULL THEN
+    IF (NEW.tracking_number IS DISTINCT FROM OLD.tracking_number)
+       OR (NEW.tracking_url IS DISTINCT FROM OLD.tracking_url)
+       OR (NEW.courier IS DISTINCT FROM OLD.courier)
+       OR (NEW.operador IS DISTINCT FROM OLD.operador)
+       OR (NEW.agenda IS DISTINCT FROM OLD.agenda)
+       OR (NEW.sucursal_pickeo IS DISTINCT FROM OLD.sucursal_pickeo)
+       OR (NEW.estado_wms IS DISTINCT FROM OLD.estado_wms)
+       OR (NEW.status IS DISTINCT FROM OLD.status)
+       OR (NEW.delivered_at IS DISTINCT FROM OLD.delivered_at)
+       OR (NEW.closed_at IS DISTINCT FROM OLD.closed_at)
+    THEN
+      UPDATE public.orders
+      SET tracking_number     = COALESCE(NEW.tracking_number, tracking_number),
+          tracking_url        = COALESCE(NEW.tracking_url, tracking_url),
+          courier             = COALESCE(NEW.courier, courier),
+          operador            = COALESCE(NEW.operador, operador),
+          agenda              = COALESCE(NEW.agenda, agenda),
+          sucursal_pickeo     = COALESCE(NEW.sucursal_pickeo, sucursal_pickeo),
+          estado_wms          = COALESCE(NEW.estado_wms, estado_wms),
+          status              = COALESCE(NEW.status, status),
+          stock_descontado    = COALESCE(NEW.stock_descontado, stock_descontado),
+          ready_for_pickup_at = COALESCE(NEW.ready_for_pickup_at, ready_for_pickup_at),
+          delivered_at        = COALESCE(NEW.delivered_at, delivered_at),
+          closed_at           = COALESCE(NEW.closed_at, closed_at)
+      WHERE consolidated_into_order_id = NEW.id;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_propagate_consolidated_primary_to_children ON public.orders;
+CREATE TRIGGER trg_propagate_consolidated_primary_to_children
+  AFTER UPDATE ON public.orders
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_propagate_consolidated_primary_to_children();

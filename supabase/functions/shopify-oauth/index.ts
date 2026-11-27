@@ -773,6 +773,17 @@ async function syncShopifyOrders(integration: any): Promise<number> {
 
         orderDataToUpdate.raw_shopify_data = {
           ...order,
+          ...(existingRaw.wms_forced_tracking ? { wms_forced_tracking: existingRaw.wms_forced_tracking } : {}),
+          ...(existingRaw._is_consolidated !== undefined ? {
+            _is_consolidated: existingRaw._is_consolidated,
+            _consolidation_role: existingRaw._consolidation_role,
+            _consolidated_into_order_id: existingRaw._consolidated_into_order_id,
+            _consolidated_into_folio: existingRaw._consolidated_into_folio,
+            _consolidated_children_ids: existingRaw._consolidated_children_ids,
+            _consolidated_children_folios: existingRaw._consolidated_children_folios,
+            _consolidated_at: existingRaw._consolidated_at,
+            _consolidated_by: existingRaw._consolidated_by
+          } : {}),
           ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
           ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
           ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
