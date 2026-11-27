@@ -2121,9 +2121,9 @@ window.deletePickingRequest = async function(orderId) {
       found.picking_request_status = null;
     }
 
-    // Sincronizar eliminación en Picker DB (limpiar observation)
+    // Sincronizar eliminación en Picker DB en segundo plano (limpiar observation)
     if (typeof window.syncPickingRequestToPicker === 'function') {
-      await window.syncPickingRequestToPicker(orderId, null);
+      Promise.resolve(window.syncPickingRequestToPicker(orderId, null)).catch(() => {});
     }
 
     if (window.showToastNotification) {
@@ -2295,8 +2295,10 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
       .select('id, order_number, observation, sheet_status, picking_requests_confirmed, picking_requests_confirmed_at, picking_requests_operator, picking_requests_json')
       .in('order_number', searchKeys);
 
-    // Fallback por sufijo numérico + comercio (ej: #11049953 en WMS vs BIT11049953 en Picker)
-    if ((!activeRows || activeRows.length === 0) && digitsOnly.length >= 4) {
+    // Fallback por sufijo numérico + comercio (ej: #11049953 en WMS vs BIT11049953 en Picker),
+    // omitiendo escaneo ILIKE si el pedido aún está en Pendiente/En procesamiento sin estado en Picker
+    const isLikelyNotInPickerYet = ['Pendiente', 'En procesamiento'].includes(order.estado_wms) && !order.picker_status;
+    if ((!activeRows || activeRows.length === 0) && digitsOnly.length >= 4 && !isLikelyNotInPickerYet) {
       let fallbackQuery = pClient
         .from('active_orders')
         .select('id, order_number, observation, sheet_status, picking_requests_confirmed, picking_requests_confirmed_at, picking_requests_operator, picking_requests_json')

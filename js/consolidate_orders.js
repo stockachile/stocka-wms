@@ -1237,6 +1237,47 @@ window.openConsolidateOrdersModal = openConsolidateOrdersModal;
  * Crea o actualiza una Solicitud Especial de Picking (`order_picking_requests`)
  * para un pedido consolidado y la sincroniza en tiempo real con Picker (`active_orders`).
  */
+function withConsolidationTimeout(promise, ms = 6000, fallbackValue = undefined) {
+  let timer = null;
+  const timeoutPromise = new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      if (fallbackValue !== undefined) {
+        resolve(fallbackValue);
+      } else {
+        reject(new Error(`Tiempo de espera agotado (${Math.round(ms / 1000)}s)`));
+      }
+    }, ms);
+  });
+  return Promise.race([
+    Promise.resolve(promise).finally(() => { if (timer) clearTimeout(timer); }),
+    timeoutPromise
+  ]);
+}
+
+function isConsolidationChecklistItem(it) {
+  if (!it) return false;
+  return (
+    it.id === 'consolidate_shipping_alert' ||
+    /CONSOLIDAR ENV[IÍ]O|CONSOLIDADO UNIFICADO|CONSOLIDADO EN #/i.test(String(it.text || ''))
+  );
+}
+
+async function resolveCurrentAdminIdentity() {
+  let adminEmail = window.currentAdminUser?.email || window.currentSession?.user?.email || null;
+  let adminUserId = window.currentAdminUser?.id || window.currentSession?.user?.id || null;
+  if (!adminEmail && supabase?.auth?.getSession) {
+    try {
+      const res = await withConsolidationTimeout(supabase.auth.getSession(), 2000, null);
+      adminEmail = res?.data?.session?.user?.email || adminEmail;
+      adminUserId = res?.data?.session?.user?.id || adminUserId;
+    } catch (_) {}
+  }
+  return {
+    adminEmail: adminEmail || 'admin@stocka.cl',
+    adminUserId: adminUserId || null
+  };
+}
+
 async function upsertConsolidationPickingRequest(order, checklistText, generalNoteText) {
   if (!order || !order.id) return;
 
@@ -1269,12 +1310,16 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
   };
 
   try {
-    const { data: existingList } = await supabase
-      .from('order_picking_requests')
-      .select('*')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: false })
-      .limit(1);
+    const { data: existingList } = await withConsolidationTimeout(
+      supabase
+        .from('order_picking_requests')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: false })
+        .limit(1),
+      4000,
+      { data: null }
+    );
 
     const existingReq = Array.isArray(existingList) && existingList.length > 0 ? existingList[0] : null;
     let savedReq = null;
@@ -1285,7 +1330,7 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
       const fallbackAt = existingReq.completed_at || new Date().toISOString();
 
       const currentItems = Array.isArray(existingReq.items) ? [...existingReq.items] : [];
-      const existingIdx = currentItems.findIndex(it => it && (it.id === itemId || String(it.text || '').includes('CONSOLIDAR ENVÍO')));
+      const existingIdx = currentItems.findIndex(it => isConsolidationChecklistItem(it));
 
       if (existingIdx >= 0) {
         const wasChecked = Boolean(currentItems[existingIdx].checked) || isOrderAlreadyPicked;
@@ -1322,17 +1367,21 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
         updated_at: new Date().toISOString()
       };
 
-      const { data: updated, error: updErr } = await supabase
-        .from('order_picking_requests')
-        .update({
-          items: currentItems,
-          general_notes: updatedNotes,
-          status: nextStatus,
-          updated_at: finalReqObj.updated_at
-        })
-        .eq('id', existingReq.id)
-        .select('*')
-        .maybeSingle();
+      const { data: updated, error: updErr } = await withConsolidationTimeout(
+        supabase
+          .from('order_picking_requests')
+          .update({
+            items: currentItems,
+            general_notes: updatedNotes,
+            status: nextStatus,
+            updated_at: finalReqObj.updated_at
+          })
+          .eq('id', existingReq.id)
+          .select('*')
+          .maybeSingle(),
+        4000,
+        { data: null, error: null }
+      );
 
       if (!updErr && updated) {
         savedReq = updated;
@@ -1352,11 +1401,15 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
         updated_at: new Date().toISOString()
       };
 
-      const { data: inserted, error: insErr } = await supabase
-        .from('order_picking_requests')
-        .insert([insertPayload])
-        .select('*')
-        .maybeSingle();
+      const { data: inserted, error: insErr } = await withConsolidationTimeout(
+        supabase
+          .from('order_picking_requests')
+          .insert([insertPayload])
+          .select('*')
+          .maybeSingle(),
+        4000,
+        { data: null, error: null }
+      );
 
       if (!insErr && inserted) {
         savedReq = inserted;
@@ -1372,25 +1425,26 @@ async function upsertConsolidationPickingRequest(order, checklistText, generalNo
     }
     order.has_picking_request = true;
     order.picking_request_status = effectiveReq.status || 'pendiente';
+    delete order._wmsTags;
+    delete order._wmsSearchIndex;
     supabase.from('orders').update({
       has_picking_request: true,
       picking_request_status: effectiveReq.status || 'pendiente'
     }).eq('id', orderId).then(() => {}).catch(() => {});
 
+    // Sincronizar con Picker en segundo plano para no bloquear el modal de WMS
     if (typeof window.syncPickingRequestToPicker === 'function') {
-      await window.syncPickingRequestToPicker(orderId, effectiveReq);
+      Promise.resolve(window.syncPickingRequestToPicker(orderId, effectiveReq)).catch(() => {});
     } else {
-      await syncConsolidationDirectlyToPicker(order, effectiveReq);
+      Promise.resolve(syncConsolidationDirectlyToPicker(order, effectiveReq)).catch(() => {});
     }
 
     if (typeof window.refreshOrderRowPickingBadge === 'function') {
-      window.refreshOrderRowPickingBadge(orderId);
+      try { window.refreshOrderRowPickingBadge(orderId); } catch (_) {}
     }
   } catch (err) {
     console.warn('[ConsolidateOrders] Aviso sincronizando Solicitud Especial de Picking:', err);
-    try {
-      await syncConsolidationDirectlyToPicker(order, finalReqObj);
-    } catch (_) {}
+    Promise.resolve(syncConsolidationDirectlyToPicker(order, finalReqObj)).catch(() => {});
   }
 }
 
@@ -1451,15 +1505,7 @@ async function syncConsolidationDirectlyToPicker(order, request) {
 export async function logOrderAudit(orderId, action, detailsOrComment = null) {
   if (!orderId || !action) return;
   try {
-    let userId = window.currentAdminUser?.id || window.currentSession?.user?.id || null;
-    let userEmail = window.currentAdminUser?.email || window.currentSession?.user?.email || null;
-
-    if (!userEmail && supabase?.auth?.getSession) {
-      const { data } = await supabase.auth.getSession();
-      userId = data?.session?.user?.id || userId;
-      userEmail = data?.session?.user?.email || userEmail;
-    }
-    userEmail = userEmail || 'admin@stocka.cl';
+    const { adminEmail: userEmail, adminUserId: userId } = await resolveCurrentAdminIdentity();
 
     let detailsObj = {};
     if (detailsOrComment && typeof detailsOrComment === 'object' && !Array.isArray(detailsOrComment)) {
@@ -1470,20 +1516,24 @@ export async function logOrderAudit(orderId, action, detailsOrComment = null) {
       detailsObj = { changes: [detailsOrComment.trim()] };
     }
 
-    const { error } = await supabase.from('order_audit_logs').insert({
-      order_id: orderId,
-      user_id: userId,
-      user_email: userEmail,
-      action,
-      details: detailsObj
-    });
+    const { error } = await withConsolidationTimeout(
+      supabase.from('order_audit_logs').insert({
+        order_id: orderId,
+        user_id: userId,
+        user_email: userEmail,
+        action,
+        details: detailsObj
+      }),
+      3500,
+      { error: null }
+    );
 
     if (error) {
       console.warn('[ConsolidateOrders] Aviso insertando en order_audit_logs:', error);
     }
 
     if (typeof window.loadOrderAuditLogs === 'function') {
-      window.loadOrderAuditLogs(orderId);
+      try { window.loadOrderAuditLogs(orderId); } catch (_) {}
     }
   } catch (err) {
     console.warn('[ConsolidateOrders] Aviso registrando auditoría de pedido:', err);
@@ -1507,17 +1557,6 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
   const secondaryFolios = secondaryOrders.map(o => getOrderDisplayFolio(o));
   const nowIso = new Date().toISOString();
 
-  let adminEmail = window.currentAdminUser?.email || window.currentSession?.user?.email || null;
-  let adminUserId = window.currentAdminUser?.id || window.currentSession?.user?.id || null;
-  try {
-    if (supabase?.auth?.getSession) {
-      const { data } = await supabase.auth.getSession();
-      adminEmail = data?.session?.user?.email || adminEmail;
-      adminUserId = data?.session?.user?.id || adminUserId;
-    }
-  } catch (_) {}
-  adminEmail = adminEmail || 'admin@stocka.cl';
-
   Swal.fire({
     title: 'Consolidando Pedidos...',
     html: 'Vinculando órdenes y enviando Solicitud Especial de Picking a cada pedido...',
@@ -1526,6 +1565,8 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
   });
 
   try {
+    const { adminEmail, adminUserId } = await resolveCurrentAdminIdentity();
+
     // 1. Actualizar Pedido Principal (Ancla)
     const primaryRaw = {
       ...(primaryOrder.raw_shopify_data && typeof primaryOrder.raw_shopify_data === 'object' ? primaryOrder.raw_shopify_data : {}),
@@ -1539,26 +1580,22 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
       _consolidated_by: adminEmail
     };
 
-    await updateOrderConsolidationDbRow(primaryOrder.id, {
+    const anyInPreparation = orders.some(o => o.estado_wms === 'En preparación' || String(o.status || '').toLowerCase() === 'en preparación');
+    const primaryUpdatePayload = {
       raw_shopify_data: primaryRaw,
       is_consolidated: true,
       consolidated_into_order_id: null
-    });
-
-    primaryOrder.raw_shopify_data = primaryRaw;
-    primaryOrder.is_consolidated = true;
-    primaryOrder.consolidated_into_order_id = null;
-
-    // Si alguno de los pedidos del grupo ya está 'En preparación', alinear todos a 'En preparación' para que se preparen y cambien de estado juntos
-    const anyInPreparation = orders.some(o => o.estado_wms === 'En preparación' || String(o.status || '').toLowerCase() === 'en preparación');
+    };
     if (anyInPreparation && primaryOrder.estado_wms !== 'En preparación') {
-      await updateOrderConsolidationDbRow(primaryOrder.id, {
-        estado_wms: 'En preparación',
-        status: 'en preparación'
-      });
-      primaryOrder.estado_wms = 'En preparación';
-      primaryOrder.status = 'en preparación';
+      primaryUpdatePayload.estado_wms = 'En preparación';
+      primaryUpdatePayload.status = 'en preparación';
     }
+
+    await withConsolidationTimeout(updateOrderConsolidationDbRow(primaryOrder.id, primaryUpdatePayload), 7000);
+
+    Object.assign(primaryOrder, primaryUpdatePayload);
+    delete primaryOrder._wmsTags;
+    delete primaryOrder._wmsSearchIndex;
 
     // 2. Actualizar cada Pedido Secundario y propagar datos logísticos del Principal si existen
     for (const secOrder of secondaryOrders) {
@@ -1592,9 +1629,11 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
         secUpdatePayload.status = 'en preparación';
       }
 
-      await updateOrderConsolidationDbRow(secOrder.id, secUpdatePayload);
+      await withConsolidationTimeout(updateOrderConsolidationDbRow(secOrder.id, secUpdatePayload), 7000);
 
       Object.assign(secOrder, secUpdatePayload);
+      delete secOrder._wmsTags;
+      delete secOrder._wmsSearchIndex;
     }
 
     // 3. Crear Solicitud Especial de Picking y retirar los pedidos secundarios sueltos de active_orders en Picker
@@ -1603,23 +1642,25 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
     const primaryChecklistText = `📦 CONSOLIDADO UNIFICADO (${orders.length} PEDIDOS EN 1 PAQUETE: ${allFoliosList.join(' + ')}): Este pedido principal concentra los artículos de todos los pedidos consolidados [${customerLabel}], separados visualmente por pedido en pantalla. Escanear el 100% de las unidades y empacar todo en UN SOLO PAQUETE FÍSICO con la etiqueta de ${primaryFolio}.`;
     const primaryNoteText = `CONSOLIDADO PRINCIPAL (${orders.length} pedidos: ${allFoliosList.join(' + ')}): Unificar todos los productos en 1 paquete físico`;
 
-    await upsertConsolidationPickingRequest(primaryOrder, primaryChecklistText, primaryNoteText);
+    await withConsolidationTimeout(upsertConsolidationPickingRequest(primaryOrder, primaryChecklistText, primaryNoteText), 4500, null);
 
     for (const secOrder of secondaryOrders) {
       const secFolio = getOrderDisplayFolio(secOrder);
       const secChecklistText = `🔗 CONSOLIDADO EN ${primaryFolio}: Los artículos de este pedido (${secFolio}) se envían y escanean dentro del Pedido Principal ${primaryFolio} en el Picker [${customerLabel}].`;
       const secNoteText = `CONSOLIDADO SECUNDARIO: Unificado en Picker dentro del Pedido Principal ${primaryFolio}`;
-      await upsertConsolidationPickingRequest(secOrder, secChecklistText, secNoteText);
-      await removeStandaloneSecondaryFromPicker(secOrder);
+      await withConsolidationTimeout(upsertConsolidationPickingRequest(secOrder, secChecklistText, secNoteText), 4500, null);
+      Promise.resolve(removeStandaloneSecondaryFromPicker(secOrder)).catch(() => {});
     }
 
     // 3b. Si el grupo está 'En preparación' (o ya estaba activo en Picker), enviar/actualizar en Picker un ÚNICO pedido (el Principal) con los productos de todos los pedidos separados visualmente por pedido
     if ((anyInPreparation || primaryOrder.estado_wms === 'En preparación') && typeof window.sendSingleOrderToPicker === 'function') {
-      try {
-        await window.sendSingleOrderToPicker(primaryOrder, { ignoreMissingTracking: true, forceTemporaryLabel: true });
-      } catch (pickerSyncErr) {
+      withConsolidationTimeout(
+        window.sendSingleOrderToPicker(primaryOrder, { ignoreMissingTracking: true, forceTemporaryLabel: true }),
+        5000,
+        null
+      ).catch(pickerSyncErr => {
         console.warn('[ConsolidateOrders] Aviso sincronizando pedido principal consolidado al Picker:', pickerSyncErr);
-      }
+      });
     }
 
     // 4. Registrar en historial de auditoría (`order_audit_logs`)
@@ -1669,32 +1710,36 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
       })
     ];
 
-    try {
-      const { error: auditErr } = await supabase.from('order_audit_logs').insert(auditRows);
-      if (auditErr) {
-        console.warn('[ConsolidateOrders] Aviso insertando auditoría de consolidado:', auditErr);
-      }
-    } catch (audEx) {
+    withConsolidationTimeout(supabase.from('order_audit_logs').insert(auditRows), 3500, { error: null }).catch(audEx => {
       console.warn('[ConsolidateOrders] Excepción registrando auditoría de consolidado:', audEx);
-    }
+    });
 
     // 5. Re-detectar y refrescar vistas activas
-    detectConsolidatableOrders(window.loadedOrders || []);
-    if (typeof window.applyWmsFiltersAndRender === 'function') {
-      window.applyWmsFiltersAndRender();
-    }
-    if (typeof window.renderAgendasGrid === 'function' && document.getElementById('agendas-grid-tbody')) {
-      window.renderAgendasGrid();
-    }
-    if (window._currentFullPageOrderId && typeof window.openOrderFullPage === 'function') {
-      window.openOrderFullPage(window._currentFullPageOrderId);
-    }
-    if (typeof window.loadOrderAuditLogs === 'function') {
-      orders.forEach(o => {
-        if (o && o.id) window.loadOrderAuditLogs(o.id);
-      });
-    }
+    try { detectConsolidatableOrders(window.loadedOrders || []); } catch (_) {}
+    try {
+      if (typeof window.applyWmsFiltersAndRender === 'function') {
+        window.applyWmsFiltersAndRender();
+      }
+    } catch (_) {}
+    try {
+      if (typeof window.renderAgendasGrid === 'function' && document.getElementById('agendas-grid-tbody')) {
+        window.renderAgendasGrid();
+      }
+    } catch (_) {}
+    try {
+      if (window._currentFullPageOrderId && typeof window.openOrderFullPage === 'function') {
+        window.openOrderFullPage(window._currentFullPageOrderId);
+      }
+    } catch (_) {}
+    try {
+      if (typeof window.loadOrderAuditLogs === 'function') {
+        orders.forEach(o => {
+          if (o && o.id) window.loadOrderAuditLogs(o.id);
+        });
+      }
+    } catch (_) {}
 
+    try { Swal.close(); } catch (_) {}
     Swal.fire({
       icon: 'success',
       title: '¡Pedidos Consolidados!',
@@ -1712,6 +1757,7 @@ async function executeOrderConsolidation(group, selectedPrimaryId) {
     });
   } catch (err) {
     console.error('[ConsolidateOrders] Error consolidando pedidos:', err);
+    try { Swal.close(); } catch (_) {}
     Swal.fire('Error', 'No se pudo completar la consolidación: ' + (err.message || err), 'error');
   }
 }
@@ -1769,94 +1815,99 @@ export async function undoOrderConsolidation(orderId) {
   });
 
   try {
-    let adminEmail = window.currentAdminUser?.email || window.currentSession?.user?.email || null;
-    let adminUserId = window.currentAdminUser?.id || window.currentSession?.user?.id || null;
-    try {
-      if (supabase?.auth?.getSession) {
-        const { data } = await supabase.auth.getSession();
-        adminEmail = data?.session?.user?.email || adminEmail;
-        adminUserId = data?.session?.user?.id || adminUserId;
-      }
-    } catch (_) {}
-    adminEmail = adminEmail || 'admin@stocka.cl';
-
+    const { adminEmail, adminUserId } = await resolveCurrentAdminIdentity();
     const resetFolios = ordersToReset.map(o => getOrderDisplayFolio(o)).join(', ');
 
-    for (const ord of ordersToReset) {
-      const cleanRaw = {
-        ...(ord.raw_shopify_data && typeof ord.raw_shopify_data === 'object' ? ord.raw_shopify_data : {})
-      };
-      delete cleanRaw._is_consolidated;
-      delete cleanRaw._consolidation_role;
-      delete cleanRaw._consolidated_into_order_id;
-      delete cleanRaw._consolidated_into_folio;
-      delete cleanRaw._consolidated_children_ids;
-      delete cleanRaw._consolidated_children_folios;
-      delete cleanRaw._consolidated_at;
-      delete cleanRaw._consolidated_by;
+    await Promise.all(
+      ordersToReset.map(async (ord) => {
+        const cleanRaw = {
+          ...(ord.raw_shopify_data && typeof ord.raw_shopify_data === 'object' ? ord.raw_shopify_data : {})
+        };
+        delete cleanRaw._is_consolidated;
+        delete cleanRaw._consolidation_role;
+        delete cleanRaw._consolidated_into_order_id;
+        delete cleanRaw._consolidated_into_folio;
+        delete cleanRaw._consolidated_children_ids;
+        delete cleanRaw._consolidated_children_folios;
+        delete cleanRaw._consolidated_at;
+        delete cleanRaw._consolidated_by;
 
-      await updateOrderConsolidationDbRow(ord.id, {
-        raw_shopify_data: cleanRaw,
-        is_consolidated: false,
-        consolidated_into_order_id: null
-      });
+        // Actualizar estado en memoria inmediatamente para que cualquier re-render en segundo plano ya lo vea desvinculado
+        ord.raw_shopify_data = cleanRaw;
+        ord.is_consolidated = false;
+        ord.consolidated_into_order_id = null;
+        delete ord._wmsTags;
+        delete ord._wmsSearchIndex;
 
-      ord.raw_shopify_data = cleanRaw;
-      ord.is_consolidated = false;
-      ord.consolidated_into_order_id = null;
+        await withConsolidationTimeout(
+          updateOrderConsolidationDbRow(ord.id, {
+            raw_shopify_data: cleanRaw,
+            is_consolidated: false,
+            consolidated_into_order_id: null
+          }),
+          7000
+        );
 
-      // Limpiar el ítem automático de consolidación en order_picking_requests
-      await removeConsolidationPickingRequestItem(ord.id);
-    }
+        // Limpiar el ítem automático de consolidación en order_picking_requests con timeout de seguridad
+        await withConsolidationTimeout(removeConsolidationPickingRequestItem(ord.id), 4000, null);
+      })
+    );
 
-    // Si los pedidos desvinculados estaban 'En preparación', reenviarlos por separado al Picker con sus propios artículos y su propio totu
+    // Si los pedidos desvinculados estaban 'En preparación', reenviarlos por separado al Picker en segundo plano
     if (typeof window.sendSingleOrderToPicker === 'function') {
       for (const ord of ordersToReset) {
         if (ord && ord.estado_wms === 'En preparación') {
-          try {
-            await window.sendSingleOrderToPicker(ord, { ignoreMissingTracking: true, forceTemporaryLabel: true });
-          } catch (reSendErr) {
+          Promise.resolve(
+            window.sendSingleOrderToPicker(ord, { ignoreMissingTracking: true, forceTemporaryLabel: true })
+          ).catch(reSendErr => {
             console.warn('[ConsolidateOrders] Aviso re-separando pedido en Picker tras deshacer consolidado:', reSendErr);
-          }
+          });
         }
       }
     }
 
-    try {
-      const undoAuditRows = ordersToReset.map(ord => ({
-        order_id: ord.id,
-        user_id: adminUserId,
-        user_email: adminEmail,
-        action: 'Consolidado de Envío Desvinculado',
-        details: {
-          changes: [
-            `Se deshizo la consolidación del grupo de pedidos (${resetFolios}).`,
-            `El pedido vuelve a gestionarse como envío y facturación independiente.`,
-            `Se retiró la instrucción automática de consolidado en Picker.`
-          ]
-        }
-      }));
-      await supabase.from('order_audit_logs').insert(undoAuditRows);
-    } catch (audErr) {
+    const undoAuditRows = ordersToReset.map(ord => ({
+      order_id: ord.id,
+      user_id: adminUserId,
+      user_email: adminEmail,
+      action: 'Consolidado de Envío Desvinculado',
+      details: {
+        changes: [
+          `Se deshizo la consolidación del grupo de pedidos (${resetFolios}).`,
+          `El pedido vuelve a gestionarse como envío y facturación independiente.`,
+          `Se retiró la instrucción automática de consolidado en Picker.`
+        ]
+      }
+    }));
+    withConsolidationTimeout(supabase.from('order_audit_logs').insert(undoAuditRows), 3500, { error: null }).catch(audErr => {
       console.warn('[ConsolidateOrders] Aviso insertando auditoría al deshacer consolidado:', audErr);
-    }
+    });
 
-    detectConsolidatableOrders(window.loadedOrders || []);
-    if (typeof window.applyWmsFiltersAndRender === 'function') {
-      window.applyWmsFiltersAndRender();
-    }
-    if (typeof window.renderAgendasGrid === 'function' && document.getElementById('agendas-grid-tbody')) {
-      window.renderAgendasGrid();
-    }
-    if (window._currentFullPageOrderId && typeof window.openOrderFullPage === 'function') {
-      window.openOrderFullPage(window._currentFullPageOrderId);
-    }
-    if (typeof window.loadOrderAuditLogs === 'function') {
-      ordersToReset.forEach(o => {
-        if (o && o.id) window.loadOrderAuditLogs(o.id);
-      });
-    }
+    try { detectConsolidatableOrders(window.loadedOrders || []); } catch (_) {}
+    try {
+      if (typeof window.applyWmsFiltersAndRender === 'function') {
+        window.applyWmsFiltersAndRender();
+      }
+    } catch (_) {}
+    try {
+      if (typeof window.renderAgendasGrid === 'function' && document.getElementById('agendas-grid-tbody')) {
+        window.renderAgendasGrid();
+      }
+    } catch (_) {}
+    try {
+      if (window._currentFullPageOrderId && typeof window.openOrderFullPage === 'function') {
+        window.openOrderFullPage(window._currentFullPageOrderId);
+      }
+    } catch (_) {}
+    try {
+      if (typeof window.loadOrderAuditLogs === 'function') {
+        ordersToReset.forEach(o => {
+          if (o && o.id) window.loadOrderAuditLogs(o.id);
+        });
+      }
+    } catch (_) {}
 
+    try { Swal.close(); } catch (_) {}
     Swal.fire({
       toast: true,
       position: 'top-end',
@@ -1867,6 +1918,7 @@ export async function undoOrderConsolidation(orderId) {
     });
   } catch (err) {
     console.error('[ConsolidateOrders] Error revirtiendo consolidación:', err);
+    try { Swal.close(); } catch (_) {}
     Swal.fire('Error', 'No se pudo revertir la consolidación: ' + (err.message || err), 'error');
   }
 }
@@ -1874,43 +1926,63 @@ window.undoOrderConsolidation = undoOrderConsolidation;
 
 async function removeConsolidationPickingRequestItem(orderId) {
   try {
-    const { data: existingList } = await supabase
-      .from('order_picking_requests')
-      .select('*')
-      .eq('order_id', orderId);
-
-    if (!Array.isArray(existingList) || existingList.length === 0) return;
-
     const allOrders = window.loadedOrders || [];
     const ordObj = allOrders.find(o => String(o.id) === String(orderId));
 
+    const { data: existingList } = await withConsolidationTimeout(
+      supabase
+        .from('order_picking_requests')
+        .select('*')
+        .eq('order_id', orderId),
+      3500,
+      { data: null }
+    );
+
+    if (!Array.isArray(existingList) || existingList.length === 0) {
+      if (window.pickingRequestsCache && typeof window.pickingRequestsCache.delete === 'function') {
+        window.pickingRequestsCache.delete(orderId);
+      }
+      if (ordObj) {
+        ordObj.has_picking_request = false;
+        ordObj.picking_request_status = null;
+      }
+      return;
+    }
+
     for (const req of existingList) {
       const items = Array.isArray(req.items) ? req.items : [];
-      const remaining = items.filter(it => it && it.id !== 'consolidate_shipping_alert' && !String(it.text || '').includes('CONSOLIDAR ENVÍO'));
+      const remaining = items.filter(it => !isConsolidationChecklistItem(it));
       if (remaining.length === items.length) continue;
 
       if (remaining.length === 0) {
-        await supabase.from('order_picking_requests').delete().eq('id', req.id);
-        await supabase.from('orders').update({ has_picking_request: false, picking_request_status: null }).eq('id', orderId);
         if (window.pickingRequestsCache && typeof window.pickingRequestsCache.delete === 'function') {
           window.pickingRequestsCache.delete(orderId);
         }
         if (ordObj) {
           ordObj.has_picking_request = false;
           ordObj.picking_request_status = null;
+          delete ordObj._wmsTags;
         }
+        await Promise.all([
+          withConsolidationTimeout(supabase.from('order_picking_requests').delete().eq('id', req.id), 3000, null),
+          withConsolidationTimeout(supabase.from('orders').update({ has_picking_request: false, picking_request_status: null }).eq('id', orderId), 3000, null)
+        ]);
         if (typeof window.syncPickingRequestToPicker === 'function') {
-          await window.syncPickingRequestToPicker(orderId, null);
+          Promise.resolve(window.syncPickingRequestToPicker(orderId, null)).catch(() => {});
         }
       } else {
         const allChecked = remaining.every(i => i.checked);
         const newSt = allChecked ? 'completada' : 'pendiente';
-        const { data: updated } = await supabase
-          .from('order_picking_requests')
-          .update({ items: remaining, status: newSt, updated_at: new Date().toISOString() })
-          .eq('id', req.id)
-          .select('*')
-          .single();
+        const { data: updated } = await withConsolidationTimeout(
+          supabase
+            .from('order_picking_requests')
+            .update({ items: remaining, status: newSt, updated_at: new Date().toISOString() })
+            .eq('id', req.id)
+            .select('*')
+            .maybeSingle(),
+          3500,
+          { data: null }
+        );
         if (updated) {
           if (window.pickingRequestsCache && typeof window.pickingRequestsCache.set === 'function') {
             window.pickingRequestsCache.set(orderId, updated);
@@ -1918,14 +1990,15 @@ async function removeConsolidationPickingRequestItem(orderId) {
           if (ordObj) {
             ordObj.has_picking_request = true;
             ordObj.picking_request_status = newSt;
+            delete ordObj._wmsTags;
           }
           if (typeof window.syncPickingRequestToPicker === 'function') {
-            await window.syncPickingRequestToPicker(orderId, updated);
+            Promise.resolve(window.syncPickingRequestToPicker(orderId, updated)).catch(() => {});
           }
         }
       }
       if (typeof window.refreshOrderRowPickingBadge === 'function') {
-        window.refreshOrderRowPickingBadge(orderId);
+        try { window.refreshOrderRowPickingBadge(orderId); } catch (_) {}
       }
     }
   } catch (err) {
