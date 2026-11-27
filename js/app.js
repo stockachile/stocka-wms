@@ -1003,11 +1003,15 @@ window.getOriginalPlatformStatus = function(order) {
     else if (status === 'completed') color = '#10b981';
     else if (status === 'cancelled') color = '#ef4444';
     else if (status === 'pending') color = '#f59e0b';
+    const wcDetails = [
+      { label: 'Estado', value: status, color: color }
+    ];
+    if (String(raw.payment_method || '').toLowerCase().trim() === 'cod' && !raw.date_paid) {
+      wcDetails.push({ label: 'Pago', value: 'PAGO AL RETIRAR', color: '#d97706' });
+    }
     return {
       platform: 'WooCommerce',
-      details: [
-        { label: 'Estado', value: status, color: color }
-      ]
+      details: wcDetails
     };
   }
   if (order.raw_jumpseller_data) {
@@ -1062,6 +1066,9 @@ window.getOrderPaymentBadgeHtml = function(order) {
   if (['paid', 'pagado', 'completed', 'approved'].includes(rawFin)) {
     return `<span style="background: var(--badge-success-bg); color: var(--badge-success-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Pagado</span>`;
   }
+  if (['pago al retirar', 'pago_al_retirar'].includes(rawFin)) {
+    return `<span style="background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-hand-coin-line"></i> Pago al retirar</span>`;
+  }
   if (['partially_refunded', 'parcialmente_reembolsado'].includes(rawFin)) {
     return `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-refund-line"></i> Parcialmente Reembolsado</span>`;
   }
@@ -1111,8 +1118,8 @@ window.isOrderStockCommittedEligible = function(order) {
     return false;
   }
 
-  // Estados pagados explícitos (SÍ comprometen stock)
-  const paidList = ['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado'];
+  // Estados pagados explícitos y pago al retirar (COD) que SÍ comprometen stock
+  const paidList = ['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado', 'pago al retirar', 'pago_al_retirar'];
   if (paidList.includes(payStatus) || paidList.includes(shopFin)) {
     return true;
   }
@@ -13178,6 +13185,8 @@ window.getClientOrderTags = function(order) {
   }
   if (payStatus === 'paid' || payStatus === 'authorized') {
     tags.add('PAGADO');
+  } else if (payStatus === 'pago al retirar' || payStatus === 'pago_al_retirar') {
+    tags.add('PAGO AL RETIRAR');
   } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
     tags.add('PAGO PENDIENTE');
   } else if (payStatus === 'partially_refunded' || payStatus === 'parcialmente_reembolsado') {
@@ -13240,6 +13249,14 @@ window.getClientOrderTags = function(order) {
     }
   }
 
+  // 14. Envío Consolidado (<24h)
+  const consInfo = typeof window.getOrderConsolidationInfo === 'function'
+    ? window.getOrderConsolidationInfo(order)
+    : null;
+  if ((consInfo && consInfo.isConsolidated) || order.is_consolidated === true || order.consolidated_into_order_id) {
+    tags.add('CONSOLIDADO');
+  }
+
   const result = Array.from(tags);
   order._clientTags = result;
   order._clientTagsVersion = window._clientTagsVersion;
@@ -13272,6 +13289,7 @@ window.updateClientOrderTagFilterOptions = function(arg1, arg2, arg3) {
 
   // 1. Etiquetas del Pedido (atributos del pedido, sin duplicar categorías de entrega)
   const orderPillTags = [
+    { key: 'CONSOLIDADO', label: '🔗 Envío Consolidado (<24h)' },
     { key: 'Con Packs', label: 'Con Packs' },
     { key: 'Exportado', label: 'Exportado' },
     { key: 'CON NOTA', label: 'Con Nota' },
@@ -13738,11 +13756,15 @@ async function renderOrders() {
       delivered_at,
       closed_at,
       closed_by_automation,
+      is_consolidated,
+      consolidated_into_order_id,
+      has_picking_request,
+      picking_request_status,
       order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, is_picking_request, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
     `.replace(/\s+/g, ' ').trim();
 
     window.clientEarliestFetchedDateStr = startOfMonthStr;
-    const cachePrefix = `client_v3_${currentMerchantId || (companyList[0] || 'anon')}_${startOfMonthStr}`;
+    const cachePrefix = `client_v4_${currentMerchantId || (companyList[0] || 'anon')}_${startOfMonthStr}`;
     let hasHydratedFromCache = false;
 
     if (window.wmsDbCache) {
@@ -15119,6 +15141,12 @@ window.applyClientWmsFiltersAndRender = function() {
       payColor = '#065f46';
       payBorder = '1px solid #a7f3d0';
       payIcon = 'ri-checkbox-circle-line';
+    } else if (payStatus === 'pago al retirar' || payStatus === 'pago_al_retirar') {
+      payTag = 'PAGO AL RETIRAR';
+      payBg = '#fef3c7';
+      payColor = '#92400e';
+      payBorder = '1px solid #f59e0b';
+      payIcon = 'ri-hand-coin-line';
     } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
       payTag = 'PAGO PENDIENTE';
       payBg = '#991b1b';
@@ -15445,7 +15473,7 @@ window.applyClientWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.15s;">
         <td colspan="11" style="padding: 0rem 0.75rem 0.5rem 5.6rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${(window.getConsolidationBadgeHtml ? window.getConsolidationBadgeHtml(order) : '')}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${overdemandBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -15453,6 +15481,7 @@ window.applyClientWmsFiltersAndRender = function() {
       <!-- Fila Desplegable de Detalles -->
       <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
         <td colspan="11" style="padding: 1.25rem 1rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+          ${(window.renderOrderDetailConsolidationCardHtml ? window.renderOrderDetailConsolidationCardHtml(order) : '')}
           <div class="order-detail-grid order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
             
             <!-- Col 1: Datos del Cliente y Despacho -->
@@ -15693,6 +15722,37 @@ window.applyClientWmsFiltersAndRender = function() {
                     <i class="ri-radar-line" style="color: var(--color-success); font-size: 0.88rem;"></i> Auto Track (Monitoreo)
                   </div>
                   ${shipmentStatusHtml}
+                  ${(() => {
+                    const cInfo = (typeof window.getOrderConsolidationInfo === 'function') ? window.getOrderConsolidationInfo(order) : null;
+                    if (!cInfo || !cInfo.isConsolidated) return '';
+                    const esc = window.escapeHtml || (s => String(s || ''));
+                    if (cInfo.role === 'secondary') {
+                      const anchorFolio = esc(cInfo.primaryFolio || 'Pedido Ancla');
+                      return `
+                        <div style="margin-top: 0.45rem; padding: 0.5rem 0.65rem; border-radius: 6px; background: #f0fdfa; border: 1px solid #5eead4; color: #134e4a; font-size: 0.75rem; line-height: 1.38;">
+                          <div style="font-weight: 800; color: #0f766e; display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.15rem;">
+                            <i class="ri-git-merge-line" style="font-size: 0.9rem;"></i>
+                            <span>Envío Consolidado en Pedido Ancla ${anchorFolio} (Flete $0)</span>
+                          </div>
+                          <div>
+                            Este pedido fue empacado y despachado físicamente dentro del mismo bulto del pedido <strong>${anchorFolio}</strong> (mismo destinatario y dirección en &lt;24h). Su guía de seguimiento y estado de entrega provienen directamente de <strong>${anchorFolio}</strong>.
+                          </div>
+                        </div>
+                      `;
+                    }
+                    const childList = (cInfo.childrenFolios && cInfo.childrenFolios.length > 0) ? esc(cInfo.childrenFolios.join(', ')) : 'pedido hermano';
+                    return `
+                      <div style="margin-top: 0.45rem; padding: 0.5rem 0.65rem; border-radius: 6px; background: #eef2ff; border: 1px solid #a5b4fc; color: #312e81; font-size: 0.75rem; line-height: 1.38;">
+                        <div style="font-weight: 800; color: #4338ca; display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.15rem;">
+                          <i class="ri-links-fill" style="font-size: 0.9rem;"></i>
+                          <span>Paquete Ancla de Envío Consolidado (+${childList})</span>
+                        </div>
+                        <div>
+                          Este envío unifica en un solo paquete físico los artículos de este pedido junto con <strong>${childList}</strong>, compartiendo esta misma guía de seguimiento.
+                        </div>
+                      </div>
+                    `;
+                  })()}
                 </div>
               </div>
 
@@ -59054,10 +59114,14 @@ async function updateClientInventoryRequestsBadge(commerce) {
   };
 
   try {
+    const isInternalReq = (r) => (typeof window.isInternalInventoryRequest === 'function'
+      ? window.isInternalInventoryRequest(r)
+      : (r?.is_internal === true || (typeof r?.folio === 'string' && r.folio.toUpperCase().startsWith('INT-INV-')) || (typeof r?.admin_notes === 'string' && r.admin_notes.includes('[INVENTARIO INTERNO]'))));
+
     const targetCommerce = commerce || window.currentMerchantCommerce || 'no asignado';
     let query = supabase
       .from('inventory_requests')
-      .select('id, status');
+      .select('*');
 
     if (targetCommerce && targetCommerce !== 'all') {
       const commerceList = targetCommerce.split(',').map(s => s.trim()).filter(Boolean);
@@ -59074,7 +59138,8 @@ async function updateClientInventoryRequestsBadge(commerce) {
     const { data, error } = await query;
 
     if (!error && data) {
-      const count = data.length;
+      const visibleData = data.filter(r => !isInternalReq(r));
+      const count = visibleData.length;
       updateEl(badge, count);
       updateEl(sidebarBadge, count);
       updateEl(tabBadge, count);
@@ -59082,10 +59147,11 @@ async function updateClientInventoryRequestsBadge(commerce) {
       // Fallback si la sintaxis not in diera error
       const fb = await supabase
         .from('inventory_requests')
-        .select('id, status')
+        .select('*')
         .in('status', ['Pendiente', 'En Conteo', 'Requiere Información', 'Aceptada']);
       if (!fb.error && fb.data) {
-        const count = fb.data.length;
+        const visibleFb = fb.data.filter(r => !isInternalReq(r));
+        const count = visibleFb.length;
         updateEl(badge, count);
         updateEl(sidebarBadge, count);
         updateEl(tabBadge, count);
@@ -59723,7 +59789,12 @@ async function loadClientInventoryRequestsTab(commerce) {
 
     if (error) throw error;
 
-    window.cachedClientInventoryRequests = requests || [];
+    // Ocultar siempre inventarios internos de uso exclusivo STOCKA
+    const visibleRequests = (requests || []).filter(r => !(typeof window.isInternalInventoryRequest === 'function'
+      ? window.isInternalInventoryRequest(r)
+      : (r?.is_internal === true || (typeof r?.folio === 'string' && r.folio.toUpperCase().startsWith('INT-INV-')) || (typeof r?.admin_notes === 'string' && r.admin_notes.includes('[INVENTARIO INTERNO]')))));
+
+    window.cachedClientInventoryRequests = visibleRequests;
     renderClientInventoryRequestsTabRows(window.cachedClientInventoryRequests, targetCommerce);
     updateClientInventoryRequestsBadge(targetCommerce);
   } catch (err) {
@@ -60035,10 +60106,14 @@ async function openClientInventoryRequestsModal(commerce) {
 
     if (error) throw error;
 
+    const visibleModalRequests = (requests || []).filter(r => !(typeof window.isInternalInventoryRequest === 'function'
+      ? window.isInternalInventoryRequest(r)
+      : (r?.is_internal === true || (typeof r?.folio === 'string' && r.folio.toUpperCase().startsWith('INT-INV-')) || (typeof r?.admin_notes === 'string' && r.admin_notes.includes('[INVENTARIO INTERNO]')))));
+
     const tbody = document.getElementById('client-requests-tbody');
     if (!tbody) return;
 
-    if (!requests || requests.length === 0) {
+    if (!visibleModalRequests || visibleModalRequests.length === 0) {
       tbody.innerHTML = `
         <tr>
           <td colspan="7" style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
@@ -60050,9 +60125,9 @@ async function openClientInventoryRequestsModal(commerce) {
       return;
     }
 
-    window.cachedClientInventoryRequests = requests;
+    window.cachedClientInventoryRequests = visibleModalRequests;
 
-    tbody.innerHTML = requests.map(r => {
+    tbody.innerHTML = visibleModalRequests.map(r => {
       const dateStr = new Date(r.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
       
       let statusBadge = '<span class="badge badge-warning">Pendiente</span>';
@@ -60215,7 +60290,7 @@ async function openViewInventoryRequestDetailModal(req) {
     req = found;
   }
 
-  if (!req) {
+  if (!req || (typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(req))) {
     alert('No se pudo encontrar la información de la solicitud de inventario.');
     return;
   }

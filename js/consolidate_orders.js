@@ -208,15 +208,15 @@ export function getOrderConsolidationInfo(order) {
   // Soporte también para campos planos proyectados en billing_generator.js (fastOrderSelectFields)
   const roleFromRaw = raw._consolidation_role || order.consolidation_role || null;
   const primaryIdFromRaw = order.consolidated_into_order_id || raw._consolidated_into_order_id || order.consolidated_into_id || null;
-  const primaryFolioFromRaw = raw._consolidated_into_folio || order.consolidated_into_folio || null;
-  const childrenIds = Array.isArray(raw._consolidated_children_ids) ? raw._consolidated_children_ids : [];
-  const childrenFolios = Array.isArray(raw._consolidated_children_folios) ? raw._consolidated_children_folios : [];
+  let primaryFolioFromRaw = raw._consolidated_into_folio || order.consolidated_into_folio || null;
+  let childrenIds = Array.isArray(raw._consolidated_children_ids) ? [...raw._consolidated_children_ids] : [];
+  let childrenFolios = Array.isArray(raw._consolidated_children_folios) ? [...raw._consolidated_children_folios] : [];
 
   let role = roleFromRaw;
   if (!role) {
     if (primaryIdFromRaw && String(primaryIdFromRaw) !== String(order.id)) {
       role = 'secondary';
-    } else if (childrenIds.length > 0) {
+    } else if (childrenIds.length > 0 || order.is_consolidated === true || raw._is_consolidated === true) {
       role = 'primary';
     }
   }
@@ -227,6 +227,39 @@ export function getOrderConsolidationInfo(order) {
     role === 'primary' ||
     role === 'secondary'
   );
+
+  // Resolver dinámicamente folios/IDs desde las órdenes en memoria (Admin o Portal Seller) si faltan en raw_shopify_data
+  if (isConsolidated) {
+    const allPools = [
+      ...(Array.isArray(window.loadedOrders) ? window.loadedOrders : []),
+      ...(Array.isArray(window.clientLoadedOrders) ? window.clientLoadedOrders : []),
+      ...(Array.isArray(window.allOrders) ? window.allOrders : [])
+    ];
+    if (role === 'secondary' && primaryIdFromRaw && !primaryFolioFromRaw && allPools.length > 0) {
+      const foundPrimary = allPools.find(o => o && String(o.id) === String(primaryIdFromRaw));
+      if (foundPrimary) {
+        primaryFolioFromRaw = getOrderDisplayFolio(foundPrimary);
+      }
+    } else if (role === 'primary' && (childrenIds.length === 0 || childrenFolios.length === 0) && order.id && allPools.length > 0) {
+      const seenChildIds = new Set(childrenIds.map(id => String(id)));
+      const seenChildFolios = new Set(childrenFolios);
+      for (const candidate of allPools) {
+        if (!candidate || !candidate.id || String(candidate.id) === String(order.id)) continue;
+        const cInto = candidate.consolidated_into_order_id || candidate.raw_shopify_data?._consolidated_into_order_id;
+        if (cInto && String(cInto) === String(order.id)) {
+          if (!seenChildIds.has(String(candidate.id))) {
+            seenChildIds.add(String(candidate.id));
+            childrenIds.push(candidate.id);
+          }
+          const cFolio = getOrderDisplayFolio(candidate);
+          if (cFolio && !seenChildFolios.has(cFolio)) {
+            seenChildFolios.add(cFolio);
+            childrenFolios.push(cFolio);
+          }
+        }
+      }
+    }
+  }
 
   return {
     isConsolidated,
@@ -624,24 +657,29 @@ export function getConsolidationBadgeHtml(order) {
   if (!order) return '';
 
   const info = getOrderConsolidationInfo(order);
+  const isAdminView = Boolean(document.querySelector('[data-sidebar-role="admin"]') || window.location.pathname.toLowerCase().includes('admin'));
 
-  // Caso 1: Pedido YA CONSOLIDADO (Principal o Secundario)
+  // Caso 1: Pedido YA CONSOLIDADO (Principal o Secundario) — Visible tanto en Admin como en Portal Seller
   if (info.isConsolidated) {
+    const clickAction = isAdminView
+      ? `event.stopPropagation(); window.openConsolidateOrdersModal('${order.id}');`
+      : `event.stopPropagation(); if(window.filterByClientOrderTag){window.filterByClientOrderTag('CONSOLIDADO', event);}`;
+
     if (info.role === 'primary') {
       const childFoliosText = (info.childrenFolios && info.childrenFolios.length > 0)
         ? info.childrenFolios.join(', ')
-        : `${(info.childrenIds || []).length} pedido(s)`;
+        : `${(info.childrenIds || []).length || 1} pedido(s)`;
       const firstChildId = (info.childrenIds && info.childrenIds[0]) ? info.childrenIds[0] : '';
 
       return `
         <span class="badge consolidation-badge-primary"
-              onclick="event.stopPropagation(); window.openConsolidateOrdersModal('${order.id}');"
+              onclick="${clickAction}"
               style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #ffffff; border: 1px solid #4338ca; font-size: 0.7rem; padding: 0.12rem 0.5rem; border-radius: 9999px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.28rem; cursor: pointer; box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);"
-              title="Pedido Principal Consolidado: Incluye los productos de ${escapeHtmlSafe(childFoliosText)} en un solo paquete físico (Se cobra 1 envío + ${(info.childrenIds?.length || 1) + 1} preparaciones). Clic para ver detalle.">
+              title="Pedido Principal Consolidado (Ancla): Incluye los productos de ${escapeHtmlSafe(childFoliosText)} en un solo paquete físico y comparte su guía de seguimiento (Se cobra 1 envío + ${(info.childrenIds?.length || 1) + 1} preparaciones).">
           <i class="ri-links-fill" style="font-size: 0.8rem;"></i>
           <span>📦 CONSOLIDADO PRINCIPAL (+${escapeHtmlSafe(childFoliosText)})</span>
         </span>
-        ${firstChildId ? `
+        ${firstChildId && isAdminView ? `
           <button type="button"
                   onclick="event.stopPropagation(); if(window.highlightAndScrollToOrder){window.highlightAndScrollToOrder('${firstChildId}');}"
                   style="background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; font-size: 0.66rem; padding: 0.08rem 0.38rem; border-radius: 6px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 2px;"
@@ -653,17 +691,17 @@ export function getConsolidationBadgeHtml(order) {
     }
 
     if (info.role === 'secondary') {
-      const targetFolio = info.primaryFolio || 'Principal';
+      const targetFolio = info.primaryFolio || 'Pedido Ancla';
       const targetId = info.primaryOrderId || '';
       return `
         <span class="badge consolidation-badge-secondary"
-              onclick="event.stopPropagation(); window.openConsolidateOrdersModal('${order.id}');"
+              onclick="${clickAction}"
               style="background: #f0fdfa; color: #0f766e; border: 1.5px solid #5eead4; font-size: 0.7rem; padding: 0.12rem 0.5rem; border-radius: 9999px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.28rem; cursor: pointer;"
-              title="Pedido Secundario Consolidado: Se empaca dentro del pedido ${escapeHtmlSafe(targetFolio)}. En facturación paga preparación completa y $0 flete de envío. Clic para gestionar.">
+              title="Pedido Secundario Consolidado: Sus productos viajaron dentro del paquete del Pedido Ancla ${escapeHtmlSafe(targetFolio)} compartiendo su guía de despacho y seguimiento. En facturación tiene Flete $0.">
           <i class="ri-git-merge-line" style="font-size: 0.8rem; color: #0d9488;"></i>
           <span>🔗 CONSOLIDADO EN ${escapeHtmlSafe(targetFolio)} (Flete $0)</span>
         </span>
-        ${targetId ? `
+        ${targetId && isAdminView ? `
           <button type="button"
                   onclick="event.stopPropagation(); if(window.highlightAndScrollToOrder){window.highlightAndScrollToOrder('${targetId}');}"
                   style="background: #ccfbf1; color: #115e59; border: 1px solid #99f6e4; font-size: 0.66rem; padding: 0.08rem 0.38rem; border-radius: 6px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 2px;"
@@ -675,7 +713,8 @@ export function getConsolidationBadgeHtml(order) {
     }
   }
 
-  // Caso 2: Pedido CANDIDATO A CONSOLIDAR (<24H mismo correo + dirección)
+  // Caso 2: Pedido CANDIDATO A CONSOLIDAR (<24H mismo correo + dirección) — Solo visible para el Administrador
+  if (!isAdminView) return '';
   const group = getConsolidationCandidateGroup(order.id);
   if (!group) return '';
 
