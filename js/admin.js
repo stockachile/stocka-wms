@@ -24214,9 +24214,11 @@ window.syncReverseLogisticsOnOrdersDispatched = async function(orderIds) {
       }
 
       // Actualizar estado en reverse_logistics a 'procesado' y workflow_status a 'completado'
+      // Marcar inventory_restocked: true porque el reingreso físico y Kardex ya fue ejecutado arriba (evita doble ingreso por trigger SQL)
       const updateRlPayload = {
         status: 'procesado',
-        workflow_status: 'completado'
+        workflow_status: 'completado',
+        inventory_restocked: true
       };
       if (!rl.sucursal && targetWhName) {
         updateRlPayload.sucursal = targetWhName;
@@ -137429,7 +137431,8 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
         
-        const updateRlPayload = { status: 'procesado', workflow_status: 'completado' };
+        // Marcar inventory_restocked: true porque el reingreso y Kardex ya fueron registrados en el bucle anterior (evita doble ingreso por trigger SQL cuando linkedOrderId es null)
+        const updateRlPayload = { status: 'procesado', workflow_status: 'completado', inventory_restocked: true };
         if (selectedWhName) {
           updateRlPayload.sucursal = selectedWhName;
         }
@@ -140203,8 +140206,10 @@ async function handleRloFormSubmit(e) {
       comentarios: (isFinalizado ? '[Concretado en Bodega] ' : '') + comments,
       sucursal: finalSucursal,
       creado_por: creatorMetaRl.created_by_email || creatorMetaRl.created_by_name || 'Administrador',
-      status: isFinalizado ? 'procesado' : 'pendiente',
-      workflow_status: isFinalizado ? 'completado' : 'pendiente',
+      // Insertar inicialmente como 'pendiente' para que el trigger SQL trg_auto_reverse_logistics_to_entregado
+      // no se dispare antes de crear y vincular wms_order_id (evita doble ingreso de stock/Kardex)
+      status: 'pendiente',
+      workflow_status: 'pendiente',
       
       customer_name: customerName,
       customer_email: customerEmail,
@@ -140333,61 +140338,115 @@ async function handleRloFormSubmit(e) {
       if (errOrderItems) throw errOrderItems;
     }
     
-    // Vincular ID de orden en reverse_logistics
+    // Vincular ID de orden en reverse_logistics (y si es Finalizado en Bodega, pasar a 'procesado' aquí
+    // para que el trigger SQL trg_auto_reverse_logistics_to_entregado dispare UNA sola vez con wms_order_id ya enlazado)
+    const rlLinkPayload = { wms_order_id: insertedOrder.id };
+    if (isFinalizado) {
+      rlLinkPayload.status = 'procesado';
+      rlLinkPayload.workflow_status = 'completado';
+    }
     await supabase
       .from('reverse_logistics')
-      .update({ wms_order_id: insertedOrder.id })
+      .update(rlLinkPayload)
       .eq('id', insertedRl.id);
     
     // GESTIÓN DE INVENTARIO Y MOVIMIENTOS
     if (isFinalizado) {
-      // 1. Reingreso de productos entrantes aptos para inventario
-      for (const inc of incomingProducts) {
-        if (inc.regresar_a_inventario !== false && whId) {
-          let pId = inc.product_id;
-          if (!pId && inc.sku) {
-            const { data: prodFound } = await supabase.from('products').select('id').eq('sku', inc.sku.trim()).limit(1).maybeSingle();
-            if (prodFound) pId = prodFound.id;
-          }
-          if (pId) {
-            const { data: invRecord } = await supabase
-              .from('inventory')
-              .select('id, quantity')
-              .eq('product_id', pId)
-              .eq('warehouse_id', whId)
-              .maybeSingle();
+      // 1. Reingreso de productos entrantes aptos para inventario (fallback idempotente solo si el trigger SQL no reingresó)
+      let rlAlreadyRestocked = false;
+      const alreadyRestockedInProdIds = new Set();
+      try {
+        const { data: rlAfterUpdate } = await supabase
+          .from('reverse_logistics')
+          .select('inventory_restocked')
+          .eq('id', insertedRl.id)
+          .maybeSingle();
+        if (rlAfterUpdate?.inventory_restocked) {
+          rlAlreadyRestocked = true;
+        }
+        const { data: existingInMovs } = await supabase
+          .from('movements')
+          .select('product_id')
+          .eq('order_id', insertedOrder.id)
+          .eq('type', 'in')
+          .is('reversed_at', null);
+        (existingInMovs || []).forEach(m => {
+          if (m.product_id) alreadyRestockedInProdIds.add(m.product_id);
+        });
+      } catch (checkRestockErr) {
+        console.warn('[RL Finalizado] Error verificando reingreso previo del trigger:', checkRestockErr);
+      }
 
-            if (invRecord) {
-              await supabase
+      if (!rlAlreadyRestocked) {
+        let didFrontendRestock = false;
+        for (const inc of incomingProducts) {
+          if (inc.regresar_a_inventario !== false && whId) {
+            let pId = inc.product_id;
+            if (!pId && inc.sku) {
+              const { data: prodFound } = await supabase.from('products').select('id').eq('sku', inc.sku.trim()).limit(1).maybeSingle();
+              if (prodFound) pId = prodFound.id;
+            }
+            if (pId && !alreadyRestockedInProdIds.has(pId)) {
+              const { data: invRecord } = await supabase
                 .from('inventory')
-                .update({ quantity: (invRecord.quantity || 0) + inc.cantidad })
-                .eq('id', invRecord.id);
-            } else {
+                .select('id, quantity')
+                .eq('product_id', pId)
+                .eq('warehouse_id', whId)
+                .maybeSingle();
+
+              if (invRecord) {
+                await supabase
+                  .from('inventory')
+                  .update({ quantity: (invRecord.quantity || 0) + inc.cantidad })
+                  .eq('id', invRecord.id);
+              } else {
+                await supabase
+                  .from('inventory')
+                  .insert([{
+                    product_id: pId,
+                    warehouse_id: whId,
+                    quantity: inc.cantidad
+                  }]);
+              }
+
               await supabase
-                .from('inventory')
+                .from('movements')
                 .insert([{
                   product_id: pId,
                   warehouse_id: whId,
-                  quantity: inc.cantidad
+                  type: 'in',
+                  quantity: inc.cantidad,
+                  order_id: insertedOrder.id,
+                  reference_doc: `${type === 'CAMBIO' ? 'Cambio' : 'Devolución'} Finalizado en Bodega [Ped: ${refPedido || finalExternalOrderNumber}]`
                 }]);
+              alreadyRestockedInProdIds.add(pId);
+              didFrontendRestock = true;
             }
-
-            await supabase
-              .from('movements')
-              .insert([{
-                product_id: pId,
-                warehouse_id: whId,
-                type: 'in',
-                quantity: inc.cantidad,
-                order_id: insertedOrder.id,
-                reference_doc: `${type === 'CAMBIO' ? 'Cambio' : 'Devolución'} Finalizado en Bodega [Ped: ${refPedido || finalExternalOrderNumber}]`
-              }]);
           }
+        }
+        if (didFrontendRestock) {
+          await supabase
+            .from('reverse_logistics')
+            .update({ inventory_restocked: true })
+            .eq('id', insertedRl.id);
         }
       }
 
-      // 2. Salida directa de productos de reemplazo (si es CAMBIO)
+      // 2. Salida directa de productos de reemplazo (si es CAMBIO) — con guard idempotente
       if (type === 'CAMBIO') {
+        const alreadyDeductedOutProdIds = new Set();
+        try {
+          const { data: existingOutMovs } = await supabase
+            .from('movements')
+            .select('product_id')
+            .eq('order_id', insertedOrder.id)
+            .eq('type', 'out')
+            .is('reversed_at', null);
+          (existingOutMovs || []).forEach(m => {
+            if (m.product_id) alreadyDeductedOutProdIds.add(m.product_id);
+          });
+        } catch (_e) {}
+
         for (const out of outgoingProducts) {
           if (whId) {
             let pId = out.product_id;
@@ -140395,7 +140454,7 @@ async function handleRloFormSubmit(e) {
               const { data: prodFound } = await supabase.from('products').select('id').eq('sku', out.sku.trim()).limit(1).maybeSingle();
               if (prodFound) pId = prodFound.id;
             }
-            if (pId) {
+            if (pId && !alreadyDeductedOutProdIds.has(pId)) {
               const { data: invRecord } = await supabase
                 .from('inventory')
                 .select('id, quantity')
@@ -140429,6 +140488,7 @@ async function handleRloFormSubmit(e) {
                   order_id: insertedOrder.id,
                   reference_doc: `Cambio Finalizado en Bodega [Ped: ${refPedido || finalExternalOrderNumber}]`
                 }]);
+              alreadyDeductedOutProdIds.add(pId);
             }
           }
         }
