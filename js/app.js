@@ -318,14 +318,24 @@ window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierNa
     }
   }
 
-  // 2. Limpiar enlaces de API Envíame o dominio inexistente tracking.enviame.io y priorizar portal público del courier
+  // 2. Limpiar enlaces de API Envíame, dominio inexistente tracking.enviame.io o URLs obsoletas de Chilexpress y priorizar portal público del courier
+  const isLegacyChilexpressUrl = Boolean(url && /chilexpress\.cl\/(seguimiento-envio|tracking-resultado|orden-transporte)|^https?:\/\/(www\.)?chilexpress\.cl\/?$/i.test(url));
+  if (isLegacyChilexpressUrl) {
+    let cxpTrk = trk;
+    if (!cxpTrk) {
+      const m = url.match(/[?&](?:numero|nro)=([^&#]+)|\/orden-transporte\/([^/?#]+)/i);
+      if (m) cxpTrk = decodeURIComponent(m[1] || m[2] || '').trim();
+    }
+    url = cxpTrk ? `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(cxpTrk)}` : '';
+  }
+
   if (url && (url.includes('tracking.enviame.io') || url.includes('api.enviame.io/api/') || url.includes('api.enviame.io/s2/'))) {
     if (trk && cLower.includes('starken')) {
       url = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trk)}`;
     } else if (trk && (cLower.includes('blue') || cLower.includes('bluex'))) {
       url = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trk)}`;
     } else if (trk && cLower.includes('chilexpress')) {
-      url = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trk)}`;
+      url = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(trk)}`;
     } else {
       const rawLinks = shipment?.raw_data?.links || shipment?.raw_payload?.links || [];
       const webLink = Array.isArray(rawLinks) ? rawLinks.find(l => l && l.rel === 'tracking-web' && l.href && !l.href.includes('tracking.enviame.io')) : null;
@@ -350,7 +360,7 @@ window.resolveCourierPublicTrackingUrl = function(rawUrl, trackingNum, courierNa
     } else if (srcTable === 'bluex_envios' || cLower.includes('blue') || cLower.includes('bluex')) {
       url = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trk)}`;
     } else if (cLower.includes('chilexpress')) {
-      url = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trk)}`;
+      url = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(trk)}`;
     } else if (srcTable === 'mercadolibre' || cLower.includes('mercadolibre') || cLower.includes('meli')) {
       url = `https://envios.mercadolibre.cl/seguimiento/${encodeURIComponent(trk)}`;
     }
@@ -12630,7 +12640,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     } else if (isFalabella && effTracking && effTracking !== 'N/A') {
       if (!virtualTrackingUrl || virtualTrackingUrl === 'N/A') {
         if (effCourierLower.includes('chilexpress')) {
-          virtualTrackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(effTracking)}`;
+          virtualTrackingUrl = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(effTracking)}`;
         } else if (effCourierLower.includes('blueexpress') || effCourierLower.includes('blue express') || effCourierLower.includes('bluex')) {
           virtualTrackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(effTracking)}`;
         } else if (effCourierLower.includes('starken')) {

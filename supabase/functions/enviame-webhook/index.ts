@@ -116,7 +116,7 @@ function buildTrackingUrl(
       return `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(validTracking)}`;
     }
     if (cUpper.includes("CHILEXPRESS") || cUpper === "CXP") {
-      return `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(validTracking)}`;
+      return `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(validTracking)}`;
     }
   }
   if (validTracking && Array.isArray(links)) {

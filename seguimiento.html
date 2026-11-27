@@ -1889,10 +1889,18 @@
         const isPrepOrHigher = step2Active || step2Done || Boolean(trackingCode);
         const shouldShowCourier = isPrepOrHigher && hasAssignedCourier;
 
-        // Courier URL resolution & sanitization (avoid dead tracking.enviame.io, optiroute.cl or private Envíame API endpoints)
+        // Courier URL resolution & sanitization (avoid dead tracking.enviame.io, optiroute.cl, legacy Chilexpress URLs or private Envíame API endpoints)
         let courierUrl = shouldShowCourier ? order.tracking_url : null;
         const origEnviameWebUrl = (courierUrl && courierUrl.includes('api.enviame.io/s2/companies/')) ? courierUrl : null;
-        if (courierUrl && (courierUrl.includes('tracking.enviame.io') || courierUrl.includes('api.enviame.io/s2/') || courierUrl.includes('api.enviame.io/api/') || courierUrl.includes('optiroute.cl') || courierUrl.includes('seguimiento.html') || courierUrl === 'N/A')) {
+        if (courierUrl && (
+          courierUrl.includes('tracking.enviame.io') ||
+          courierUrl.includes('api.enviame.io/s2/') ||
+          courierUrl.includes('api.enviame.io/api/') ||
+          courierUrl.includes('optiroute.cl') ||
+          courierUrl.includes('seguimiento.html') ||
+          /chilexpress\.cl\/(seguimiento-envio|tracking-resultado|orden-transporte)|^https?:\/\/(www\.)?chilexpress\.cl\/?$/i.test(courierUrl) ||
+          courierUrl === 'N/A'
+        )) {
           courierUrl = null;
         }
 
@@ -1903,7 +1911,7 @@
           } else if (cUpper.includes('BLUE')) {
             courierUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trackingCode)}`;
           } else if (cUpper.includes('CHILEXPRESS')) {
-            courierUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(trackingCode)}`;
+            courierUrl = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(trackingCode)}`;
           } else if (origEnviameWebUrl) {
             courierUrl = origEnviameWebUrl;
           }

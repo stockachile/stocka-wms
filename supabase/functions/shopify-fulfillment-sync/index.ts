@@ -559,6 +559,8 @@ async function handleCreateFulfillment(item: any, integration: any): Promise<str
   const isOptiroute = cLower.includes("optiroute") || cLower.includes("stocka x") || (item.tracking_url && String(item.tracking_url).toLowerCase().includes("optiroute.cl"));
   if (isOptiroute && (item.order_id || hasRealTracking)) {
     item.tracking_url = `https://wms.stocka.cl/seguimiento.html?t=${encodeURIComponent(item.order_id || cleanTrack)}`;
+  } else if (hasRealTracking && (cLower.includes("chilexpress") || /chilexpress\.cl\/(seguimiento-envio|tracking-resultado|orden-transporte)|^https?:\/\/(www\.)?chilexpress\.cl\/?$/i.test(String(item.tracking_url || "")))) {
+    item.tracking_url = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(cleanTrack)}`;
   }
   const hasTrackUrl = Boolean(item.tracking_url && item.tracking_url.startsWith("http"));
 
@@ -902,6 +904,8 @@ async function handleUpdateTracking(item: any, integration: any) {
   const isOptirouteUpd = cLowerUpd.includes("optiroute") || cLowerUpd.includes("stocka x") || (item.tracking_url && String(item.tracking_url).toLowerCase().includes("optiroute.cl"));
   if (isOptirouteUpd && (item.order_id || item.tracking_number)) {
     item.tracking_url = `https://wms.stocka.cl/seguimiento.html?t=${encodeURIComponent(item.order_id || item.tracking_number)}`;
+  } else if (item.tracking_number && item.tracking_number !== "N/A" && (cLowerUpd.includes("chilexpress") || /chilexpress\.cl\/(seguimiento-envio|tracking-resultado|orden-transporte)|^https?:\/\/(www\.)?chilexpress\.cl\/?$/i.test(String(item.tracking_url || "")))) {
+    item.tracking_url = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(String(item.tracking_number).trim())}`;
   }
 
   const trackingInfo: any = {
@@ -1004,6 +1008,10 @@ async function handleSetShipmentEvent(item: any, integration: any, eventStatus: 
     try {
       const companyName = mapCourierToShopify(item.courier, item.operador);
       const trackingInfo: any = { number: rawTrack, company: companyName };
+      const cLowerEvt = `${item.courier || ""} ${item.operador || ""}`.toLowerCase();
+      if (cLowerEvt.includes("chilexpress") || /chilexpress\.cl\/(seguimiento-envio|tracking-resultado|orden-transporte)|^https?:\/\/(www\.)?chilexpress\.cl\/?$/i.test(String(item.tracking_url || ""))) {
+        item.tracking_url = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(rawTrack)}`;
+      }
       if (item.tracking_url && item.tracking_url.startsWith("http")) {
         trackingInfo.url = item.tracking_url;
       }

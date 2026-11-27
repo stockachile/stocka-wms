@@ -76,7 +76,8 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ route }) => {
   };
 
   const handleOpenTracking = (courier: string | undefined, tracking: string | undefined, trackingUrl?: string) => {
-    if (trackingUrl && trackingUrl.startsWith('http')) {
+    const isLegacyCxp = Boolean(trackingUrl && /chilexpress\.cl\/(seguimiento-envio|tracking-resultado|orden-transporte)|^https?:\/\/(www\.)?chilexpress\.cl\/?$/i.test(trackingUrl));
+    if (trackingUrl && trackingUrl.startsWith('http') && !isLegacyCxp) {
       Linking.openURL(trackingUrl).catch(err => console.error('Error opening tracking URL:', err));
       return;
     }
@@ -85,11 +86,11 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ route }) => {
     let url = `https://www.google.com/search?q=${encodeURIComponent(`${courier || 'envio'} tracking ${tracking}`)}`;
 
     if (c.includes('bluex') || c.includes('blue express')) {
-      url = `https://www.bluex.cl/seguimiento/?tracking=${tracking}`;
+      url = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(tracking)}`;
     } else if (c.includes('starken')) {
-      url = `https://www.starken.cl/seguimiento?codigo=${tracking}`;
-    } else if (c.includes('chilexpress')) {
-      url = `https://www.chilexpress.cl/orden-transporte/${tracking}`;
+      url = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(tracking)}`;
+    } else if (c.includes('chilexpress') || isLegacyCxp) {
+      url = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(tracking)}`;
     }
 
     Linking.openURL(url).catch(err => console.error('Error opening tracking URL:', err));

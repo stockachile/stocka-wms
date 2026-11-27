@@ -468,7 +468,7 @@ async function syncMerchantOrders(integration) {
         } else if (cUpper.includes('STARKEN')) {
           trackingUrl = `https://www.starken.cl/seguimiento?codigo=${primaryTrack}`;
         } else if (cUpper.includes('CHILEXPRESS')) {
-          trackingUrl = `https://www.chilexpress.cl`;
+          trackingUrl = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(primaryTrack)}`;
         }
       }
 

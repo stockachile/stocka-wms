@@ -350,7 +350,7 @@ serve(async (req) => {
       } else if (cUpper.includes("BLUE") || cUpper === "BX" || cUpper.includes("BLUEXPRESS")) {
         trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(validTracking)}`;
       } else if (cUpper.includes("CHILEXPRESS") || cUpper === "CXP") {
-        trackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(validTracking)}`;
+        trackingUrl = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(validTracking)}`;
       }
     }
     if (!trackingUrl && validTracking && d.links && Array.isArray(d.links)) {

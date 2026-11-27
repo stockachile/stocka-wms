@@ -867,14 +867,17 @@
           const dateStr = order.created_at ? new Date(order.created_at).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Reciente';
 
           let courierUrl = order.tracking_url;
+          if (courierUrl && /chilexpress\.cl\/(seguimiento-envio|tracking-resultado|orden-transporte)|^https?:\/\/(www\.)?chilexpress\.cl\/?$/i.test(courierUrl)) {
+            courierUrl = null;
+          }
           if (!courierUrl && order.tracking_number) {
             const trUpper = (order.courier || '').toUpperCase();
             if (trUpper.includes('STARKEN')) {
               courierUrl = `https://www.starken.cl/seguimiento?codigo=${order.tracking_number}`;
             } else if (trUpper.includes('BLUE')) {
-              courierUrl = `https://www.bluex.cl/seguimiento/?tracking=${order.tracking_number}`;
+              courierUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(order.tracking_number)}`;
             } else if (trUpper.includes('CHILEXPRESS')) {
-              courierUrl = `https://www.chilexpress.cl/tracking-resultado?nro=${order.tracking_number}`;
+              courierUrl = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(order.tracking_number)}`;
             } else {
               courierUrl = `https://wa.me/56933942358?text=Hola!%20Consulto%20por%20mi%20orden%20${encodeURIComponent(order.order_number)}`;
             }

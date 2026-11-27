@@ -2248,7 +2248,12 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
   }
   if (window.resolveCourierPublicTrackingUrl) {
     effectiveTrackingUrl = window.resolveCourierPublicTrackingUrl(effectiveTrackingUrl, effectiveTracking, effectiveCourier, primaryShipment, orderData) || '';
-  } else if (effectiveTrackingUrl.includes('api.enviame.io/s2/') || effectiveTrackingUrl.includes('api.enviame.io/api/') || effectiveTrackingUrl.includes('tracking.enviame.io')) {
+  } else if (
+    effectiveTrackingUrl.includes('api.enviame.io/s2/') ||
+    effectiveTrackingUrl.includes('api.enviame.io/api/') ||
+    effectiveTrackingUrl.includes('tracking.enviame.io') ||
+    /chilexpress\.cl\/(seguimiento-envio|tracking-resultado|orden-transporte)|^https?:\/\/(www\.)?chilexpress\.cl\/?$/i.test(effectiveTrackingUrl)
+  ) {
     effectiveTrackingUrl = '';
   }
   if (effectiveTrackingUrl === 'N/A' || (!effectiveTrackingUrl.startsWith('http://') && !effectiveTrackingUrl.startsWith('https://'))) {
@@ -2280,7 +2285,7 @@ function resolveOrderCourierTracking(orderData, rawShipments, directLdRows, stor
     } else if (effectiveCourier === 'Starken' || primaryShipment?.source_table === 'starken_envios') {
       effectiveTrackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(effectiveTracking)}`;
     } else if (effectiveCourier === 'Chilexpress') {
-      effectiveTrackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(effectiveTracking)}`;
+      effectiveTrackingUrl = `https://centrodeayuda.chilexpress.cl/pre-seguimiento/${encodeURIComponent(effectiveTracking)}`;
     } else if (isMeli) {
       effectiveTrackingUrl = `https://envios.mercadolibre.cl/seguimiento/${encodeURIComponent(effectiveTracking)}`;
     }
