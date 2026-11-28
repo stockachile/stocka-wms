@@ -37,6 +37,39 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const tokenCache = new Map();
 
+async function shopifyFetchWithProxyFallback(fullUrl, options, integration) {
+  const res = await fetch(fullUrl, options);
+  if (res.status === 403) {
+    let endpoint = '';
+    try {
+      const parsed = new URL(fullUrl);
+      endpoint = parsed.pathname + parsed.search;
+    } catch (_e) {}
+
+    if (endpoint.startsWith('/admin/api/') || endpoint.startsWith('/admin/oauth/access_token')) {
+      console.log(`🛡️ [Shopify IP Bypass] ${integration.comercio || integration.shop_url} devolvió HTTP 403 en conexión directa (${endpoint}). Enrutando vía Supabase Edge Function (sa-east-1)...`);
+      return await fetch(`${SUPABASE_URL}/functions/v1/woocommerce-webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'x-region': 'sa-east-1'
+        },
+        body: JSON.stringify({
+          action: 'proxy_shopify_api',
+          integration_id: integration.id,
+          comercio: integration.comercio,
+          endpoint,
+          method: options?.method || 'GET',
+          access_token: options?.headers?.['X-Shopify-Access-Token'] || integration.access_token,
+          body: options?.body || undefined
+        })
+      });
+    }
+  }
+  return res;
+}
+
 // Renueva de forma proactiva el token de acceso de Shopify usando el refresh token con caché inteligente
 async function getValidShopifyToken(integration, forceRefresh = false) {
   if (!integration.refresh_token) {
@@ -67,14 +100,14 @@ async function getValidShopifyToken(integration, forceRefresh = false) {
       refresh_token: integration.refresh_token
     });
 
-    const res = await fetch(tokenUrl, {
+    const res = await shopifyFetchWithProxyFallback(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Accept': 'application/json'
       },
       body: params.toString()
-    });
+    }, integration);
 
     if (!res.ok) {
       const errorText = await res.text();
@@ -190,7 +223,10 @@ async function syncShopifyData() {
 
     // 2. Extraer y Guardar Pedidos (Orders)
     try {
-      await syncOrders(integration);
+      const ordResult = await syncOrders(integration);
+      if (ordResult?.insertErrors?.length > 0) {
+        syncError = `Pedidos (error al insertar ${ordResult.insertErrors.length}): ${ordResult.insertErrors.slice(0, 3).join(' | ')}`;
+      }
     } catch (ordErr) {
       syncError = `Pedidos: ${ordErr.message}`;
     }
@@ -345,24 +381,24 @@ async function syncOrders(integration) {
   }
 
   try {
-    let response = await fetch(url, {
+    let response = await shopifyFetchWithProxyFallback(url, {
       method: 'GET',
       headers: {
         'X-Shopify-Access-Token': integration.access_token,
         'Content-Type': 'application/json'
       }
-    });
+    }, integration);
 
     if (response.status === 401 && integration.refresh_token) {
       console.warn(`[Shopify Sync] HTTP 401 recibido en syncOrders, renovando token...`);
       integration.access_token = await getValidShopifyToken(integration, true);
-      response = await fetch(url, {
+      response = await shopifyFetchWithProxyFallback(url, {
         method: 'GET',
         headers: {
           'X-Shopify-Access-Token': integration.access_token,
           'Content-Type': 'application/json'
         }
-      });
+      }, integration);
     }
 
     if (!response.ok) {
@@ -371,6 +407,7 @@ async function syncOrders(integration) {
 
     const data = await response.json();
     const orders = data.orders;
+    const insertErrors = [];
     console.log(`Se encontraron ${orders.length} pedidos.`);
 
     for (const order of orders) {
@@ -567,12 +604,19 @@ async function syncOrders(integration) {
           .select('id')
           .single();
           
-        if(insErr || !newOrder) {
-            console.error(`Error al insertar pedido ${order.name}:`, insErr ? insErr.message : 'No se retornaron datos');
-            continue;
+        if (insErr || !newOrder) {
+          const errMsg = insErr ? insErr.message : 'No se retornaron datos';
+          const isCollision = insErr?.code === '23505' || /unique_orders_comercio_clean_number|duplicate key/i.test(errMsg);
+          console.error(
+            isCollision
+              ? `❌ [Colisión de folio] No se pudo insertar pedido ${finalOrderNumber} (Shopify ${order.name}, ID ${order.id}): ${errMsg}`
+              : `Error al insertar pedido ${finalOrderNumber} (${order.name}): ${errMsg}`
+          );
+          insertErrors.push(`${finalOrderNumber}: ${isCollision ? 'Colisión de folio (unique_orders_comercio_clean_number)' : errMsg}`);
+          continue;
         } else {
-            orderId = newOrder.id;
-            console.log(`Insertado nuevo pedido ${order.name}`);
+          orderId = newOrder.id;
+          console.log(`Insertado nuevo pedido ${finalOrderNumber} (${order.name})`);
         }
       }
 
@@ -924,6 +968,7 @@ async function syncOrders(integration) {
           .eq('id', orderId);
       }
     }
+    return { insertErrors };
   } catch (error) {
     console.error(`Error sincronizando pedidos para ${integration.shop_url}:`, error.message);
     throw error;
@@ -943,24 +988,24 @@ async function syncProducts(integration) {
     while (url) {
       pageCount++;
       console.log(`[Shopify Product Sync] Cargando página ${pageCount}...`);
-      let response = await fetch(url, {
+      let response = await shopifyFetchWithProxyFallback(url, {
         method: 'GET',
         headers: {
           'X-Shopify-Access-Token': integration.access_token,
           'Content-Type': 'application/json'
         }
-      });
+      }, integration);
 
       if (response.status === 401 && integration.refresh_token) {
         console.warn(`[Shopify Sync] HTTP 401 recibido en syncProducts, renovando token...`);
         integration.access_token = await getValidShopifyToken(integration, true);
-        response = await fetch(url, {
+        response = await shopifyFetchWithProxyFallback(url, {
           method: 'GET',
           headers: {
             'X-Shopify-Access-Token': integration.access_token,
             'Content-Type': 'application/json'
           }
-        });
+        }, integration);
       }
 
       if (!response.ok) {

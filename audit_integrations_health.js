@@ -38,7 +38,7 @@ if (fs.existsSync(envPath)) {
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID || 'd3dc79b2f5caf3ca7adebe3feb02d86e';
+const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID || '4d04c58f432c53fb870d1fbcad92431c';
 const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET || '';
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
 const ALERT_TO_EMAIL = process.env.ALERT_TO_EMAIL || 'stockachile@gmail.com';
@@ -779,6 +779,36 @@ async function auditJumpsellerIntegration(integration, iso72hAgo, healedActions,
   return { activeOrders };
 }
 
+async function shopifyFetchWithProxyFallback(shopUrl, endpoint, options, integration, accessToken) {
+  const cleanDomain = String(shopUrl || '').trim().replace(/^https?:\/\//i, '').replace(/\/$/, '');
+  const fullUrl = `https://${cleanDomain}${endpoint}`;
+  const res = await fetchWithTimeout(fullUrl, options);
+
+  if (res.status === 403) {
+    console.log(`   🛡️ [Shopify IP Bypass] ${integration.comercio} devolvió HTTP 403 en conexión directa (${endpoint}). Enrutando vía Supabase Edge Function (sa-east-1)...`);
+    const proxyRes = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/woocommerce-webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'x-region': 'sa-east-1'
+      },
+      body: JSON.stringify({
+        action: 'proxy_shopify_api',
+        integration_id: integration.id,
+        comercio: integration.comercio,
+        endpoint,
+        method: options.method || 'GET',
+        access_token: accessToken || integration.access_token,
+        body: options.body || undefined
+      })
+    });
+    return proxyRes;
+  }
+
+  return res;
+}
+
 async function auditShopifyIntegration(integration, iso72hAgo, healedActions, warningsList) {
   if (!integration.shop_url || !integration.access_token) {
     throw new Error('Faltan shop_url o access_token en integración de Shopify.');
@@ -787,14 +817,14 @@ async function auditShopifyIntegration(integration, iso72hAgo, healedActions, wa
   let accessToken = integration.access_token;
 
   // Intentar probar API o renovar token si devuelve 401
-  const ordersUrl = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any&limit=50&created_at_min=${encodeURIComponent(iso72hAgo)}`;
-  let res = await fetchWithTimeout(ordersUrl, {
+  const ordersEndpoint = `/admin/api/2024-04/orders.json?status=any&limit=50&created_at_min=${encodeURIComponent(iso72hAgo)}`;
+  let res = await shopifyFetchWithProxyFallback(integration.shop_url, ordersEndpoint, {
     method: 'GET',
     headers: {
       'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json'
     }
-  });
+  }, integration, accessToken);
 
   if (res.status === 401 && integration.refresh_token) {
     const clientSecret = SHOPIFY_CLIENT_SECRET || integration.webhook_secret;
@@ -805,11 +835,11 @@ async function auditShopifyIntegration(integration, iso72hAgo, healedActions, wa
         grant_type: 'refresh_token',
         refresh_token: integration.refresh_token
       });
-      const tokenRes = await fetchWithTimeout(`https://${integration.shop_url}/admin/oauth/access_token`, {
+      const tokenRes = await shopifyFetchWithProxyFallback(integration.shop_url, '/admin/oauth/access_token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
         body: params.toString()
-      });
+      }, integration, accessToken);
 
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();
@@ -821,15 +851,20 @@ async function auditShopifyIntegration(integration, iso72hAgo, healedActions, wa
             refresh_token: tokenData.refresh_token || integration.refresh_token
           })
           .eq('id', integration.id);
-        healedActions.push('Token de acceso de Shopify renovado automáticamente (rotación OAuth)');
 
-        res = await fetchWithTimeout(ordersUrl, {
+        if (integration.last_sync_error) {
+          healedActions.push('Token de acceso de Shopify recuperado automáticamente tras error previo');
+        } else {
+          console.log(`   🔄 [OAuth] Token de Shopify renovado de forma rutinaria para ${integration.comercio}.`);
+        }
+
+        res = await shopifyFetchWithProxyFallback(integration.shop_url, ordersEndpoint, {
           method: 'GET',
           headers: {
             'X-Shopify-Access-Token': accessToken,
             'Content-Type': 'application/json'
           }
-        });
+        }, integration, accessToken);
       }
     }
   }
@@ -996,8 +1031,82 @@ async function auditMarketplaceIntegration(integration, platform, iso72hAgo, hea
       }
     }
   } else if (platform === 'Paris') {
-    if (!integration.access_token) {
+    const apiKey = (integration.access_token || '').trim();
+    if (!apiKey) {
       throw new Error('Falta API Key / Access Token en integración de Paris.');
+    }
+    let baseUrl = (integration.shop_url || 'https://api-developers.ecomm.cencosud.com').trim();
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      baseUrl = 'https://' + baseUrl;
+    }
+    baseUrl = baseUrl.replace(/\/$/, '');
+
+    let res = await fetchWithTimeout(`${baseUrl}/v1/orders?limit=25`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      const authRes = await fetchWithTimeout(`${baseUrl}/v1/auth/apiKey`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!authRes.ok) {
+        throw new Error(`Error autenticando con Paris (Cencosud): Directo HTTP ${res.status}, Auth HTTP ${authRes.status}`);
+      }
+      const authJson = await authRes.json().catch(() => ({}));
+      if (!authJson?.accessToken) {
+        throw new Error('Error autenticando con Paris (Cencosud): respuesta sin accessToken.');
+      }
+      res = await fetchWithTimeout(`${baseUrl}/v1/orders?limit=25`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authJson.accessToken}`,
+          'Accept': 'application/json'
+        }
+      });
+    }
+
+    if (!res.ok) {
+      throw new Error(`Error conectando con Paris (Cencosud) API: HTTP ${res.status}`);
+    }
+
+    const json = await res.json().catch(() => null);
+    const orders = Array.isArray(json?.data) ? json.data : [];
+    const cutoffMs = new Date(iso72hAgo).getTime();
+
+    for (const o of orders) {
+      const createdIso = o.originOrderDate || o.createdAt || null;
+      if (createdIso && new Date(createdIso).getTime() < cutoffMs) continue;
+
+      const subOrders = Array.isArray(o.subOrders) ? o.subOrders : [];
+      const isCancelled = subOrders.length > 0 && subOrders.every(so => {
+        const sName = String(so.status?.name || '').toLowerCase();
+        const sDesc = String(so.status?.description || '').toLowerCase();
+        return sName.includes('cancel') || sDesc.includes('cancel') || so.status?.id === 2;
+      });
+      const isDelivered = subOrders.some(so => {
+        const sName = String(so.status?.name || '').toLowerCase();
+        return sName === 'delivered' || so.status?.id === 4;
+      });
+
+      if (!isCancelled && !isDelivered) {
+        const rawNum = String(o.subOrderNumber || o.originOrderNumber || o.id || '').trim();
+        if (rawNum) {
+          activeOrders.push({
+            rawNumber: rawNum,
+            statusLabel: subOrders[0]?.status?.name || 'created',
+            createdAt: createdIso || new Date().toISOString(),
+            isPaidActive: true
+          });
+        }
+      }
     }
   } else if (platform === 'Walmart') {
     if (!integration.client_id || !integration.client_secret) {

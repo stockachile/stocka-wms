@@ -236,34 +236,53 @@ async function syncMerchantOrders(integration) {
   }
 
   try {
-    // 1. Autenticar usando el API Key (Bearer Token) para obtener el Access Token JWT
-    console.log(`--> Autenticando API Key con Cencosud...`);
-    const authRes = await fetch(`${baseUrl}/v1/auth/apiKey`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${integration.access_token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!authRes.ok) {
-      throw new Error(`Error en autenticación API Key Cencosud: Status ${authRes.status}`);
+    // 1. Consultar órdenes usando API Key directo como Bearer Token (formato vigente Cencosud),
+    //    con fallback automático al intercambio JWT (/v1/auth/apiKey) en caso de 401/403.
+    const apiKey = (integration.access_token || '').trim();
+    if (!apiKey) {
+      throw new Error('Falta API Key / Access Token configurado para París.');
     }
 
-    const authData = await authRes.json();
-    const jwtToken = authData.accessToken;
-    console.log(`✅ Autenticación exitosa. Token JWT obtenido.`);
-
-    // 2. Obtener las últimas 100 órdenes desde Cencosud
     console.log(`--> Consultando pedidos en la API de París (Cencosud)...`);
-    const ordersRes = await fetch(`${baseUrl}/v1/orders?limit=100`, {
+    let ordersRes = await fetch(`${baseUrl}/v1/orders?limit=100`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${jwtToken}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       }
     });
+
+    if (ordersRes.status === 401 || ordersRes.status === 403) {
+      console.log(`⚠️ Acceso directo devolvió ${ordersRes.status}; intentando intercambio JWT vía /v1/auth/apiKey...`);
+      const authRes = await fetch(`${baseUrl}/v1/auth/apiKey`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!authRes.ok) {
+        throw new Error(`Error en autenticación API Key Cencosud: Directo=${ordersRes.status}, Auth=${authRes.status}`);
+      }
+
+      const authData = await authRes.json();
+      const jwtToken = authData.accessToken;
+      if (!jwtToken) {
+        throw new Error('Error en autenticación API Key Cencosud: /v1/auth/apiKey no devolvió accessToken');
+      }
+      console.log(`✅ Autenticación JWT exitosa.`);
+
+      ordersRes = await fetch(`${baseUrl}/v1/orders?limit=100`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${jwtToken}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+    }
 
     if (!ordersRes.ok) {
       throw new Error(`Error en API de París (Cencosud): ${ordersRes.status} ${ordersRes.statusText}`);
@@ -271,7 +290,7 @@ async function syncMerchantOrders(integration) {
 
     const data = await ordersRes.json();
     const orders = data.data || [];
-    console.log(`Se encontraron ${orders.length} pedidos.`);
+    console.log(`✅ Se encontraron ${orders.length} pedidos.`);
 
     for (const order of orders) {
       const orderId = order.subOrderNumber || order.originOrderNumber || order.id;

@@ -46,10 +46,13 @@ serve(async (req) => {
     }
 
     // =========================================================================
-    // ACCIÓN: PUENTE API WOOCOMMERCE PARA EVITAR BLOQUEOS WAF EN GITHUB ACTIONS
+    // ACCIÓN: PUENTE API WOOCOMMERCE / SHOPIFY PARA EVITAR BLOQUEOS WAF/IP EN GITHUB ACTIONS
     // =========================================================================
     if (action === "proxy_wc_api") {
       return await handleProxyWcApi(req, merchantId, queryComercio, payload);
+    }
+    if (action === "proxy_shopify_api") {
+      return await handleProxyShopifyApi(req, merchantId, queryComercio, payload);
     }
 
     // =========================================================================
@@ -341,6 +344,107 @@ async function handleProxyWcApi(req: Request, merchantIdQuery: string, comercioQ
       headers: {
         ...corsHeaders,
         "Content-Type": wcRes.headers.get("Content-Type") || "application/json"
+      }
+    });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
+}
+
+async function handleProxyShopifyApi(req: Request, merchantIdQuery: string, comercioQuery: string, payload: any) {
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const isService = await isValidServiceRoleToken(token);
+    if (!isService) {
+      return new Response(JSON.stringify({ error: "Unauthorized: Service Role required" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const integrationId = payload.integration_id || "";
+    const targetComercio = payload.comercio || comercioQuery || "";
+    const targetMerchantId = payload.merchant_id || merchantIdQuery || "";
+    const endpoint = String(payload.endpoint || "").trim();
+    const method = String(payload.method || "GET").toUpperCase();
+
+    if (!endpoint.startsWith("/admin/api/") && !endpoint.startsWith("/admin/oauth/access_token")) {
+      return new Response(JSON.stringify({ error: "Invalid Shopify endpoint" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    let query = supabase.from("merchant_integrations").select("*").eq("platform", "Shopify");
+    if (integrationId) {
+      query = query.eq("id", integrationId);
+    } else if (targetComercio) {
+      query = query.eq("comercio", targetComercio);
+    } else if (targetMerchantId) {
+      query = query.eq("merchant_id", targetMerchantId);
+    } else {
+      return new Response(JSON.stringify({ error: "Missing integration identifier" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const { data: intList, error: intErr } = await query.limit(1);
+    if (intErr || !intList || intList.length === 0) {
+      return new Response(JSON.stringify({ error: "Shopify integration not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const dbInt = intList[0];
+    let shopDomain = String(dbInt.shop_url || "").trim().replace(/^https?:\/\//i, "").replace(/\/$/, "");
+    const baseUrl = `https://${shopDomain}`;
+
+    if (!isSafeExternalStoreUrl(baseUrl)) {
+      return new Response(JSON.stringify({ error: "Unsafe external store URL" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const isOAuthRefresh = endpoint.startsWith("/admin/oauth/access_token");
+    const headers: Record<string, string> = isOAuthRefresh
+      ? {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json"
+        }
+      : {
+          "X-Shopify-Access-Token": String(payload.access_token || dbInt.access_token || "").trim(),
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        };
+
+    const fetchOpts: RequestInit = { method, headers };
+    if (payload.body && (method === "POST" || method === "PUT")) {
+      fetchOpts.body = typeof payload.body === "string" ? payload.body : JSON.stringify(payload.body);
+    }
+
+    const shRes = await fetch(`${baseUrl}${endpoint}`, fetchOpts);
+    const resText = await shRes.text();
+    const linkHeader = shRes.headers.get("link");
+
+    return new Response(resText, {
+      status: shRes.status,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": shRes.headers.get("Content-Type") || "application/json",
+        ...(linkHeader ? { "link": linkHeader } : {})
       }
     });
   } catch (err: any) {
