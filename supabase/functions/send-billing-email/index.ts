@@ -3149,6 +3149,18 @@ serve(async (req) => {
       console.log(`[send-billing-email] Agregados ${validCc.length} destinatarios en copia (CC): ${validCc.join(', ')}`);
     }
 
+    // Soporte para programación nativa en Brevo Cloud (scheduledAt ISO-8601 hasta 72h en el futuro)
+    if (payload.scheduledAt) {
+      const schedDate = new Date(payload.scheduledAt);
+      const nowMs = Date.now();
+      const diffMs = schedDate.getTime() - nowMs;
+      // Brevo permite scheduledAt entre 1 min y 72 horas (259200000 ms) hacia el futuro
+      if (!isNaN(schedDate.getTime()) && diffMs > 60000 && diffMs <= 72 * 3600 * 1000) {
+        brevoPayload.scheduledAt = schedDate.toISOString();
+        console.log(`[send-billing-email] Correo programado en Brevo Cloud para: ${brevoPayload.scheduledAt}`);
+      }
+    }
+
     if (payload.fileBase64 && payload.fileName) {
       brevoPayload.attachment = [
         {

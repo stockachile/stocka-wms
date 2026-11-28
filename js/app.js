@@ -10,7 +10,7 @@ import { renderNotifications } from './notifications.js';
 import { renderTrackingWidgetCustomizer } from './tracking_widget_customizer.js';
 import { renderReturnsWidgetCustomizer } from './returns_widget_customizer.js';
 import './reverse_rma_manager.js';
-import './manual_order_number_validator.js?v=1.0.0';
+import './manual_order_number_validator.js?v=1.0.1';
 window.renderTrackingWidgetCustomizer = renderTrackingWidgetCustomizer;
 // Modo Preview Privado: ?preview_returns=1 activa la vista Seller SOLO en tu navegador (oculto para todos los demás sellers)
 (function initPrivateSellerReturnsPreview() {

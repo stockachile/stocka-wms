@@ -316,7 +316,10 @@ function renderRmaModalBody(overlay, rma, portalCfg, signedUrls) {
 
   const canApproveOrReject = wf === 'solicitado';
   const canMarkPaid = (wf === 'esperando_pago' || rma.payment_status === 'pending' || rma.payment_status === 'receipt_uploaded') && rma.payment_status !== 'paid' && rma.payment_status !== 'waived';
-  const canInspectQc = !rma.inventory_restocked && String(rma.status || '').toLowerCase() !== 'procesado' && ['aprobado_esperando_retorno', 'en_transito_retorno', 'recibido_en_revision', 'reemplazo_en_preparacion', 'cambio_en_preparacion'].includes(wf);
+  const canInspectQc = !rma.inventory_restocked && String(rma.status || '').toLowerCase() !== 'procesado' && (
+    ['aprobado_esperando_retorno', 'en_transito_retorno', 'recibido_en_revision', 'reemplazo_en_preparacion', 'cambio_en_preparacion'].includes(wf)
+    || (!isPortalRmaRecord(rma) && wf === 'pendiente')
+  );
 
   const renderModalContent = () => {
     const recalcExchangeSubtotal = editableExchangeItems.reduce((acc, it) => acc + (Number(it.effective_unit_price || 0) * Number(it.qty || 1)), 0);

@@ -1,6 +1,27 @@
 // js/inventory_sheets.js - Generador de Hojas de Conteo de Inventario Físico (PDF & Excel) para STOCKA WMS
 
 /**
+ * Determina si una solicitud de inventario es de uso interno exclusivo de STOCKA
+ * (oculta para el comercio y sin envío de notificaciones).
+ * Soporta tanto la columna `is_internal` en Supabase como fallback por historial/folio/notas.
+ * @param {Object} req - Solicitud de inventario
+ * @returns {boolean}
+ */
+window.isInternalInventoryRequest = function(req) {
+  if (!req) return false;
+  if (req.is_internal === true) return true;
+  if (Array.isArray(req.communication_history)) {
+    const flags = req.communication_history.filter(e => e && e.type === 'internal_flag');
+    if (flags.length > 0) {
+      return Boolean(flags[flags.length - 1].is_internal);
+    }
+  }
+  if (typeof req.folio === 'string' && req.folio.toUpperCase().startsWith('INT-INV-')) return true;
+  if (typeof req.admin_notes === 'string' && req.admin_notes.includes('[INVENTARIO INTERNO]')) return true;
+  return false;
+};
+
+/**
  * Enriquece la lista de productos de una solicitud de inventario con sus códigos de barra
  * desde memoria o consultando Supabase si faltaban al momento de emitir la solicitud.
  * @param {Object} req - Objeto con los datos de la solicitud de inventario
@@ -340,9 +361,11 @@ window.generateInventoryCountPdf = async function(req, targetWarehouse = null) {
   const warehouseDisplay = isSimplified
     ? 'Consolidado Simplificado (1 fila por SKU)'
     : (isFilteredWh ? `${filterWhName} (Hoja Exclusiva de Bodega)` : `${warehouseName} (Consolidado)`);
+  const isInternalSheet = typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(req);
+  const internalTitlePrefix = isInternalSheet ? '[USO INTERNO STOCKA] ' : '';
   const sheetHeaderTitle = isSimplified
-    ? 'Hoja de Toma de Inventario Simplificado (Totales por SKU)'
-    : (isFilteredWh ? `Hoja de Toma de Inventario - ${filterWhName}` : `Hoja de Toma de Inventario Físico (Consolidado)`);
+    ? `${internalTitlePrefix}Hoja de Toma de Inventario Simplificado (Totales por SKU)`
+    : (isFilteredWh ? `${internalTitlePrefix}Hoja de Toma de Inventario - ${filterWhName}` : `${internalTitlePrefix}Hoja de Toma de Inventario Físico (Consolidado)`);
 
   const formattedDate = req.created_at ? new Date(req.created_at).toLocaleString('es-CL', {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
@@ -1081,10 +1104,12 @@ window.generateInventoryReportPdf = async function(req) {
         <div style="display: flex; align-items: center; gap: 12px;">
           <img src="img/newlogotransp.png" alt="STOCKA Logo" style="height: 40px; width: auto; object-fit: contain;" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
           <div>
-            <div style="display: inline-block; background-color: ${obsData.hasObservations && obsData.requiresSecondReview ? '#d97706' : '#059669'}; color: #ffffff; padding: 2px 7px; border-radius: 3px; font-size: 7pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">
-              ${obsData.hasObservations && obsData.requiresSecondReview
-                ? 'Informe de Conteo con Observaciones • Requiere 2da Revisión en Terreno'
-                : (obsData.hasObservations ? 'Acta de Conteo con Observaciones (Sin 2da Revisión)' : 'Acta Oficial de Auditoría y Cuadratura')}
+            <div style="display: inline-block; background-color: ${(typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(req)) ? '#7c3aed' : (obsData.hasObservations && obsData.requiresSecondReview ? '#d97706' : '#059669')}; color: #ffffff; padding: 2px 7px; border-radius: 3px; font-size: 7pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">
+              ${(typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(req))
+                ? 'Inventario Interno STOCKA • Uso Exclusivo Confidencial'
+                : (obsData.hasObservations && obsData.requiresSecondReview
+                  ? 'Informe de Conteo con Observaciones • Requiere 2da Revisión en Terreno'
+                  : (obsData.hasObservations ? 'Acta de Conteo con Observaciones (Sin 2da Revisión)' : 'Acta Oficial de Auditoría y Cuadratura'))}
             </div>
             <h1 style="margin: 0; font-size: 13pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; text-transform: uppercase;">
               Informe de Resultados de Inventario Físico
@@ -2217,8 +2242,9 @@ window.openInventoryDigitalSignatureModal = function(options = {}) {
 
         const finalReq = updatedData || { ...req, ...updatePayload };
 
-        // Enviar notificación por correo
-        if (window.sendInventoryRequestNotification) {
+        // Enviar notificación por correo SOLO si NO es inventario interno
+        const isInternalSigned = typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(finalReq);
+        if (!isInternalSigned && window.sendInventoryRequestNotification) {
           await window.sendInventoryRequestNotification({
             event: 'act_signed',
             req: finalReq

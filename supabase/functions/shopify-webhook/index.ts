@@ -383,7 +383,27 @@ async function handleOrderCreate(merchantId, comercio, order) {
     .single();
 
   if (orderErr || !newOrder) {
-    console.error("Error creando pedido:", orderErr);
+    const errMsg = orderErr?.message || "No se retornaron datos al insertar";
+    const isCollision = orderErr?.code === "23505" || /unique_orders_comercio_clean_number|duplicate key/i.test(errMsg);
+    console.error(`[Shopify Webhook] Error creando pedido ${finalOrderNumber} (${comercio}):`, orderErr);
+    if (isCollision) {
+      try {
+        await supabase
+          .from("merchant_integrations")
+          .update({
+            last_sync_error: `Colisión de folio al insertar ${finalOrderNumber} (${errMsg})`
+          })
+          .eq("comercio", comercio)
+          .eq("platform", "Shopify");
+      } catch (_e) {}
+      await notifyWhatsAppGestion(
+        `⚠️ *ALERTA COLISIÓN DE FOLIO (SHOPIFY → WMS)*\n\n` +
+        `🏪 *Comercio:* ${comercio}\n` +
+        `📦 *Pedido Shopify:* ${finalOrderNumber} (ID: ${order.id})\n` +
+        `❌ *Motivo:* No pudo insertarse en WMS porque sus dígitos colisionan con un pedido previo (\`unique_orders_comercio_clean_number\`).\n` +
+        `🔧 *Acción:* Revisar si existe un pedido \`#MANUAL-\` con el mismo número y renombrarlo para desbloquear el ingreso.`
+      );
+    }
     return;
   }
 

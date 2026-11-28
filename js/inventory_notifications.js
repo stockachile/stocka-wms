@@ -594,6 +594,16 @@
       return { success: false, error: 'No request data provided' };
     }
 
+    // Bloqueo estricto para inventarios internos: jamás notificar por correo ni in-app al comercio
+    const isInternal = (typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(req))
+      || req.is_internal === true
+      || (typeof req.folio === 'string' && req.folio.toUpperCase().startsWith('INT-INV-'))
+      || (typeof req.admin_notes === 'string' && req.admin_notes.includes('[INVENTARIO INTERNO]'));
+    if (isInternal) {
+      console.log(`[Inventory Notifications] Inventario interno (${req.folio || req.id}): notificación al comercio omitida.`);
+      return { success: true, skipped: true, reason: 'internal_inventory' };
+    }
+
     try {
       const folio = req.folio || req.id?.substring(0, 8) || 'S/F';
       const comercio = req.comercio || 'no asignado';

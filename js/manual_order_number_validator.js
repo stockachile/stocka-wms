@@ -514,9 +514,10 @@ async function generateVerifiedAlternatives(rawInput, commerce, mode, commerceMe
         const rand4 = Math.floor(1000 + Math.random() * 9000);
         cand = `MAN${yy}${mm}${dd}${rand4}`;
       } else {
-        const suffixNum = attempt < 8
-          ? String(Math.floor(1000 + Math.random() * 9000))
-          : `${yy}${mm}${Math.floor(100 + Math.random() * 900)}`;
+        // Siempre prefijar YYMMDD + 4 dígitos aleatorios (10 dígitos) para evitar colisiones
+        // con correlativos de Shopify/WooCommerce bajo unique_orders_comercio_clean_number
+        const rand4 = Math.floor(1000 + Math.random() * 9000);
+        const suffixNum = `${yy}${mm}${dd}${rand4}`;
         cand = sigla ? `${sigla}#MANUAL-${suffixNum}` : `#MANUAL-${suffixNum}`;
       }
       if (!isTakenLocally(cand, usedClean, usedUpper)) {
@@ -663,9 +664,12 @@ export async function generateUniqueAutoManualOrderNumber(commerce, options = {}
       const rand4 = Math.floor(1000 + Math.random() * 9000);
       rawCandidate = `MAN${yy}${mm}${dd}${hh}${min}${rand4}`;
     } else {
-      const suffix = attempt < 3
-        ? String(Math.floor(1000 + Math.random() * 9000))
-        : `${yy}${mm}${dd}${Math.floor(100 + Math.random() * 900)}`;
+      // Siempre prefijar YYMMDD + 4 dígitos aleatorios (10 dígitos) para evitar colisiones
+      // futuras con correlativos de tiendas (Shopify/WooCommerce/Jumpseller)
+      const rand4 = Math.floor(1000 + Math.random() * 9000);
+      const suffix = attempt < 4
+        ? `${yy}${mm}${dd}${rand4}`
+        : `${yy}${mm}${dd}${hh}${min}${Math.floor(100 + Math.random() * 900)}`;
       rawCandidate = sigla ? `${sigla}#MANUAL-${suffix}` : `#MANUAL-${suffix}`;
     }
 
@@ -679,12 +683,12 @@ export async function generateUniqueAutoManualOrderNumber(commerce, options = {}
     }
   }
 
-  // Fallback determinístico con timestamp milisegundos
-  const tsTail = String(Date.now()).slice(-7);
+  // Fallback determinístico con fecha + timestamp milisegundos (evita colisiones numéricas cortas)
+  const tsTail = String(Date.now()).slice(-6);
   if (mode === 'client') {
-    return resolveClientManualOrderNumber(`MAN${yy}${mm}${tsTail}`, commerceMeta);
+    return resolveClientManualOrderNumber(`MAN${yy}${mm}${dd}${tsTail}`, commerceMeta);
   }
-  return sigla ? `${sigla}#MANUAL-${tsTail}` : `#MANUAL-${tsTail}`;
+  return sigla ? `${sigla}#MANUAL-${yy}${mm}${dd}${tsTail}` : `#MANUAL-${yy}${mm}${dd}${tsTail}`;
 }
 
 /**

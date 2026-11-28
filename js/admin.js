@@ -11,7 +11,7 @@ import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
 import { renderInventoryCountAdmin } from './inventory_count.js?v=1.1.0';
 import { renderReturnsWidgetCustomizer } from './returns_widget_customizer.js';
 import './reverse_rma_manager.js';
-import './manual_order_number_validator.js?v=1.0.0';
+import './manual_order_number_validator.js?v=1.0.1';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
 window.renderInventoryCountAdmin = renderInventoryCountAdmin;
@@ -4552,6 +4552,21 @@ window.getOrderAdminNote = function(order) {
   return '';
 };
 
+// Helpers para renderizar el badge de Nota Interna con vista previa del mensaje (similar al badge de Pedido En Espera)
+window.getOrderAdminNoteBadgeStyle = function(isActive = false) {
+  return `background: linear-gradient(90deg, #eef2ff 0%, #e0e7ff 100%); color: #3730a3; border: 1.5px solid #818cf8; font-size: 0.66rem; font-weight: 800; padding: 0.16rem 0.48rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; width: fit-content; max-width: 100%; margin-top: 0.25rem; letter-spacing: 0.25px; cursor: pointer; box-shadow: 0 1px 3px rgba(79, 70, 229, 0.18); ${isActive ? 'outline: 2px solid #4338ca; box-shadow: 0 0 6px rgba(67,56,202,0.45);' : ''}`;
+};
+
+window.buildOrderAdminNoteBadgeInnerHtml = function(orderId, noteText) {
+  const normalizedNote = String(noteText || '').replace(/\s+/g, ' ').trim();
+  const shortNote = normalizedNote.length > 52 ? normalizedNote.slice(0, 50).trimEnd() + '…' : normalizedNote;
+  const escapedShortNote = window.escapeHtml
+    ? window.escapeHtml(shortNote)
+    : shortNote.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeOrderId = String(orderId || '').replace(/'/g, "\\'");
+  return `<i class="ri-lock-2-line" style="color: #4f46e5; font-size: 0.76rem; flex-shrink: 0;"></i> NOTA INTERNA${escapedShortNote ? `<span style="font-weight: 600; color: #312e81; border-left: 1px solid #a5b4fc; padding-left: 0.3rem; margin-left: 0.1rem; letter-spacing: 0.1px; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapedShortNote}</span>` : ''} <i class="ri-pencil-line" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${safeOrderId}')" title="Ver o editar nota interna" style="margin-left: 0.12rem; font-size: 0.74rem; color: #4f46e5; opacity: 0.9; flex-shrink: 0;"></i>`;
+};
+
 // Alternar formulario de edición inline para notas internas en la Torre de Control
 window.toggleEditAdminNote = function(orderId) {
   const viewEl = document.getElementById(`wms-admin-note-view-${orderId}`);
@@ -4711,13 +4726,15 @@ window.saveOrderAdminNote = async function(orderId, customNote = null, silent = 
             span.id = `admin-note-badge-${orderId}`;
             span.className = 'badge wms-order-tag-badge';
             span.onclick = (e) => window.filterByOrderTag('CON NOTA INTERNA', e);
-            span.style.cssText = 'background-color: rgba(99, 102, 241, 0.12); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.35); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer;';
+            span.style.cssText = window.getOrderAdminNoteBadgeStyle(false);
             span.title = `Nota Interna Admin: ${noteVal} (Clic para filtrar)`;
-            span.innerHTML = `<i class="ri-lock-2-line" style="color: #4f46e5;"></i> NOTA INTERNA <i class="ri-pencil-line" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${orderId}')" title="Editar nota interna" style="margin-left: 0.15rem; font-size: 0.7rem; opacity: 0.85;"></i>`;
+            span.innerHTML = window.buildOrderAdminNoteBadgeInnerHtml(orderId, noteVal);
             container.appendChild(span);
           }
         } else {
+          badgeElem.style.cssText = window.getOrderAdminNoteBadgeStyle(badgeElem.classList.contains('wms-tag-active'));
           badgeElem.title = `Nota Interna Admin: ${noteVal} (Clic para filtrar)`;
+          badgeElem.innerHTML = window.buildOrderAdminNoteBadgeInnerHtml(orderId, noteVal);
         }
       } else if (badgeElem) {
         badgeElem.remove();
@@ -10890,13 +10907,15 @@ window.loadOrderAuditLogs = async function(orderId) {
               span.id = `admin-note-badge-${targetUuid}`;
               span.className = 'badge wms-order-tag-badge';
               span.onclick = (e) => window.filterByOrderTag('CON NOTA INTERNA', e);
-              span.style.cssText = 'background-color: rgba(99, 102, 241, 0.12); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.35); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer;';
+              span.style.cssText = window.getOrderAdminNoteBadgeStyle(false);
               span.title = `Nota Interna Admin: ${noteVal} (Clic para filtrar)`;
-              span.innerHTML = `<i class="ri-lock-2-line" style="color: #4f46e5;"></i> NOTA INTERNA <i class="ri-pencil-line" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${targetUuid}')" title="Editar nota interna" style="margin-left: 0.15rem; font-size: 0.7rem; opacity: 0.85;"></i>`;
+              span.innerHTML = window.buildOrderAdminNoteBadgeInnerHtml(targetUuid, noteVal);
               containerDiv.appendChild(span);
             }
           } else {
+            badgeElem.style.cssText = window.getOrderAdminNoteBadgeStyle(badgeElem.classList.contains('wms-tag-active'));
             badgeElem.title = `Nota Interna Admin: ${noteVal} (Clic para filtrar)`;
+            badgeElem.innerHTML = window.buildOrderAdminNoteBadgeInnerHtml(targetUuid, noteVal);
           }
         } else if (badgeElem) {
           badgeElem.remove();
@@ -19304,7 +19323,8 @@ window.applyWmsFiltersAndRender = function() {
     let adminNoteBadgeHtml = '';
     if (adminNote) {
       const isAdminNoteActive = selectedTag === 'CON NOTA INTERNA';
-      adminNoteBadgeHtml = `<span id="admin-note-badge-${order.id}" class="badge wms-order-tag-badge ${isAdminNoteActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('CON NOTA INTERNA', event)" style="background-color: rgba(99, 102, 241, 0.12); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.35); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isAdminNoteActive ? 'outline: 2px solid #4338ca; box-shadow: 0 0 6px rgba(67,56,202,0.4);' : ''}" title="Nota Interna Admin: ${(adminNote || '').replace(/"/g, '&quot;')} (Clic para filtrar)"><i class="ri-lock-2-line" style="color: #4f46e5;"></i> NOTA INTERNA <i class="ri-pencil-line" onclick="event.stopPropagation(); window.openOrderAdminNoteModal('${order.id}')" title="Editar nota interna" style="margin-left: 0.15rem; font-size: 0.7rem; opacity: 0.85;"></i></span>`;
+      const safeAdminNoteAttr = (adminNote || '').replace(/"/g, '&quot;');
+      adminNoteBadgeHtml = `<span id="admin-note-badge-${order.id}" class="badge wms-order-tag-badge ${isAdminNoteActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('CON NOTA INTERNA', event)" style="${window.getOrderAdminNoteBadgeStyle(isAdminNoteActive)}" title="Nota Interna Admin: ${safeAdminNoteAttr} (Clic para filtrar)">${window.buildOrderAdminNoteBadgeInnerHtml(order.id, adminNote)}</span>`;
     }
 
     let wmsHoldBadgeHtml = '';
@@ -35503,6 +35523,9 @@ async function renderAdminInventoryRequestsWorkspace() {
             <button id="btn-admin-refresh-requests" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; border-color: var(--color-border); color: var(--color-text-main); background: transparent; padding: 0 0.85rem; border-radius: var(--radius-md); cursor: pointer;" title="Refrescar solicitudes de inventario">
               <i class="ri-refresh-line" id="icon-admin-refresh-requests"></i> Actualizar
             </button>
+            <button id="btn-admin-add-new-internal-req-main" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 700; border-color: #7c3aed; color: #7c3aed; background: rgba(124, 58, 237, 0.08); padding: 0 1rem; border-radius: var(--radius-md); cursor: pointer;" title="Crear inventario interno STOCKA sin informar ni mostrar al comercio">
+              <i class="ri-lock-2-line" style="font-size: 1rem;"></i> Nuevo Interno
+            </button>
             <button id="btn-admin-add-new-req-main" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 600; background: #6366f1; border-color: #6366f1; padding: 0 1.15rem; border-radius: var(--radius-md); box-shadow: 0 2px 4px rgba(99, 102, 241, 0.25); cursor: pointer;">
               <i class="ri-add-line" style="font-size: 1.1rem;"></i> Nueva Solicitud
             </button>
@@ -35543,6 +35566,15 @@ async function renderAdminInventoryRequestsWorkspace() {
               <select id="admin-req-warehouse-filter" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.4rem 0.65rem; cursor: pointer;">
                 <option value="">📦 Todas las Bodegas</option>
                 ${warehousesOptions}
+              </select>
+            </div>
+
+            <!-- Filtro Visibilidad (Cliente vs Interno) -->
+            <div style="min-width: 165px; flex: 1; max-width: 195px;">
+              <select id="admin-req-visibility-filter" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.4rem 0.65rem; cursor: pointer;">
+                <option value="">👁️ Visibilidad: Todos</option>
+                <option value="client">🏢 Visibles al Comercio</option>
+                <option value="internal">🔒 Solo Internos STOCKA</option>
               </select>
             </div>
 
@@ -35588,8 +35620,10 @@ async function renderAdminInventoryRequestsWorkspace() {
     const comFilter = document.getElementById('admin-req-comercio-filter');
     const statusFilter = document.getElementById('admin-req-status-filter');
     const whFilter = document.getElementById('admin-req-warehouse-filter');
+    const visibilityFilter = document.getElementById('admin-req-visibility-filter');
     const clearBtn = document.getElementById('btn-admin-req-clear-filters');
     const addBtn = document.getElementById('btn-admin-add-new-req-main');
+    const addInternalBtn = document.getElementById('btn-admin-add-new-internal-req-main');
 
     const triggerFilter = () => renderAdminInventoryRequestsTableBody();
 
@@ -35597,6 +35631,7 @@ async function renderAdminInventoryRequestsWorkspace() {
     if (comFilter) comFilter.addEventListener('change', triggerFilter);
     if (statusFilter) statusFilter.addEventListener('change', triggerFilter);
     if (whFilter) whFilter.addEventListener('change', triggerFilter);
+    if (visibilityFilter) visibilityFilter.addEventListener('change', triggerFilter);
 
     if (clearBtn) {
       clearBtn.addEventListener('click', () => {
@@ -35604,6 +35639,7 @@ async function renderAdminInventoryRequestsWorkspace() {
         if (comFilter) comFilter.value = '';
         if (statusFilter) statusFilter.value = '';
         if (whFilter) whFilter.value = '';
+        if (visibilityFilter) visibilityFilter.value = '';
         renderAdminInventoryRequestsTableBody();
       });
     }
@@ -35630,7 +35666,16 @@ async function renderAdminInventoryRequestsWorkspace() {
         openAdminCreateInventoryRequestModal(() => {
           renderAdminInventoryRequestsWorkspace();
           updateAdminInventoryRequestsTabBadge();
-        });
+        }, '', [], false);
+      });
+    }
+
+    if (addInternalBtn) {
+      addInternalBtn.addEventListener('click', () => {
+        openAdminCreateInventoryRequestModal(() => {
+          renderAdminInventoryRequestsWorkspace();
+          updateAdminInventoryRequestsTabBadge();
+        }, '', [], true);
       });
     }
 
@@ -35651,8 +35696,12 @@ function renderAdminInventoryRequestsTableBody() {
   const comVal = document.getElementById('admin-req-comercio-filter')?.value || '';
   const statusVal = document.getElementById('admin-req-status-filter')?.value || '';
   const whVal = document.getElementById('admin-req-warehouse-filter')?.value || '';
+  const visibilityVal = document.getElementById('admin-req-visibility-filter')?.value || '';
 
   const filtered = requests.filter(r => {
+    const rIsInternal = typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(r);
+    if (visibilityVal === 'internal' && !rIsInternal) return false;
+    if (visibilityVal === 'client' && rIsInternal) return false;
     if (comVal && r.comercio !== comVal) return false;
     if (statusVal && r.status !== statusVal) return false;
     if (whVal && r.warehouse_name !== whVal) return false;
@@ -35725,6 +35774,7 @@ function renderAdminInventoryRequestsTableBody() {
     const isFinalized = (r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined));
     const isClientSigned = !!(r.signed_at || r.signed_by);
     const isAdminSigned = !!(r.admin_signed_at || r.admin_signed_by);
+    const isInternal = typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(r);
     const obsData = (typeof window.getInventoryObservationsData === 'function')
       ? window.getInventoryObservationsData(r)
       : { hasObservations: false, requiresSecondReview: false, observations: [] };
@@ -35740,9 +35790,11 @@ function renderAdminInventoryRequestsTableBody() {
 
     let signatureBadges = '';
     if (isFinalized) {
-      const clientLabel = isClientSigned
-        ? `<span style="font-size: 0.68rem; font-weight: 700; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;" title="Cliente firmó de conformidad el ${r.signed_at ? new Date(r.signed_at).toLocaleDateString('es-CL') : ''}"><i class="ri-checkbox-circle-fill"></i> Cliente Firmó</span>`
-        : `<span style="font-size: 0.68rem; font-weight: 700; color: #b45309; background: #fefce8; border: 1px solid #fef08a; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;" title="Pendiente firma del cliente"><i class="ri-time-line"></i> Pend. Cliente</span>`;
+      const clientLabel = isInternal
+        ? `<span style="font-size: 0.68rem; font-weight: 700; color: #6d28d9; background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;" title="Inventario interno STOCKA: oculto al comercio"><i class="ri-lock-2-fill"></i> Uso Interno</span>`
+        : (isClientSigned
+          ? `<span style="font-size: 0.68rem; font-weight: 700; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;" title="Cliente firmó de conformidad el ${r.signed_at ? new Date(r.signed_at).toLocaleDateString('es-CL') : ''}"><i class="ri-checkbox-circle-fill"></i> Cliente Firmó</span>`
+          : `<span style="font-size: 0.68rem; font-weight: 700; color: #b45309; background: #fefce8; border: 1px solid #fef08a; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;" title="Pendiente firma del cliente"><i class="ri-time-line"></i> Pend. Cliente</span>`);
       
       const adminLabel = isAdminSigned
         ? `<span style="font-size: 0.68rem; font-weight: 700; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;" title="Certificado por Supervisor"><i class="ri-shield-check-fill"></i> Sup. OK</span>`
@@ -35751,10 +35803,15 @@ function renderAdminInventoryRequestsTableBody() {
       signatureBadges = `<div style="margin-top: 3px; display: flex; flex-direction: column; gap: 2px; align-items: center;">${clientLabel}${adminLabel}</div>`;
     }
 
+    const internalFolioBadge = isInternal
+      ? `<div style="margin-top: 3px;"><span style="font-size: 0.67rem; font-weight: 800; font-family: sans-serif; color: #6d28d9; background: rgba(124, 58, 237, 0.12); border: 1px solid rgba(124, 58, 237, 0.35); padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Inventario interno STOCKA: oculto para el comercio y sin envío de notificaciones"><i class="ri-lock-2-line"></i> INTERNO</span></div>`
+      : '';
+
     return `
-      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor=''">
-        <td style="padding: 1rem 1.25rem; font-weight: 700; font-family: monospace; color: #6366f1;">
+      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; ${isInternal ? 'background-color: rgba(124, 58, 237, 0.025);' : ''}" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='${isInternal ? 'rgba(124, 58, 237, 0.025)' : ''}'">
+        <td style="padding: 1rem 1.25rem; font-weight: 700; font-family: monospace; color: ${isInternal ? '#7c3aed' : '#6366f1'};">
           ${r.folio || r.id.substring(0, 8)}
+          ${internalFolioBadge}
         </td>
         <td style="padding: 1rem 1.25rem; color: var(--color-text-muted); font-size: 0.85rem;">
           ${dateStr}
@@ -35788,10 +35845,12 @@ function renderAdminInventoryRequestsTableBody() {
         </td>
         <td style="padding: 1rem 1.25rem; text-align: center;">
           <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
-            <!-- Botón Responder / Solicitar Información -->
-            <button class="btn btn-outline btn-sm btn-admin-respond-req" data-id="${r.id}" title="Responder Solicitud / Solicitar Información / Aceptar o Rechazar" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
-              <i class="ri-chat-voice-line"></i> Responder
-            </button>
+            <!-- Botón Responder / Solicitar Información (oculto en inventarios internos) -->
+            ${!isInternal ? `
+              <button class="btn btn-outline btn-sm btn-admin-respond-req" data-id="${r.id}" title="Responder Solicitud / Solicitar Información / Aceptar o Rechazar" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-chat-voice-line"></i> Responder
+              </button>
+            ` : ''}
             <!-- Botón Informe Oficial de Resultados (PDF) si está finalizada o tiene conteos -->
             ${(r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined)) ? `
               <button class="btn btn-outline btn-sm btn-admin-sign-req" data-id="${r.id}" title="${isAdminSigned ? 'Acta Certificada Digitalmente por Supervisor (Clic para volver a firmar)' : 'Certificar / Firmar Acta como Supervisor STOCKA'}" style="padding: 0.35rem 0.55rem; border-color: ${isAdminSigned ? '#10b981' : '#059669'}; color: ${isAdminSigned ? '#059669' : '#047857'}; background: ${isAdminSigned ? 'rgba(16, 185, 129, 0.08)' : 'transparent'}; cursor: pointer;">
@@ -35961,6 +36020,7 @@ function openAdminRespondInventoryRequestModal(req) {
   const folio = req.folio || req.id.substring(0, 8);
   const products = Array.isArray(req.products_list) ? req.products_list : [];
   const commHistory = Array.isArray(req.communication_history) ? req.communication_history : [];
+  const isInternalRespond = typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(req);
 
   modal = document.createElement('div');
   modal.id = 'modal-admin-respond-inventory-request';
@@ -36071,10 +36131,18 @@ function openAdminRespondInventoryRequestModal(req) {
 
         <!-- Checkbox de Envío de Correo -->
         <div style="background: var(--color-bg-alt); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); cursor: pointer; user-select: none;">
-            <input type="checkbox" id="admin-respond-send-email" checked style="width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer;">
-            <span><i class="ri-mail-send-line" style="color: #6366f1;"></i> Enviar notificación inmediata por correo al solicitante y a <code>stockachile@gmail.com</code> (desde <code>info@stocka.cl</code>)</span>
-          </label>
+          ${isInternalRespond ? `
+            <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 700; color: #6d28d9;">
+              <input type="checkbox" id="admin-respond-send-email" disabled style="display: none;">
+              <i class="ri-lock-2-line"></i>
+              <span>Inventario Interno STOCKA: el envío de correos al comercio está deshabilitado automáticamente.</span>
+            </div>
+          ` : `
+            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); cursor: pointer; user-select: none;">
+              <input type="checkbox" id="admin-respond-send-email" checked style="width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer;">
+              <span><i class="ri-mail-send-line" style="color: #6366f1;"></i> Enviar notificación inmediata por correo al solicitante y a <code>stockachile@gmail.com</code> (desde <code>info@stocka.cl</code>)</span>
+            </label>
+          `}
         </div>
 
       </div>
@@ -36224,7 +36292,7 @@ function openAdminRespondInventoryRequestModal(req) {
 
       const mergedReq = { ...req, ...updatePayload };
 
-      if (sendEmail && typeof window.sendInventoryRequestNotification === 'function') {
+      if (sendEmail && !isInternalRespond && typeof window.sendInventoryRequestNotification === 'function') {
         window.sendInventoryRequestNotification({
           event: actionVal,
           req: mergedReq,
@@ -36321,6 +36389,7 @@ async function openAdminManageInventoryRequestModal(req) {
     : [];
   const isClientSigned = !!(req.signed_at || req.signed_by);
   const isAdminSigned = !!(req.admin_signed_at || req.admin_signed_by);
+  const isInternalManage = typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(req);
 
   const initialObsData = typeof window.getInventoryObservationsData === 'function'
     ? window.getInventoryObservationsData(req)
@@ -36419,8 +36488,9 @@ async function openAdminManageInventoryRequestModal(req) {
     <div class="modal-content" style="max-width: 1050px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 92vh;">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
         <div>
-          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.2rem;">
-            <i class="ri-survey-line" style="color: #6366f1;"></i> Cuadratura y Registro de Toma de Inventario <code style="color: #6366f1; font-weight: bold; margin-left: 0.5rem;">${folio}</code>
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.2rem; flex-wrap: wrap;">
+            <i class="ri-survey-line" style="color: ${isInternalManage ? '#7c3aed' : '#6366f1'};"></i> Cuadratura y Registro de Toma de Inventario <code style="color: ${isInternalManage ? '#7c3aed' : '#6366f1'}; font-weight: bold; margin-left: 0.35rem;">${folio}</code>
+            ${isInternalManage ? `<span style="font-size: 0.72rem; font-weight: 800; color: #6d28d9; background: rgba(124, 58, 237, 0.12); border: 1px solid rgba(124, 58, 237, 0.35); padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px;"><i class="ri-lock-2-line"></i> INVENTARIO INTERNO</span>` : ''}
           </h3>
           <p style="margin: 0.2rem 0 0 0; font-size: 0.825rem; color: var(--color-text-muted);">
             Comercio: <strong>${req.comercio}</strong> • Bodega: <strong id="manage-req-header-wh-label">${isSimplifiedMode ? 'Total Global (Simplificado)' : (req.warehouse_name || 'Todas las bodegas')}</strong> • Corte Pedidos: <strong style="color: #6366f1; font-family: monospace;">${req.cutoff_order || 'Sin corte especificado'}</strong> • Fecha: <strong>${new Date(req.created_at).toLocaleString('es-CL')}</strong>
@@ -36431,6 +36501,15 @@ async function openAdminManageInventoryRequestModal(req) {
 
       <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
         
+        ${isInternalManage ? `
+          <div style="background: rgba(124, 58, 237, 0.08); border: 1.5px solid rgba(124, 58, 237, 0.35); border-radius: var(--radius-md); padding: 0.75rem 1rem; font-size: 0.84rem; color: #5b21b6; display: flex; align-items: center; gap: 0.55rem;">
+            <i class="ri-lock-2-fill" style="font-size: 1.2rem; color: #7c3aed;"></i>
+            <div>
+              <strong>Inventario Interno STOCKA (Confidencial):</strong> Esta toma de inventario es exclusiva de administración y bodega. <strong>No aparece en el portal del comercio</strong> y <strong>no enviará correos ni notificaciones</strong> al cliente en ninguna etapa.
+            </div>
+          </div>
+        ` : ''}
+
         <!-- Panel de Control de Estado y Supervisor -->
         <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
           <div class="form-group" style="margin-bottom: 0;">
@@ -36564,10 +36643,14 @@ async function openAdminManageInventoryRequestModal(req) {
             <!-- Firma Cliente -->
             <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.75rem; font-size: 0.85rem;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-                <strong style="color: #1e40af;"><i class="ri-user-line"></i> Cliente / Solicitante:</strong>
-                ${isClientSigned ? '<span style="color: #10b981; font-weight: 700; font-size: 0.75rem;">CONFORME</span>' : '<span style="color: #d97706; font-size: 0.75rem;">Pendiente</span>'}
+                <strong style="color: ${isInternalManage ? '#6d28d9' : '#1e40af'};"><i class="${isInternalManage ? 'ri-lock-2-line' : 'ri-user-line'}"></i> Cliente / Solicitante:</strong>
+                ${isInternalManage ? '<span style="color: #6d28d9; font-weight: 700; font-size: 0.75rem;">USO INTERNO</span>' : (isClientSigned ? '<span style="color: #10b981; font-weight: 700; font-size: 0.75rem;">CONFORME</span>' : '<span style="color: #d97706; font-size: 0.75rem;">Pendiente</span>')}
               </div>
-              ${isClientSigned ? `
+              ${isInternalManage ? `
+                <div style="color: var(--color-text-muted); font-size: 0.8rem;">
+                  No aplica firma ni notificación al cliente (Inventario Interno STOCKA).
+                </div>
+              ` : (isClientSigned ? `
                 <div style="color: var(--color-text-muted); font-size: 0.8rem; line-height: 1.4;">
                   <div>Firmado por: <strong style="color: var(--color-text-main);">${req.signed_by || req.comercio}</strong> ${req.signed_rut ? `(RUT: <strong>${req.signed_rut}</strong>)` : ''}</div>
                   ${req.signed_role ? `<div>Cargo: <strong>${req.signed_role}</strong></div>` : ''}
@@ -36582,7 +36665,7 @@ async function openAdminManageInventoryRequestModal(req) {
                 <div style="color: var(--color-text-muted); font-size: 0.8rem;">
                   El cliente dispone de un plazo de 7 días corridos desde el término de la auditoría para visar de conformidad.
                 </div>
-              `}
+              `)}
             </div>
           </div>
         </div>
@@ -36732,9 +36815,11 @@ async function openAdminManageInventoryRequestModal(req) {
             <i class="ri-save-line"></i> Guardar Avance
           </button>
 
-          <button type="button" class="btn btn-primary" id="btn-send-with-observations-inv" style="background: #d97706; border-color: #d97706; color: #ffffff; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; cursor: pointer;" title="Guardar conteo y enviar al usuario con observaciones numeradas e indicador de 2da revisión">
-            <i class="ri-mail-send-line"></i> Enviar Conteo con Observaciones
-          </button>
+          ${!isInternalManage ? `
+            <button type="button" class="btn btn-primary" id="btn-send-with-observations-inv" style="background: #d97706; border-color: #d97706; color: #ffffff; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; cursor: pointer;" title="Guardar conteo y enviar al usuario con observaciones numeradas e indicador de 2da revisión">
+              <i class="ri-mail-send-line"></i> Enviar Conteo con Observaciones
+            </button>
+          ` : ''}
 
           <button type="button" class="btn btn-primary" id="btn-apply-stock-adjustment-inv" style="background: #10b981; border-color: #10b981; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
             <i class="ri-check-double-line"></i> Aplicar Ajustes de Stock en Sistema
@@ -37667,7 +37752,7 @@ async function openAdminManageInventoryRequestModal(req) {
     });
   }
 
-  // Aplicar ajustes de stock en el sistema real
+  // Aplicar ajustes de stock en el sistema real (con selector Delta Histórico vs Stock Absoluto Fijo)
   const applyBtn = document.getElementById('btn-apply-stock-adjustment-inv');
   applyBtn.addEventListener('click', async () => {
     const updatedProducts = extractUpdatedProductsList();
@@ -37680,9 +37765,343 @@ async function openAdminManageInventoryRequestModal(req) {
 
     const itemsWithDiff = itemsWithCount.filter(p => p.difference !== 0);
     const modeLabel = isSimplifiedMode ? 'Modo Simplificado (Totales Globales por SKU)' : 'Modo por Bodega';
-    const confirmMsg = `¿Confirmas la cuadratura de inventario en ${modeLabel}?\n\n- Total SKUs contados: ${itemsWithCount.length}\n- SKUs con discrepancias de stock: ${itemsWithDiff.length}\n\nEsta acción actualizará el stock físico en la tabla de inventario y registrará los movimientos oficiales de auditoría en el Kardex.`;
-    
-    if (!confirm(confirmMsg)) return;
+    const isInternalReq = typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(req);
+
+    const originalApplyHtml = applyBtn.innerHTML;
+    applyBtn.disabled = true;
+    applyBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Analizando stock actual...';
+
+    // Consultar stock actual y movimientos posteriores a la creación de la solicitud para previsualizar el impacto real
+    let liveInventoryByProd = new Map();
+    let subsequentMovementsCount = 0;
+    let movedProductIds = new Set();
+
+    try {
+      const uniqueProdIds = Array.from(new Set(itemsWithCount.map(p => p.id).filter(Boolean)));
+      const chunkSize = 150;
+
+      for (let i = 0; i < uniqueProdIds.length; i += chunkSize) {
+        const chunk = uniqueProdIds.slice(i, i + chunkSize);
+        const { data: invRows } = await supabase
+          .from('inventory')
+          .select('id, product_id, warehouse_id, quantity')
+          .in('product_id', chunk);
+        (invRows || []).forEach(r => {
+          const key = String(r.product_id);
+          if (!liveInventoryByProd.has(key)) liveInventoryByProd.set(key, []);
+          liveInventoryByProd.get(key).push(r);
+        });
+
+        if (req.created_at) {
+          try {
+            const { data: movRows } = await supabase
+              .from('movements')
+              .select('id, product_id')
+              .in('product_id', chunk)
+              .gte('created_at', req.created_at);
+            if (Array.isArray(movRows)) {
+              subsequentMovementsCount += movRows.length;
+              movRows.forEach(m => { if (m.product_id) movedProductIds.add(String(m.product_id)); });
+            }
+          } catch (movCheckErr) {
+            console.warn('No se pudieron verificar movimientos posteriores:', movCheckErr);
+          }
+        }
+      }
+    } catch (preErr) {
+      console.warn('Error consultando previsualización de stock actual:', preErr);
+    } finally {
+      applyBtn.disabled = false;
+      applyBtn.innerHTML = originalApplyHtml;
+    }
+
+    // Construir previsualización por SKU para comparar Ajuste por Delta vs Fijar Stock Absoluto
+    const getLiveQtyForItem = (item) => {
+      const rows = liveInventoryByProd.get(String(item.id)) || [];
+      const isItemConsolidated = isSimplifiedMode || item.is_consolidated || item.warehouse_id === 'CONSOLIDATED';
+      if (isItemConsolidated) {
+        return rows.reduce((acc, r) => acc + (Number(r.quantity) || 0), 0);
+      }
+      const targetWhId = item.warehouse_id || req.warehouse_id;
+      if (targetWhId) {
+        const match = rows.find(r => String(r.warehouse_id) === String(targetWhId));
+        return match ? (Number(match.quantity) || 0) : 0;
+      }
+      return rows[0] ? (Number(rows[0].quantity) || 0) : 0;
+    };
+
+    let driftedCountAll = 0;
+    itemsWithCount.forEach(item => {
+      const liveQty = getLiveQtyForItem(item);
+      if (liveQty !== (Number(item.system_qty) || 0)) driftedCountAll++;
+    });
+
+    const previewRows = itemsWithDiff.map(item => {
+      const snapshotQty = Number(item.system_qty) || 0;
+      const countedQty = Number(item.counted_qty) || 0;
+      const diff = Number(item.difference) || (countedQty - snapshotQty);
+      const currentLiveQty = getLiveQtyForItem(item);
+      const hasDrift = currentLiveQty !== snapshotQty || movedProductIds.has(String(item.id));
+      const finalDeltaQty = Math.max(0, currentLiveQty + diff);
+      const appliedDelta = finalDeltaQty - currentLiveQty;
+      const clampedDelta = (currentLiveQty + diff) < 0;
+      const finalFixedQty = Math.max(0, countedQty);
+      const appliedFixed = finalFixedQty - currentLiveQty;
+      return {
+        sku: item.sku || '-',
+        name: item.name || '',
+        warehouse_name: item.warehouse_name || (isSimplifiedMode ? 'Total Global' : (req.warehouse_name || 'Bodega')),
+        snapshotQty,
+        countedQty,
+        diff,
+        currentLiveQty,
+        hasDrift,
+        finalDeltaQty,
+        appliedDelta,
+        clampedDelta,
+        finalFixedQty,
+        appliedFixed
+      };
+    });
+
+    const createdDate = req.created_at ? new Date(req.created_at) : null;
+    const hoursElapsed = createdDate ? Math.max(0, (Date.now() - createdDate.getTime()) / 36e5) : 0;
+    const daysElapsed = Math.floor(hoursElapsed / 24);
+    const snapshotDateStr = createdDate
+      ? createdDate.toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : 'fecha de creación';
+    const elapsedLabel = daysElapsed >= 1
+      ? `${daysElapsed} día(s)`
+      : (hoursElapsed >= 1 ? `${Math.round(hoursElapsed)} hora(s)` : 'menos de 1 hora');
+
+    const hasSubsequentActivity = subsequentMovementsCount > 0 || driftedCountAll > 0 || hoursElapsed >= 6;
+    const defaultAdjustmentMode = hasSubsequentActivity ? 'delta' : 'fixed';
+
+    // Elegir un ejemplo real de esta solicitud para mostrarlo en las tarjetas
+    const exampleRow = previewRows.find(r => r.hasDrift && r.diff !== 0) || previewRows[0] || null;
+    const exampleHtmlDelta = exampleRow
+      ? `<div style="margin-top: 6px; padding: 6px 8px; background: rgba(16, 185, 129, 0.08); border-radius: 5px; font-size: 0.75rem; font-family: monospace; color: #065f46;">
+          Ej. <strong>${exampleRow.sku}</strong>: Foto ${exampleRow.snapshotQty} → Conteo ${exampleRow.countedQty} (Delta ${exampleRow.diff > 0 ? '+' + exampleRow.diff : exampleRow.diff}) • Stock hoy ${exampleRow.currentLiveQty} → <strong>Queda en ${exampleRow.finalDeltaQty}</strong>
+        </div>`
+      : '';
+    const exampleHtmlFixed = exampleRow
+      ? `<div style="margin-top: 6px; padding: 6px 8px; background: rgba(100, 116, 139, 0.08); border-radius: 5px; font-size: 0.75rem; font-family: monospace; color: var(--color-text-main);">
+          Ej. <strong>${exampleRow.sku}</strong>: Stock hoy ${exampleRow.currentLiveQty} → <strong>Se fija en ${exampleRow.finalFixedQty}</strong> (Ajuste ${exampleRow.appliedFixed > 0 ? '+' + exampleRow.appliedFixed : exampleRow.appliedFixed})
+        </div>`
+      : '';
+
+    // Mostrar modal de confirmación de modalidad de ajuste (Delta vs Fijo)
+    const selectedMode = await new Promise((resolve) => {
+      const existingConfirm = document.getElementById('modal-confirm-inventory-adjustment-mode');
+      if (existingConfirm) existingConfirm.remove();
+
+      const confirmModal = document.createElement('div');
+      confirmModal.id = 'modal-confirm-inventory-adjustment-mode';
+      confirmModal.className = 'modal-overlay active';
+      confirmModal.style.zIndex = '10020';
+
+      const buildPreviewRowsHtml = (mode) => {
+        if (previewRows.length === 0) {
+          return `<tr><td colspan="7" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">No hay SKUs con diferencias respecto a la foto inicial. Solo se cerrará la solicitud como Finalizada.</td></tr>`;
+        }
+        return previewRows.map(r => {
+          const applied = mode === 'delta' ? r.appliedDelta : r.appliedFixed;
+          const finalQty = mode === 'delta' ? r.finalDeltaQty : r.finalFixedQty;
+          const diffColor = r.diff > 0 ? '#059669' : '#dc2626';
+          const appliedColor = applied > 0 ? '#059669' : (applied < 0 ? '#dc2626' : '#64748b');
+          const driftBadge = r.hasDrift
+            ? `<span title="El stock actual cambió desde la foto inicial (${r.snapshotQty} → ${r.currentLiveQty})" style="margin-left: 4px; font-size: 0.65rem; background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; padding: 1px 4px; border-radius: 3px; font-weight: 700;">Mov.</span>`
+            : '';
+          const clampNote = (mode === 'delta' && r.clampedDelta)
+            ? `<div style="font-size: 0.65rem; color: #d97706;">(tope mín. 0)</div>`
+            : '';
+          return `
+            <tr style="border-bottom: 1px solid var(--color-border);">
+              <td style="padding: 0.4rem 0.55rem; font-family: monospace; font-weight: 700;">${r.sku}${driftBadge}</td>
+              <td style="padding: 0.4rem 0.55rem; text-align: center; color: var(--color-text-muted);">${r.snapshotQty}</td>
+              <td style="padding: 0.4rem 0.55rem; text-align: center; font-weight: 700;">${r.countedQty}</td>
+              <td style="padding: 0.4rem 0.55rem; text-align: center; font-weight: 700; color: ${diffColor};">${r.diff > 0 ? '+' + r.diff : r.diff}</td>
+              <td style="padding: 0.4rem 0.55rem; text-align: center; font-weight: 700; color: var(--color-primary);">${r.currentLiveQty}</td>
+              <td style="padding: 0.4rem 0.55rem; text-align: center; font-weight: 800; color: ${appliedColor};">${applied > 0 ? '+' + applied : applied}</td>
+              <td style="padding: 0.4rem 0.55rem; text-align: center; font-weight: 800; background: rgba(99, 102, 241, 0.06);">${finalQty}${clampNote}</td>
+            </tr>
+          `;
+        }).join('');
+      };
+
+      confirmModal.innerHTML = `
+        <div class="modal-content" style="max-width: 820px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 92vh;">
+          <div class="modal-header" style="padding: 1.15rem 1.4rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.45rem; color: var(--color-text-main);">
+                <i class="ri-scales-3-line" style="color: #10b981;"></i> Confirmar Modalidad de Ajuste de Stock <code style="color: #6366f1;">${folio}</code>
+              </h3>
+              <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+                ${modeLabel} • Foto inicial tomada el <strong>${snapshotDateStr}</strong> (hace ${elapsedLabel})
+              </p>
+            </div>
+            <button type="button" class="modal-close" id="btn-close-confirm-adj-modal">&times;</button>
+          </div>
+
+          <div class="modal-body" style="padding: 1.25rem 1.4rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem;">
+            ${isInternalReq ? `
+              <div style="background: rgba(124, 58, 237, 0.08); border: 1.5px solid rgba(124, 58, 237, 0.35); border-radius: var(--radius-md); padding: 0.65rem 0.9rem; font-size: 0.82rem; color: #5b21b6; display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+                <i class="ri-lock-2-line" style="font-size: 1.1rem;"></i>
+                <span><strong>Inventario Interno STOCKA:</strong> Al finalizar se ajustará el stock y el Kardex interno sin enviar correos ni notificaciones al comercio.</span>
+              </div>
+            ` : ''}
+
+            ${hasSubsequentActivity ? `
+              <div style="background: #fffbeb; border: 1.5px solid #f59e0b; border-radius: var(--radius-md); padding: 0.8rem 1rem; font-size: 0.83rem; color: #92400e; line-height: 1.45;">
+                <div style="font-weight: 800; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 4px; color: #b45309;">
+                  <i class="ri-alarm-warning-fill" style="font-size: 1.1rem;"></i>
+                  Se detectó desfase o movimientos posteriores a la foto del inventario
+                </div>
+                <div>
+                  • Fecha foto solicitud: <strong>${snapshotDateStr}</strong> (hace <strong>${elapsedLabel}</strong>)<br>
+                  • SKUs cuyo stock actual varió desde la foto: <strong>${driftedCountAll}</strong> de ${itemsWithCount.length} contados<br>
+                  • Movimientos en Kardex posteriores a la solicitud: <strong>${subsequentMovementsCount}</strong>
+                </div>
+                <div style="margin-top: 5px; font-weight: 700;">
+                  Recomendación: usa <span style="text-decoration: underline;">Ajuste por Delta</span> para sumar/restar solo la diferencia del conteo sin perder ingresos ni salidas posteriores.
+                </div>
+              </div>
+            ` : `
+              <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 0.7rem 0.95rem; font-size: 0.82rem; color: #065f46;">
+                <i class="ri-checkbox-circle-line"></i> No se detectaron variaciones de stock posteriores a la foto inicial (${snapshotDateStr}). Ambas modalidades producirán el mismo resultado.
+              </div>
+            `}
+
+            <!-- Selector de Modalidad -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.85rem;">
+              <label class="adj-mode-card" data-mode="delta" style="border: 2px solid ${defaultAdjustmentMode === 'delta' ? '#10b981' : 'var(--color-border)'}; background: ${defaultAdjustmentMode === 'delta' ? 'rgba(16, 185, 129, 0.06)' : 'var(--color-bg)'}; border-radius: var(--radius-md); padding: 0.9rem 1rem; cursor: pointer; display: flex; flex-direction: column; gap: 0.35rem; transition: all 0.15s;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 800; font-size: 0.9rem; color: #047857;">
+                    <input type="radio" name="inv-adj-mode" value="delta" ${defaultAdjustmentMode === 'delta' ? 'checked' : ''} style="accent-color: #10b981; width: 16px; height: 16px; cursor: pointer;">
+                    <span>Ajuste por Delta (Sumar / Restar)</span>
+                  </div>
+                  ${hasSubsequentActivity ? '<span style="font-size: 0.68rem; font-weight: 800; background: #10b981; color: #fff; padding: 2px 7px; border-radius: 999px;">RECOMENDADO</span>' : ''}
+                </div>
+                <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4;">
+                  Aplica únicamente la diferencia del conteo (<code>Conteo Real − Foto Solicitud</code>) sobre el <strong>stock actual de hoy</strong>. <strong>Conserva</strong> todos los ingresos y salidas posteriores al ${snapshotDateStr}.
+                </p>
+                ${exampleHtmlDelta}
+              </label>
+
+              <label class="adj-mode-card" data-mode="fixed" style="border: 2px solid ${defaultAdjustmentMode === 'fixed' ? '#6366f1' : 'var(--color-border)'}; background: ${defaultAdjustmentMode === 'fixed' ? 'rgba(99, 102, 241, 0.06)' : 'var(--color-bg)'}; border-radius: var(--radius-md); padding: 0.9rem 1rem; cursor: pointer; display: flex; flex-direction: column; gap: 0.35rem; transition: all 0.15s;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 800; font-size: 0.9rem; color: #4338ca;">
+                    <input type="radio" name="inv-adj-mode" value="fixed" ${defaultAdjustmentMode === 'fixed' ? 'checked' : ''} style="accent-color: #6366f1; width: 16px; height: 16px; cursor: pointer;">
+                    <span>Fijar Stock Absoluto al Conteo</span>
+                  </div>
+                </div>
+                <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.4;">
+                  Deja el stock de hoy <strong>fijo exactamente igual</strong> al valor contado (<code>Stock Hoy = Conteo Real</code>). Usar solo si el conteo refleja el stock real de este instante sin movimientos posteriores.
+                </p>
+                ${exampleHtmlFixed}
+              </label>
+            </div>
+
+            <div id="adj-mode-fixed-danger-warning" style="display: ${defaultAdjustmentMode === 'fixed' && hasSubsequentActivity ? 'block' : 'none'}; background: #fef2f2; border: 1.5px solid #ef4444; border-radius: var(--radius-md); padding: 0.65rem 0.9rem; font-size: 0.8rem; color: #991b1b; font-weight: 600;">
+              <i class="ri-error-warning-fill"></i> ¡Cuidado! Elegiste <strong>Fijar Stock Absoluto</strong> habiendo movimientos posteriores a la foto. Esto sobrescribirá ingresos y salidas ocurridos después del ${snapshotDateStr}.
+            </div>
+
+            <!-- Tabla Previsualización de Impacto -->
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                <strong style="font-size: 0.82rem; color: var(--color-text-main);">
+                  <i class="ri-table-line" style="color: #6366f1;"></i> Previsualización de Ajustes (${previewRows.length} SKU(s) con discrepancia)
+                </strong>
+                <span id="adj-preview-mode-pill" style="font-size: 0.73rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: ${defaultAdjustmentMode === 'delta' ? 'rgba(16, 185, 129, 0.14)' : 'rgba(99, 102, 241, 0.14)'}; color: ${defaultAdjustmentMode === 'delta' ? '#047857' : '#4338ca'};">
+                  ${defaultAdjustmentMode === 'delta' ? 'Modo: Delta sobre Stock Hoy' : 'Modo: Fijar Stock Absoluto'}
+                </span>
+              </div>
+              <div style="max-height: 220px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem; text-align: left;">
+                  <thead>
+                    <tr style="background: var(--color-bg); border-bottom: 1.5px solid var(--color-border); color: var(--color-text-muted); position: sticky; top: 0; z-index: 1; text-transform: uppercase; font-size: 0.68rem;">
+                      <th style="padding: 0.45rem 0.55rem;">SKU</th>
+                      <th style="padding: 0.45rem 0.55rem; text-align: center;">Foto Sist.</th>
+                      <th style="padding: 0.45rem 0.55rem; text-align: center;">Conteo</th>
+                      <th style="padding: 0.45rem 0.55rem; text-align: center;">Delta Foto</th>
+                      <th style="padding: 0.45rem 0.55rem; text-align: center;">Stock Hoy</th>
+                      <th style="padding: 0.45rem 0.55rem; text-align: center;">Ajuste Hoy</th>
+                      <th style="padding: 0.45rem 0.55rem; text-align: center;">Stock Final</th>
+                    </tr>
+                  </thead>
+                  <tbody id="adj-preview-tbody">
+                    ${buildPreviewRowsHtml(defaultAdjustmentMode)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer" style="padding: 1rem 1.4rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.65rem;">
+            <button type="button" class="btn btn-outline" id="btn-cancel-confirm-adj-modal">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="btn-proceed-confirm-adj-modal" style="background: #10b981; border-color: #10b981; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-check-double-line"></i> ${defaultAdjustmentMode === 'delta' ? 'Confirmar y Aplicar por Delta' : 'Confirmar y Fijar Stock Absoluto'}
+            </button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(confirmModal);
+
+      let currentSelectedMode = defaultAdjustmentMode;
+      const updateModeUI = (mode) => {
+        currentSelectedMode = mode;
+        confirmModal.querySelectorAll('.adj-mode-card').forEach(card => {
+          const m = card.getAttribute('data-mode');
+          const radio = card.querySelector('input[name="inv-adj-mode"]');
+          if (radio) radio.checked = (m === mode);
+          if (m === mode) {
+            card.style.borderColor = m === 'delta' ? '#10b981' : '#6366f1';
+            card.style.background = m === 'delta' ? 'rgba(16, 185, 129, 0.06)' : 'rgba(99, 102, 241, 0.06)';
+          } else {
+            card.style.borderColor = 'var(--color-border)';
+            card.style.background = 'var(--color-bg)';
+          }
+        });
+
+        const warnEl = confirmModal.querySelector('#adj-mode-fixed-danger-warning');
+        if (warnEl) warnEl.style.display = (mode === 'fixed' && hasSubsequentActivity) ? 'block' : 'none';
+
+        const pillEl = confirmModal.querySelector('#adj-preview-mode-pill');
+        if (pillEl) {
+          pillEl.textContent = mode === 'delta' ? 'Modo: Delta sobre Stock Hoy' : 'Modo: Fijar Stock Absoluto';
+          pillEl.style.background = mode === 'delta' ? 'rgba(16, 185, 129, 0.14)' : 'rgba(99, 102, 241, 0.14)';
+          pillEl.style.color = mode === 'delta' ? '#047857' : '#4338ca';
+        }
+
+        const tbodyEl = confirmModal.querySelector('#adj-preview-tbody');
+        if (tbodyEl) tbodyEl.innerHTML = buildPreviewRowsHtml(mode);
+
+        const proceedBtn = confirmModal.querySelector('#btn-proceed-confirm-adj-modal');
+        if (proceedBtn) {
+          proceedBtn.style.background = (mode === 'fixed' && hasSubsequentActivity) ? '#dc2626' : '#10b981';
+          proceedBtn.style.borderColor = (mode === 'fixed' && hasSubsequentActivity) ? '#dc2626' : '#10b981';
+          proceedBtn.innerHTML = mode === 'delta'
+            ? '<i class="ri-check-double-line"></i> Confirmar y Aplicar por Delta'
+            : '<i class="ri-check-double-line"></i> Confirmar y Fijar Stock Absoluto';
+        }
+      };
+
+      confirmModal.querySelectorAll('.adj-mode-card').forEach(card => {
+        card.addEventListener('click', () => updateModeUI(card.getAttribute('data-mode')));
+      });
+
+      const closeAndResolve = (val) => {
+        confirmModal.remove();
+        resolve(val);
+      };
+
+      confirmModal.querySelector('#btn-close-confirm-adj-modal')?.addEventListener('click', () => closeAndResolve(null));
+      confirmModal.querySelector('#btn-cancel-confirm-adj-modal')?.addEventListener('click', () => closeAndResolve(null));
+      confirmModal.querySelector('#btn-proceed-confirm-adj-modal')?.addEventListener('click', () => closeAndResolve(currentSelectedMode));
+    });
+
+    if (!selectedMode) return;
 
     applyBtn.disabled = true;
     applyBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Aplicando Ajustes...';
@@ -37690,6 +38109,8 @@ async function openAdminManageInventoryRequestModal(req) {
     try {
       const supervisor = document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor WMS';
       const adminNotes = document.getElementById('manage-req-admin-notes').value.trim();
+      const adjModeTag = selectedMode === 'delta' ? 'Delta' : 'Fijo';
+      const internalRefTag = isInternalReq ? 'Interno ' : '';
 
       // Consultar la bodega predeterminada del comercio (para ajustes en Modo Simplificado)
       let commerceDefaultWhId = null;
@@ -37715,7 +38136,7 @@ async function openAdminManageInventoryRequestModal(req) {
       for (const item of itemsWithDiff) {
         const prodId = item.id;
         const newQty = Number(item.counted_qty) || 0;
-        const diff = Number(item.difference) || 0; // counted - sys
+        const diff = Number(item.difference) || 0; // counted - sys_snapshot
 
         if (!prodId) continue;
 
@@ -37732,7 +38153,8 @@ async function openAdminManageInventoryRequestModal(req) {
 
           const invRows = allInvs || [];
           const currentTotal = invRows.reduce((acc, r) => acc + (Number(r.quantity) || 0), 0);
-          const netDiff = newQty - currentTotal;
+          // En modo 'delta' se aplica solo el delta del conteo sobre el stock actual; en 'fixed' se fija al valor contado
+          const netDiff = (selectedMode === 'delta') ? diff : (newQty - currentTotal);
 
           if (netDiff === 0) continue;
 
@@ -37781,7 +38203,7 @@ async function openAdminManageInventoryRequestModal(req) {
                   warehouse_id: primaryWhId,
                   type: 'in',
                   quantity: netDiff,
-                  reference_doc: `Ajuste Inventario Simplificado Folio ${folio} - ${whName} (+${netDiff} uds)`
+                  reference_doc: `Ajuste Inventario ${internalRefTag}Simplificado (${adjModeTag}) Folio ${folio} - ${whName} (+${netDiff} uds)`
                 }]);
               if (movErr) throw new Error(`Error registrando movimiento de ${item.sku}: ${movErr.message}`);
             }
@@ -37818,7 +38240,7 @@ async function openAdminManageInventoryRequestModal(req) {
                   warehouse_id: invRow.warehouse_id,
                   type: 'out',
                   quantity: deductHere,
-                  reference_doc: `Ajuste Inventario Simplificado Folio ${folio} - ${whName} (-${deductHere} uds)`
+                  reference_doc: `Ajuste Inventario ${internalRefTag}Simplificado (${adjModeTag}) Folio ${folio} - ${whName} (-${deductHere} uds)`
                 }]);
               if (movErr) throw new Error(`Error registrando movimiento de ${item.sku}: ${movErr.message}`);
 
@@ -37849,7 +38271,7 @@ async function openAdminManageInventoryRequestModal(req) {
             const whObj = (window.allWarehousesList || []).find(w => w.id === finalWhId);
             const whName = item.warehouse_name || (whObj ? whObj.name : (req.warehouse_name || 'Bodega'));
 
-            // 1. Actualizar o Insertar en Inventory
+            // 1. Consultar stock actual en bodega y calcular destino según modalidad (delta vs fixed)
             const { data: existingInv } = await supabase
               .from('inventory')
               .select('id, quantity')
@@ -37857,10 +38279,18 @@ async function openAdminManageInventoryRequestModal(req) {
               .eq('warehouse_id', finalWhId)
               .maybeSingle();
 
+            const currentWhQty = existingInv ? (Number(existingInv.quantity) || 0) : 0;
+            const targetWhQty = (selectedMode === 'delta')
+              ? Math.max(0, currentWhQty + diff)
+              : Math.max(0, newQty);
+            const actualDelta = targetWhQty - currentWhQty;
+
+            if (actualDelta === 0) continue;
+
             if (existingInv) {
               const { error: updErr } = await supabase
                 .from('inventory')
-                .update({ quantity: newQty })
+                .update({ quantity: targetWhQty })
                 .eq('id', existingInv.id);
               if (updErr) throw new Error(`Error actualizando stock de ${item.sku} en ${whName}: ${updErr.message}`);
             } else {
@@ -37869,15 +38299,15 @@ async function openAdminManageInventoryRequestModal(req) {
                 .insert([{
                   product_id: prodId,
                   warehouse_id: finalWhId,
-                  quantity: newQty,
+                  quantity: targetWhQty,
                   committed_quantity: 0
                 }]);
               if (insErr) throw new Error(`Error creando stock de ${item.sku} en ${whName}: ${insErr.message}`);
             }
 
-            // 2. Registrar en Movements
-            const movType = diff > 0 ? 'in' : 'out';
-            const movQty = Math.abs(diff);
+            // 2. Registrar en Movements el delta efectivamente aplicado
+            const movType = actualDelta > 0 ? 'in' : 'out';
+            const movQty = Math.abs(actualDelta);
             const { error: movErr } = await supabase
               .from('movements')
               .insert([{
@@ -37885,7 +38315,7 @@ async function openAdminManageInventoryRequestModal(req) {
                 warehouse_id: finalWhId,
                 type: movType,
                 quantity: movQty,
-                reference_doc: `Ajuste Toma Inventario Folio ${folio} - ${whName} (${diff > 0 ? '+' : ''}${diff} uds)`
+                reference_doc: `Ajuste Toma Inventario ${internalRefTag}(${adjModeTag}) Folio ${folio} - ${whName} (${actualDelta > 0 ? '+' : ''}${actualDelta} uds)`
               }]);
             if (movErr) throw new Error(`Error registrando movimiento de ${item.sku}: ${movErr.message}`);
           }
@@ -37894,10 +38324,14 @@ async function openAdminManageInventoryRequestModal(req) {
 
       // Actualizar registro de solicitud a Finalizada
       const obsPack = buildObservationsPayloadHelper(supervisor, adminNotes);
+      const adjModeDesc = selectedMode === 'delta'
+        ? 'Delta histórico sobre stock actual'
+        : 'Stock absoluto fijo al conteo';
+      const adjSummaryTag = `[Ajustes de stock aplicados al sistema • Modalidad: ${adjModeDesc}]`;
       const updatePayload = {
         status: 'Finalizada',
         completed_by: supervisor,
-        admin_notes: adminNotes ? `${adminNotes} [Ajustes de stock aplicados al sistema]` : 'Ajustes de stock aplicados al sistema',
+        admin_notes: adminNotes ? `${adminNotes} ${adjSummaryTag}` : adjSummaryTag,
         communication_history: obsPack.updatedHistory,
         total_skus: updatedProducts.length,
         warehouse_name: isSimplifiedMode ? 'Total Global (Simplificado)' : (req.warehouse_name || 'Todas las bodegas'),
@@ -37917,8 +38351,8 @@ async function openAdminManageInventoryRequestModal(req) {
 
       if (reqErr) throw reqErr;
 
-      // Enviar notificación formal de finalización con plazo de 7 días y solicitud de firma de conformidad
-      if (typeof window.sendInventoryRequestNotification === 'function') {
+      // Enviar notificación formal de finalización SOLO si NO es inventario interno
+      if (!isInternalReq && typeof window.sendInventoryRequestNotification === 'function') {
         window.sendInventoryRequestNotification({
           event: 'completed',
           req: { ...req, ...updatePayload },
@@ -37934,11 +38368,11 @@ async function openAdminManageInventoryRequestModal(req) {
         Swal.fire({
           icon: 'success',
           title: '¡Cuadratura de Stock Aplicada!',
-          text: `Se aplicaron los ajustes en ${itemsWithDiff.length} artículos con discrepancias. La solicitud ${folio} ha quedado marcada como Finalizada.`,
+          text: `Se aplicaron los ajustes (${adjModeDesc}) en ${itemsWithDiff.length} artículos con discrepancias. La solicitud ${folio} ha quedado marcada como Finalizada.${isInternalReq ? ' (Inventario interno: no se notificó al comercio).' : ''}`,
           confirmButtonColor: '#10b981'
         });
       } else {
-        alert(`¡Cuadratura aplicada con éxito! Solicitud ${folio} finalizada.`);
+        alert(`¡Cuadratura aplicada con éxito (${adjModeDesc})! Solicitud ${folio} finalizada.`);
       }
 
     } catch (err) {
@@ -37950,7 +38384,7 @@ async function openAdminManageInventoryRequestModal(req) {
   });
 }
 
-async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce = '', defaultProducts = []) {
+async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce = '', defaultProducts = [], defaultInternal = false) {
   let modal = document.getElementById('modal-admin-create-inventory-request');
   if (modal) modal.remove();
 
@@ -38012,6 +38446,24 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
         
         <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">
           Inicia una orden oficial de toma de inventario físico para el personal de bodega. Se generará la hoja de conteo en PDF y Excel para el equipo operativo.
+        </div>
+
+        <!-- Opción: Inventario Interno (Sin informar ni mostrar al comercio) -->
+        <div id="admin-create-req-internal-box" style="background: ${defaultInternal ? 'rgba(124, 58, 237, 0.08)' : 'var(--color-bg)'}; border: 1.5px solid ${defaultInternal ? '#7c3aed' : 'var(--color-border)'}; border-radius: var(--radius-md); padding: 0.85rem 1rem; transition: all 0.15s;">
+          <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="admin-create-req-internal" ${defaultInternal ? 'checked' : ''} style="margin-top: 2px; width: 17px; height: 17px; accent-color: #7c3aed; cursor: pointer; flex-shrink: 0;">
+            <div>
+              <div style="font-weight: 800; font-size: 0.88rem; color: ${defaultInternal ? '#5b21b6' : 'var(--color-text-main)'}; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-lock-2-line" style="color: #7c3aed;"></i>
+                Inventario Interno (Sin informar al comercio)
+              </div>
+              <div id="admin-create-req-internal-hint" style="font-size: 0.77rem; color: var(--color-text-muted); margin-top: 3px; line-height: 1.4;">
+                ${defaultInternal
+                  ? '🔒 <strong>Modo Interno Activo:</strong> Se creará con folio <code>INT-INV-...</code>. <strong>NO aparecerá en el portal del comercio</strong> y <strong>NO enviará correos ni notificaciones</strong> al cliente en ninguna etapa.'
+                  : 'Si marcas esta opción, el inventario será exclusivo de gestión interna STOCKA: oculto en el portal del cliente y sin correos ni notificaciones al comercio.'}
+              </div>
+            </div>
+          </label>
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -38161,8 +38613,8 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
 
       <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
         <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-admin-create-inventory-request').remove()">Cancelar</button>
-        <button type="button" class="btn btn-primary" id="btn-admin-submit-create-req" style="background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.4rem;">
-          <i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja
+        <button type="button" class="btn btn-primary" id="btn-admin-submit-create-req" style="background: ${defaultInternal ? '#7c3aed' : '#6366f1'}; border-color: ${defaultInternal ? '#7c3aed' : '#6366f1'}; display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i class="${defaultInternal ? 'ri-lock-2-line' : 'ri-send-plane-fill'}"></i> ${defaultInternal ? 'Crear Inventario Interno y Emitir Hoja' : 'Crear Solicitud y Emitir Hoja'}
         </button>
       </div>
     </div>
@@ -38413,6 +38865,33 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
     loadProductsForSelectedCommerce();
   }
 
+  // Toggle visual para Inventario Interno
+  const internalCreateCb = document.getElementById('admin-create-req-internal');
+  const internalCreateBox = document.getElementById('admin-create-req-internal-box');
+  const internalCreateHint = document.getElementById('admin-create-req-internal-hint');
+  if (internalCreateCb) {
+    internalCreateCb.addEventListener('change', () => {
+      const checked = internalCreateCb.checked;
+      if (internalCreateBox) {
+        internalCreateBox.style.background = checked ? 'rgba(124, 58, 237, 0.08)' : 'var(--color-bg)';
+        internalCreateBox.style.borderColor = checked ? '#7c3aed' : 'var(--color-border)';
+      }
+      if (internalCreateHint) {
+        internalCreateHint.innerHTML = checked
+          ? '🔒 <strong>Modo Interno Activo:</strong> Se creará con folio <code>INT-INV-...</code>. <strong>NO aparecerá en el portal del comercio</strong> y <strong>NO enviará correos ni notificaciones</strong> al cliente en ninguna etapa.'
+          : 'Si marcas esta opción, el inventario será exclusivo de gestión interna STOCKA: oculto en el portal del cliente y sin correos ni notificaciones al comercio.';
+      }
+      const btn = document.getElementById('btn-admin-submit-create-req');
+      if (btn && !btn.disabled) {
+        btn.style.background = checked ? '#7c3aed' : '#6366f1';
+        btn.style.borderColor = checked ? '#7c3aed' : '#6366f1';
+        btn.innerHTML = checked
+          ? '<i class="ri-lock-2-line"></i> Crear Inventario Interno y Emitir Hoja'
+          : '<i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja';
+      }
+    });
+  }
+
   // Manejar envío
   const submitBtn = document.getElementById('btn-admin-submit-create-req');
   submitBtn.addEventListener('click', async () => {
@@ -38421,6 +38900,8 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
       alert('Por favor selecciona un comercio.');
       return;
     }
+
+    const isInternal = Boolean(document.getElementById('admin-create-req-internal')?.checked);
 
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Generando Solicitud...';
@@ -38540,7 +39021,8 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
 
       const dateCode = new Date().toISOString().slice(2, 10).replace(/-/g, '');
       const randomNum = Math.floor(100 + Math.random() * 900);
-      const folio = `REQ-INV-${dateCode}-${randomNum}`;
+      const folio = `${isInternal ? 'INT-INV' : 'REQ-INV'}-${dateCode}-${randomNum}`;
+      const nowIso = new Date().toISOString();
 
       const newRecord = {
         folio: folio,
@@ -38553,19 +39035,38 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
         priority: priority,
         cutoff_order: cutoffOrder,
         notes: notes,
+        admin_notes: isInternal ? '[INVENTARIO INTERNO]' : null,
+        communication_history: isInternal
+          ? [{ type: 'internal_flag', is_internal: true, sender: 'admin', sender_name: userEmail, created_at: nowIso }]
+          : [],
+        is_internal: isInternal,
         status: 'Pendiente',
         total_skus: productsList.length,
         products_list: productsList,
-        requested_by: `Admin (${userEmail})`,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        requested_by: isInternal ? `Interno (${userEmail})` : `Admin (${userEmail})`,
+        created_at: nowIso,
+        updated_at: nowIso
       };
 
-      const { data: insertedData, error: insertErr } = await supabase
+      let { data: insertedData, error: insertErr } = await supabase
         .from('inventory_requests')
         .insert([newRecord])
         .select()
         .single();
+
+      // Fallback si la columna is_internal aún no ha sido creada en Supabase
+      if (insertErr && (insertErr.code === '42703' || insertErr.code === 'PGRST204' || (insertErr.message || '').includes('is_internal'))) {
+        console.warn('Columna is_internal no encontrada aún en BD; insertando usando fallback por folio/notas/historial.');
+        const fallbackRecord = { ...newRecord };
+        delete fallbackRecord.is_internal;
+        const retryRes = await supabase
+          .from('inventory_requests')
+          .insert([fallbackRecord])
+          .select()
+          .single();
+        insertedData = retryRes.data;
+        insertErr = retryRes.error;
+      }
 
       if (insertErr) throw insertErr;
 
@@ -38578,8 +39079,8 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
         window.generateInventoryCountExcel(createdReq);
       }
 
-      // Notificar por correo al solicitante y a operaciones (stockachile@gmail.com)
-      if (typeof window.sendInventoryRequestNotification === 'function') {
+      // Notificar por correo SOLO si NO es inventario interno
+      if (!isInternal && typeof window.sendInventoryRequestNotification === 'function') {
         window.sendInventoryRequestNotification({
           event: 'created',
           req: createdReq
@@ -38591,12 +39092,12 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
       if (typeof Swal !== 'undefined') {
         Swal.fire({
           icon: 'success',
-          title: '¡Solicitud de Inventario Creada!',
-          html: `Folio: <code style="color: #6366f1; font-weight: bold;">${folio}</code> para <strong>${selectedCom}</strong> (${productsList.length} SKUs).`,
-          confirmButtonColor: '#6366f1'
+          title: isInternal ? '¡Inventario Interno Creado!' : '¡Solicitud de Inventario Creada!',
+          html: `Folio: <code style="color: ${isInternal ? '#7c3aed' : '#6366f1'}; font-weight: bold;">${folio}</code> para <strong>${selectedCom}</strong> (${productsList.length} SKUs).${isInternal ? '<br><small style="color: #6d28d9; font-weight: 600;">🔒 Uso exclusivo STOCKA: oculto al comercio y sin envío de correos.</small>' : ''}`,
+          confirmButtonColor: isInternal ? '#7c3aed' : '#6366f1'
         });
       } else {
-        alert(`¡Solicitud ${folio} creada con éxito!`);
+        alert(isInternal ? `¡Inventario interno ${folio} creado (sin notificar al comercio)!` : `¡Solicitud ${folio} creada con éxito!`);
       }
 
       if (onComplete) onComplete();
@@ -38604,7 +39105,9 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
       console.error('Error creating admin inventory request:', err);
       alert('Error al crear la solicitud: ' + err.message);
       submitBtn.disabled = false;
-      submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja';
+      submitBtn.innerHTML = isInternal
+        ? '<i class="ri-lock-2-line"></i> Crear Inventario Interno y Emitir Hoja'
+        : '<i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja';
     }
   });
 }
@@ -38622,6 +39125,7 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
 
   const folio = req.folio || req.id.substring(0, 8);
   const warehouses = window.allWarehousesList || [];
+  const isCurrentlyInternal = typeof window.isInternalInventoryRequest === 'function' && window.isInternalInventoryRequest(req);
   const isCurrentlyConsolidated = (req.warehouse_name && req.warehouse_name.toLowerCase().includes('simplificado')) || (req.products_list || []).some(p => p.is_consolidated || p.warehouse_id === 'CONSOLIDATED');
   const warehouseOptions = `
     <option value="" ${(!req.warehouse_id && !isCurrentlyConsolidated) ? 'selected' : ''}>Todas las bodegas (Desglose por bodega)</option>
@@ -38646,6 +39150,20 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
         
         <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">
           Modifica los parámetros de la orden de conteo para <strong>${req.comercio}</strong>. Puedes añadir o quitar productos de la lista y actualizar el estado o instrucciones.
+        </div>
+
+        <div style="background: ${isCurrentlyInternal ? 'rgba(124, 58, 237, 0.08)' : 'var(--color-bg)'}; border: 1.5px solid ${isCurrentlyInternal ? '#7c3aed' : 'var(--color-border)'}; border-radius: var(--radius-md); padding: 0.75rem 1rem;">
+          <label style="display: flex; align-items: flex-start; gap: 0.55rem; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="admin-edit-req-internal" ${isCurrentlyInternal ? 'checked' : ''} style="margin-top: 2px; width: 16px; height: 16px; accent-color: #7c3aed; cursor: pointer;">
+            <div>
+              <div style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-lock-2-line" style="color: #7c3aed;"></i> Inventario Interno (Oculto para el comercio y sin notificaciones)
+              </div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px;">
+                Si está activo, este inventario no será visible en el portal del cliente ni enviará correos al comercio.
+              </div>
+            </div>
+          </label>
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -39166,7 +39684,32 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
         return (a.sku || '').localeCompare(b.sku || '');
       });
 
+      const isInternalEdited = Boolean(document.getElementById('admin-edit-req-internal')?.checked);
+      const nowIsoEdit = new Date().toISOString();
+      let updatedFolio = req.folio || folio;
+      if (isInternalEdited && /^REQ-INV-/i.test(updatedFolio)) {
+        updatedFolio = updatedFolio.replace(/^REQ-INV-/i, 'INT-INV-');
+      } else if (!isInternalEdited && /^INT-INV-/i.test(updatedFolio)) {
+        updatedFolio = updatedFolio.replace(/^INT-INV-/i, 'REQ-INV-');
+      }
+
+      let cleanedAdminNotes = (adminNotes || '').replace(/\s*\[INVENTARIO INTERNO\]\s*/g, ' ').trim();
+      if (isInternalEdited) {
+        cleanedAdminNotes = cleanedAdminNotes ? `[INVENTARIO INTERNO] ${cleanedAdminNotes}` : '[INVENTARIO INTERNO]';
+      }
+
+      const existingEditHistory = Array.isArray(req.communication_history) ? [...req.communication_history] : [];
+      if (isInternalEdited !== isCurrentlyInternal) {
+        existingEditHistory.push({
+          type: 'internal_flag',
+          is_internal: isInternalEdited,
+          sender: 'admin',
+          created_at: nowIsoEdit
+        });
+      }
+
       const updatePayload = {
+        folio: updatedFolio,
         warehouse_id: selectedWhId,
         warehouse_name: selectedWhName,
         type: type,
@@ -39175,16 +39718,28 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
         status: status,
         cutoff_order: cutoffOrder,
         notes: notes,
-        admin_notes: adminNotes,
+        admin_notes: cleanedAdminNotes,
+        communication_history: existingEditHistory,
+        is_internal: isInternalEdited,
         total_skus: productsList.length,
         products_list: productsList,
-        updated_at: new Date().toISOString()
+        updated_at: nowIsoEdit
       };
 
-      const { error: updateErr } = await supabase
+      let { error: updateErr } = await supabase
         .from('inventory_requests')
         .update(updatePayload)
         .eq('id', req.id);
+
+      if (updateErr && (updateErr.code === '42703' || updateErr.code === 'PGRST204' || (updateErr.message || '').includes('is_internal'))) {
+        const fallbackUpdate = { ...updatePayload };
+        delete fallbackUpdate.is_internal;
+        const retryUpd = await supabase
+          .from('inventory_requests')
+          .update(fallbackUpdate)
+          .eq('id', req.id);
+        updateErr = retryUpd.error;
+      }
 
       if (updateErr) throw updateErr;
 
@@ -94720,7 +95275,81 @@ async function renderMerchantsAdmin() {
     
     if (billingContactsErr) console.warn("Error al cargar contactos de facturación:", billingContactsErr);
 
+    // 5.2 Cargar bodegas disponibles para mostrar la bodega asignada por comercio
+    const { data: rawWarehouses, error: warehousesErr } = await supabase
+      .from('warehouses')
+      .select('id, name, address, comuna, operating_days')
+      .order('name', { ascending: true });
+
+    if (warehousesErr) console.warn("Error al cargar bodegas:", warehousesErr);
+    const allWarehouses = rawWarehouses || [];
+    window.cachedAdminWarehouses = allWarehouses;
+    const warehousesMap = new Map(allWarehouses.map(w => [w.id, w]));
+
     const configMap = new Map((adicionalConfigs || []).map(c => [c.comercio, c]));
+
+    // Helper visual para diferenciar cada bodega por color/ícono
+    window.getMerchantWarehouseMeta = function(wh) {
+      if (!wh || !wh.name) {
+        return {
+          name: 'Sin asignar',
+          shortLabel: 'Sin asignar',
+          comuna: '',
+          address: '',
+          operating_days: '',
+          icon: 'ri-map-pin-add-line',
+          color: 'var(--color-text-muted)',
+          bg: 'transparent',
+          border: 'var(--color-border)',
+          dashed: true,
+          isAssigned: false
+        };
+      }
+      const n = String(wh.name).toLowerCase();
+      let color = '#0284c7';
+      let bg = 'rgba(2, 132, 199, 0.09)';
+      let border = 'rgba(2, 132, 199, 0.25)';
+      let icon = 'ri-building-2-line';
+
+      if (n.includes('ñuñoa') || n.includes('nunoa') || n.includes('matriz')) {
+        color = '#2563eb';
+        bg = 'rgba(37, 99, 235, 0.09)';
+        border = 'rgba(37, 99, 235, 0.24)';
+        icon = 'ri-building-4-line';
+      } else if (n.includes('reina')) {
+        color = '#059669';
+        bg = 'rgba(5, 150, 105, 0.09)';
+        border = 'rgba(5, 150, 105, 0.24)';
+        icon = 'ri-store-2-line';
+      } else if (n.includes('recoleta')) {
+        color = '#d97706';
+        bg = 'rgba(217, 119, 6, 0.10)';
+        border = 'rgba(217, 119, 6, 0.26)';
+        icon = 'ri-home-gear-line';
+      } else if (n.includes('central') || n.includes('hub')) {
+        color = '#7c3aed';
+        bg = 'rgba(124, 58, 237, 0.09)';
+        border = 'rgba(124, 58, 237, 0.24)';
+        icon = 'ri-community-line';
+      }
+
+      const cleanComuna = (wh.comuna && wh.comuna !== 'No especificada') ? wh.comuna : '';
+      const cleanAddress = (wh.address && wh.address !== 'No especificada') ? wh.address : '';
+      return {
+        id: wh.id,
+        name: wh.name,
+        shortLabel: wh.name,
+        comuna: cleanComuna,
+        address: cleanAddress,
+        operating_days: wh.operating_days || '',
+        icon,
+        color,
+        bg,
+        border,
+        dashed: false,
+        isAssigned: true
+      };
+    };
 
     // Pass 1: Map all basic parameters for all comercios
     const basicComercios = (rawComercios || []).map(c => {
@@ -94733,6 +95362,8 @@ async function renderMerchantsAdmin() {
             inactivado_at: extra.inactivado_at || extra?.onboarding_checklist?.inactivado_at || null,
             motivo_inactivacion: extra.motivo_inactivacion || extra?.onboarding_checklist?.motivo_inactivacion || ''
           };
+
+      const assignedWh = extra.default_warehouse_id ? (warehousesMap.get(extra.default_warehouse_id) || null) : null;
 
       // Usuarios asociados: filtramos perfiles de rol client donde el comercio incluya este nombre
       const associatedUsers = (profiles || []).filter(p => {
@@ -94774,6 +95405,11 @@ async function renderMerchantsAdmin() {
         picking_match_strict: extra.picking_match_strict || false,
         onboarding_checklist: extra.onboarding_checklist || {},
         default_warehouse_id: extra.default_warehouse_id || null,
+        warehouse: assignedWh,
+        warehouse_name: assignedWh?.name || '',
+        warehouse_comuna: (assignedWh?.comuna && assignedWh.comuna !== 'No especificada') ? assignedWh.comuna : '',
+        warehouse_address: (assignedWh?.address && assignedWh.address !== 'No especificada') ? assignedWh.address : '',
+        warehouse_operating_days: assignedWh?.operating_days || '',
         associatedUsers,
         integrations: assocIntegrations
       };
@@ -94831,6 +95467,9 @@ async function renderMerchantsAdmin() {
     if (!window.adminMerchantsStatusFilter) {
       window.adminMerchantsStatusFilter = 'activos';
     }
+    if (window.adminMerchantsWarehouseFilter === undefined) {
+      window.adminMerchantsWarehouseFilter = 'all';
+    }
 
     let migrationBannerHtml = '';
     if (isMigrationNeeded) {
@@ -94850,103 +95489,592 @@ async function renderMerchantsAdmin() {
       `;
     }
 
-    // Inyectar estilos para el toggle switch si no existen
-    if (!document.getElementById('merchant-module-styles')) {
-      const styles = document.createElement('style');
+    // Inyectar / actualizar estilos del módulo de comercios
+    let styles = document.getElementById('merchant-module-styles');
+    if (!styles) {
+      styles = document.createElement('style');
       styles.id = 'merchant-module-styles';
-      styles.textContent = `
-        .merchant-switch {
-          position: relative;
-          display: inline-block;
-          width: 42px;
-          height: 22px;
-          margin: 0;
-        }
-        .merchant-switch input {
-          opacity: 0;
-          width: 0;
-          height: 0;
-        }
-        .merchant-slider {
-          position: absolute;
-          cursor: pointer;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background-color: var(--color-border);
-          transition: .25s ease;
-          border-radius: 22px;
-        }
-        .merchant-slider:before {
-          position: absolute;
-          content: "";
-          height: 16px;
-          width: 16px;
-          left: 3px;
-          bottom: 3px;
-          background-color: var(--color-surface);
-          transition: .25s ease;
-          border-radius: 50%;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-        }
-        .merchant-switch input:checked + .merchant-slider {
-          background-color: var(--color-primary);
-        }
-        .merchant-switch input:checked + .merchant-slider:before {
-          transform: translateX(20px);
-        }
-        .merchant-switch input:disabled + .merchant-slider {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-        .badge-status {
-          padding: 0.25rem 0.5rem;
-          border-radius: 99px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          display: inline-flex;
-          align-items: center;
-          gap: 0.25rem;
-        }
-        .badge-status.active {
-          background: rgba(16, 185, 129, 0.1);
-          color: var(--color-success);
-        }
-        .badge-status.suspended {
-          background: rgba(239, 68, 68, 0.1);
-          color: var(--color-danger);
-        }
-        .badge-status.enabled {
-          background: rgba(59, 130, 246, 0.1);
-          color: var(--color-info);
-        }
-        .badge-status.disabled {
-          background: rgba(148, 163, 184, 0.1);
-          color: var(--color-text-muted);
-        }
-        .merchant-stat-card {
-          background: var(--color-surface);
-          border: 1px solid var(--color-border);
-          border-radius: var(--radius-md);
-          padding: 1.25rem;
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-          box-shadow: var(--shadow-sm);
-        }
-        .merchant-stat-icon {
-          width: 48px;
-          height: 48px;
-          border-radius: var(--radius-md);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 1.5rem;
-        }
-      `;
       document.head.appendChild(styles);
     }
+    styles.textContent = `
+      .merchant-switch {
+        position: relative;
+        display: inline-block;
+        width: 42px;
+        height: 22px;
+        margin: 0;
+      }
+      .merchant-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .merchant-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-color: var(--color-border);
+        transition: .25s ease;
+        border-radius: 22px;
+      }
+      .merchant-slider:before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 3px;
+        bottom: 3px;
+        background-color: var(--color-surface);
+        transition: .25s ease;
+        border-radius: 50%;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      }
+      .merchant-switch input:checked + .merchant-slider {
+        background-color: var(--color-primary);
+      }
+      .merchant-switch input:checked + .merchant-slider:before {
+        transform: translateX(20px);
+      }
+      .merchant-switch input:disabled + .merchant-slider {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .badge-status {
+        padding: 0.22rem 0.55rem;
+        border-radius: 99px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        white-space: nowrap;
+      }
+      .badge-status.active {
+        background: rgba(16, 185, 129, 0.12);
+        color: var(--color-success);
+      }
+      .badge-status.suspended {
+        background: rgba(239, 68, 68, 0.12);
+        color: var(--color-danger);
+      }
+      .badge-status.enabled {
+        background: rgba(59, 130, 246, 0.12);
+        color: var(--color-info);
+      }
+      .badge-status.disabled {
+        background: rgba(148, 163, 184, 0.14);
+        color: var(--color-text-muted);
+      }
+      .merchant-stat-card {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: 1.15rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: 0.95rem;
+        box-shadow: var(--shadow-sm);
+        transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .merchant-stat-card[onclick]:hover {
+        border-color: rgba(37, 99, 235, 0.35);
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-md);
+      }
+      .merchant-stat-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: var(--radius-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.35rem;
+        flex-shrink: 0;
+      }
+
+      /* Barra de filtro rápido por Bodega Asignada */
+      .merchants-wh-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        padding: 0.65rem 1.25rem;
+        background: var(--color-bg);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .merchants-wh-bar-pills {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+      }
+      .merchants-wh-bar-label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--color-text-muted);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        margin-right: 0.25rem;
+      }
+      .merchants-wh-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.38rem;
+        padding: 0.28rem 0.65rem;
+        border-radius: 99px;
+        border: 1px solid var(--color-border);
+        background: var(--color-surface);
+        color: var(--color-text-main);
+        font-size: 0.74rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        line-height: 1.2;
+      }
+      .merchants-wh-pill:hover {
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+      }
+      .merchants-wh-pill.active {
+        background: var(--color-primary);
+        border-color: var(--color-primary);
+        color: #ffffff;
+        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.22);
+      }
+      .merchants-wh-pill-count {
+        font-size: 0.68rem;
+        font-weight: 700;
+        padding: 0.05rem 0.42rem;
+        border-radius: 99px;
+        background: rgba(148, 163, 184, 0.18);
+        color: inherit;
+      }
+      .merchants-wh-pill.active .merchants-wh-pill-count {
+        background: rgba(255, 255, 255, 0.22);
+        color: #ffffff;
+      }
+      .merchants-result-meta {
+        font-size: 0.74rem;
+        color: var(--color-text-muted);
+        font-weight: 500;
+        white-space: nowrap;
+      }
+
+      /* Tabla rediseñada de comercios */
+      .merchants-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        overflow-y: auto;
+        max-height: calc(100vh - 280px);
+        padding-bottom: 12px !important;
+      }
+      .merchants-detail-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+      }
+      .merchants-detail-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        background: var(--color-bg);
+        color: var(--color-text-muted);
+        font-size: 0.69rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.045em;
+        padding: 0.68rem 0.65rem;
+        border-bottom: 1px solid var(--color-border);
+        white-space: nowrap;
+        text-align: left;
+      }
+      .merchants-detail-table tbody td {
+        padding: 0.68rem 0.65rem;
+        border-bottom: 1px solid var(--color-border);
+        vertical-align: middle;
+        font-size: 0.8rem;
+        background: var(--color-surface);
+        transition: background-color 0.15s ease;
+      }
+      .merchants-detail-table tbody tr:hover td {
+        background: var(--color-surface-hover);
+      }
+      .merchants-detail-table tbody tr.merchant-row-inactive td {
+        background: rgba(148, 163, 184, 0.04);
+      }
+      .merchants-detail-table tbody tr.merchant-row-inactive:hover td {
+        background: rgba(148, 163, 184, 0.09);
+      }
+      .merchants-detail-table th.m-col-actions,
+      .merchants-detail-table td.m-col-actions {
+        position: sticky;
+        right: 0;
+        z-index: 3;
+        box-shadow: -8px 0 14px -10px rgba(15, 23, 42, 0.14);
+        text-align: right;
+        white-space: nowrap;
+        padding-right: 0.9rem;
+      }
+      .merchants-detail-table thead th.m-col-actions {
+        z-index: 6;
+        background: var(--color-bg);
+      }
+
+      /* Celda: Comercio */
+      .m-store-head {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        line-height: 1.25;
+      }
+      .m-store-name {
+        font-weight: 700;
+        font-size: 0.84rem;
+        color: var(--color-text-main);
+        letter-spacing: -0.01em;
+      }
+      .m-sigla-tag {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.67rem;
+        font-weight: 700;
+        padding: 0.1rem 0.38rem;
+        border-radius: 4px;
+        background: rgba(37, 99, 235, 0.08);
+        color: var(--color-primary);
+        border: 1px solid rgba(37, 99, 235, 0.18);
+        letter-spacing: 0.03em;
+      }
+      .m-pos-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.14rem 0.45rem;
+        border-radius: 5px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.15s ease;
+        margin-top: 0.3rem;
+      }
+      .m-pos-chip.is-on {
+        background: rgba(37, 99, 235, 0.1);
+        color: var(--color-primary);
+        border: 1px solid rgba(37, 99, 235, 0.22);
+      }
+      .m-pos-chip.is-off {
+        background: rgba(148, 163, 184, 0.1);
+        color: var(--color-text-muted);
+        border: 1px solid transparent;
+      }
+      .m-pos-chip:hover {
+        filter: brightness(0.95);
+        transform: translateY(-0.5px);
+      }
+
+      /* Celda: Empresa / Datos Fiscales */
+      .m-company-name {
+        font-weight: 650;
+        font-size: 0.79rem;
+        color: var(--color-text-main);
+        line-height: 1.25;
+        max-width: 215px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .m-meta-line {
+        font-size: 0.71rem;
+        color: var(--color-text-muted);
+        margin-top: 0.18rem;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+        line-height: 1.25;
+      }
+      .m-opti-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        font-size: 0.67rem;
+        font-weight: 600;
+        color: #4f46e5;
+        background: rgba(79, 70, 229, 0.08);
+        padding: 0.08rem 0.38rem;
+        border-radius: 4px;
+        margin-top: 0.2rem;
+      }
+
+      /* Celda: Bodega Asignada */
+      .m-wh-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.26rem 0.55rem;
+        border-radius: 7px;
+        font-size: 0.74rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        max-width: 175px;
+        line-height: 1.2;
+      }
+      .m-wh-badge:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+      }
+      .m-wh-badge .m-wh-edit-ic {
+        opacity: 0.45;
+        font-size: 0.72rem;
+        margin-left: 0.1rem;
+        transition: opacity 0.15s ease;
+      }
+      .m-wh-badge:hover .m-wh-edit-ic {
+        opacity: 1;
+      }
+      .m-wh-sub {
+        font-size: 0.69rem;
+        color: var(--color-text-muted);
+        margin-top: 0.22rem;
+        max-width: 175px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+      }
+
+      /* Celda: KAM */
+      .m-kam-box {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.48rem;
+        min-width: 145px;
+      }
+      .m-kam-avatar {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: rgba(37, 99, 235, 0.11);
+        color: var(--color-primary);
+        font-size: 0.68rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .m-kam-name {
+        font-weight: 650;
+        font-size: 0.78rem;
+        color: var(--color-text-main);
+        line-height: 1.2;
+      }
+      .m-kam-sub {
+        font-size: 0.69rem;
+        color: var(--color-text-muted);
+        margin-top: 0.14rem;
+        display: flex;
+        align-items: center;
+        gap: 0.22rem;
+        white-space: nowrap;
+      }
+
+      /* Celda: Config. WMS (4 micro-pills ordenadas en grilla 2x2) */
+      .m-flags-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, max-content));
+        gap: 0.28rem;
+      }
+      .m-flag-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.22rem;
+        padding: 0.16rem 0.44rem;
+        border-radius: 5px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        white-space: nowrap;
+        border: 1px solid transparent;
+        line-height: 1.2;
+      }
+      .m-flag-pill.is-clickable {
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.15s ease;
+      }
+      .m-flag-pill.is-clickable:hover {
+        filter: brightness(0.94);
+        transform: translateY(-0.5px);
+      }
+      .m-flag-pill.tone-blue {
+        background: rgba(37, 99, 235, 0.1);
+        color: #2563eb;
+        border-color: rgba(37, 99, 235, 0.2);
+      }
+      .m-flag-pill.tone-green {
+        background: rgba(16, 185, 129, 0.11);
+        color: #059669;
+        border-color: rgba(16, 185, 129, 0.22);
+      }
+      .m-flag-pill.tone-purple {
+        background: rgba(124, 58, 237, 0.1);
+        color: #7c3aed;
+        border-color: rgba(124, 58, 237, 0.22);
+      }
+      .m-flag-pill.tone-red {
+        background: rgba(239, 68, 68, 0.1);
+        color: #dc2626;
+        border-color: rgba(239, 68, 68, 0.22);
+      }
+      .m-flag-pill.tone-muted {
+        background: rgba(148, 163, 184, 0.1);
+        color: var(--color-text-muted);
+        border-color: rgba(148, 163, 184, 0.16);
+      }
+
+      /* Celda: Accesos y Canales */
+      .m-resources-row {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        flex-wrap: nowrap;
+      }
+      .m-res-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.26rem 0.48rem;
+        border-radius: 6px;
+        border: 1px solid var(--color-border);
+        background: var(--color-surface);
+        color: var(--color-text-main);
+        font-size: 0.72rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+      }
+      .m-res-btn:hover {
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+        background: rgba(37, 99, 235, 0.05);
+      }
+      .m-res-btn .m-res-count {
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .m-res-btn.has-items {
+        border-color: rgba(37, 99, 235, 0.24);
+        background: rgba(37, 99, 235, 0.04);
+      }
+      .m-channels-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.22rem;
+        margin-top: 0.28rem;
+      }
+      .m-channel-chip {
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 0.08rem 0.36rem;
+        border-radius: 4px;
+        background: rgba(16, 185, 129, 0.1);
+        color: #059669;
+        border: 1px solid rgba(16, 185, 129, 0.2);
+        white-space: nowrap;
+      }
+
+      /* Celda: Acciones */
+      .m-actions-group {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.32rem;
+      }
+      .m-btn-edit {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.34rem 0.62rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border-radius: 6px;
+        border: none;
+        background: var(--color-primary);
+        color: #ffffff;
+        cursor: pointer;
+        transition: filter 0.15s ease, transform 0.15s ease;
+      }
+      .m-btn-edit:hover {
+        filter: brightness(1.06);
+        transform: translateY(-0.5px);
+      }
+      .m-btn-toggle-active {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.15s ease;
+      }
+      .m-btn-toggle-active.deactivate {
+        border: 1px solid rgba(239, 68, 68, 0.32);
+        color: var(--color-danger);
+        background: rgba(239, 68, 68, 0.05);
+      }
+      .m-btn-toggle-active.deactivate:hover {
+        background: rgba(239, 68, 68, 0.14);
+        border-color: var(--color-danger);
+      }
+      .m-btn-toggle-active.reactivate {
+        border: 1px solid rgba(16, 185, 129, 0.38);
+        color: var(--color-success);
+        background: rgba(16, 185, 129, 0.08);
+      }
+      .m-btn-toggle-active.reactivate:hover {
+        background: rgba(16, 185, 129, 0.18);
+        border-color: var(--color-success);
+      }
+
+      /* Dark mode adjustments */
+      [data-theme="dark"] .m-opti-tag,
+      html[data-theme="dark"] .m-opti-tag {
+        color: #a5b4fc;
+        background: rgba(99, 102, 241, 0.18);
+      }
+      [data-theme="dark"] .m-flag-pill.tone-blue,
+      html[data-theme="dark"] .m-flag-pill.tone-blue {
+        color: #60a5fa;
+      }
+      [data-theme="dark"] .m-flag-pill.tone-green,
+      html[data-theme="dark"] .m-flag-pill.tone-green,
+      [data-theme="dark"] .m-channel-chip,
+      html[data-theme="dark"] .m-channel-chip {
+        color: #34d399;
+      }
+      [data-theme="dark"] .m-flag-pill.tone-purple,
+      html[data-theme="dark"] .m-flag-pill.tone-purple {
+        color: #c084fc;
+      }
+      [data-theme="dark"] .m-flag-pill.tone-red,
+      html[data-theme="dark"] .m-flag-pill.tone-red {
+        color: #f87171;
+      }
+    `;
 
     const statsHtml = `
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 1.35rem;">
         <div class="merchant-stat-card" style="cursor: pointer;" onclick="window.setAdminMerchantsStatusFilter('activos')" title="Filtrar comercios activos">
           <div class="merchant-stat-icon" style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary);">
             <i class="ri-store-3-line"></i>
@@ -94990,133 +96118,277 @@ async function renderMerchantsAdmin() {
     window.cachedAdminMerchants = comercios;
     window.isMerchantMigrationNeeded = isMigrationNeeded;
 
+    const getStatusFilteredBaseList = () => {
+      const statusFilter = window.adminMerchantsStatusFilter || 'activos';
+      return comercios.filter(c => {
+        if (statusFilter === 'activos' && c.activo === false) return false;
+        if (statusFilter === 'inactivos' && c.activo !== false) return false;
+        return true;
+      });
+    };
+
+    const getFilteredMerchantsList = () => {
+      const searchEl = document.getElementById('merchant-search-input');
+      const query = (searchEl?.value || '').toLowerCase().trim();
+      const whFilter = window.adminMerchantsWarehouseFilter || 'all';
+
+      return getStatusFilteredBaseList().filter(c => {
+        if (whFilter === '__unassigned__') {
+          if (c.default_warehouse_id) return false;
+        } else if (whFilter !== 'all') {
+          if (c.default_warehouse_id !== whFilter) return false;
+        }
+        if (!query) return true;
+        const optiProv = (c.optiroute_proveedor || '').toLowerCase();
+        return (
+          c.nombre.toLowerCase().includes(query) ||
+          c.sigla.toLowerCase().includes(query) ||
+          (c.razon_social && c.razon_social.toLowerCase().includes(query)) ||
+          (c.rut && c.rut.toLowerCase().includes(query)) ||
+          (c.kam_nombre && c.kam_nombre.toLowerCase().includes(query)) ||
+          (c.kam_email && c.kam_email.toLowerCase().includes(query)) ||
+          (c.warehouse_name && c.warehouse_name.toLowerCase().includes(query)) ||
+          (c.warehouse_comuna && c.warehouse_comuna.toLowerCase().includes(query)) ||
+          (optiProv && optiProv.includes(query))
+        );
+      });
+    };
+
+    const renderWarehouseFilterBar = () => {
+      const baseList = getStatusFilteredBaseList();
+      const filteredCount = getFilteredMerchantsList().length;
+      const curWh = window.adminMerchantsWarehouseFilter || 'all';
+
+      const countsByWh = new Map();
+      let unassignedCount = 0;
+      baseList.forEach(c => {
+        if (c.default_warehouse_id) {
+          countsByWh.set(c.default_warehouse_id, (countsByWh.get(c.default_warehouse_id) || 0) + 1);
+        } else {
+          unassignedCount++;
+        }
+      });
+
+      const whPills = allWarehouses.map(wh => {
+        const count = countsByWh.get(wh.id) || 0;
+        const meta = window.getMerchantWarehouseMeta(wh);
+        const isActive = curWh === wh.id;
+        return `
+          <button type="button" class="merchants-wh-pill ${isActive ? 'active' : ''}" onclick="window.setAdminMerchantsWarehouseFilter('${wh.id}')" title="Filtrar comercios en ${window.escapeHtml(wh.name)}${meta.comuna ? ' (' + window.escapeHtml(meta.comuna) + ')' : ''}">
+            <i class="${meta.icon}" style="${isActive ? 'color: #ffffff;' : `color: ${meta.color};`}"></i>
+            <span>${window.escapeHtml(wh.name)}</span>
+            <span class="merchants-wh-pill-count">${count}</span>
+          </button>
+        `;
+      }).join('');
+
+      return `
+        <div class="merchants-wh-bar-pills">
+          <span class="merchants-wh-bar-label"><i class="ri-building-2-line"></i> Bodega:</span>
+          <button type="button" class="merchants-wh-pill ${curWh === 'all' ? 'active' : ''}" onclick="window.setAdminMerchantsWarehouseFilter('all')">
+            <span>Todas</span>
+            <span class="merchants-wh-pill-count">${baseList.length}</span>
+          </button>
+          ${whPills}
+          <button type="button" class="merchants-wh-pill ${curWh === '__unassigned__' ? 'active' : ''}" onclick="window.setAdminMerchantsWarehouseFilter('__unassigned__')" title="Comercios sin bodega explícita (usan Bodega Central por defecto)">
+            <i class="ri-map-pin-add-line" style="${curWh === '__unassigned__' ? 'color: #ffffff;' : 'color: var(--color-text-muted);'}"></i>
+            <span>Sin asignar</span>
+            <span class="merchants-wh-pill-count">${unassignedCount}</span>
+          </button>
+        </div>
+        <div class="merchants-result-meta">
+          Mostrando <strong>${filteredCount}</strong> de ${baseList.length} comercios
+        </div>
+      `;
+    };
+
     const renderTableRows = (list) => {
       if (list.length === 0) {
-        return `<tr><td colspan="14" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios para este filtro.</td></tr>`;
+        return `<tr><td colspan="9" class="text-center" style="padding: 2.5rem 1.5rem; color: var(--color-text-muted);">
+          <i class="ri-store-3-line" style="font-size: 1.75rem; display: block; margin-bottom: 0.4rem; opacity: 0.5;"></i>
+          No se encontraron comercios para este filtro.
+        </td></tr>`;
       }
       
       return list.map(c => {
         const isMerchantActive = c.activo !== false;
+        const safeNameAttr = c.nombre.replace(/'/g, "\\'");
+        const safeIdSuffix = c.nombre.replace(/[^a-zA-Z0-9]/g, '-');
         const inactDateStr = c.inactivado_at ? new Date(c.inactivado_at).toLocaleDateString('es-CL') : '';
         const inactiveMerchantBadge = !isMerchantActive
           ? `<div style="margin-top: 0.25rem;">
                <span class="badge-status disabled" style="background: rgba(100, 116, 139, 0.15); color: #475569; border: 1px solid rgba(100, 116, 139, 0.3);" title="${window.escapeHtml(c.motivo_inactivacion ? 'Motivo: ' + c.motivo_inactivacion : 'Comercio desactivado')}">
                  <i class="ri-shut-down-line"></i> Desactivado${inactDateStr ? ` (${inactDateStr})` : ''}
                </span>
-               ${c.motivo_inactivacion ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.15rem; max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${window.escapeHtml(c.motivo_inactivacion)}">Motivo: ${window.escapeHtml(c.motivo_inactivacion)}</div>` : ''}
+               ${c.motivo_inactivacion ? `<div style="font-size: 0.67rem; color: var(--color-text-muted); margin-top: 0.15rem; max-width: 175px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${window.escapeHtml(c.motivo_inactivacion)}">Motivo: ${window.escapeHtml(c.motivo_inactivacion)}</div>` : ''}
              </div>`
           : '';
 
-        const billingBadge = !isMerchantActive
-          ? `<span class="badge-status disabled" title="No participa en nuevos periodos de facturación"><i class="ri-forbid-line"></i> Baja / Inactivo</span>`
-          : (c.al_dia 
-              ? `<span class="badge-status active"><i class="ri-checkbox-circle-line"></i> Activo</span>`
-              : `<span class="badge-status suspended"><i class="ri-close-circle-line"></i> Suspendido</span>`);
-        
-        const invBadge = c.inventario_seguimiento
-          ? `<span class="badge-status enabled"><i class="ri-check-line"></i> Activo</span>`
-          : `<span class="badge-status disabled">Inactivo</span>`;
-          
-        const siglaBadge = c.pedido_trae_sigla
-          ? `<span class="badge-status enabled" style="background: rgba(94, 23, 235, 0.1); color: var(--color-accent);"><i class="ri-key-line"></i> Sí</span>`
-          : `<span class="badge-status disabled">No</span>`;
-
-        const strictBadge = c.picking_match_strict
-          ? `<span class="badge-status enabled" style="background: rgba(239, 68, 68, 0.1); color: var(--color-danger);"><i class="ri-lock-line"></i> Estricto</span>`
-          : `<span class="badge-status disabled">Normal</span>`;
-
-        const ob = c.onboarding_checklist || {};
-        const isOnboardingActive = isMerchantActive && ((ob.enabled !== undefined) ? !!ob.enabled : (!ob.dismissed));
-        const onboardingBadge = isOnboardingActive
-          ? `<span class="badge-status active" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantOnboardingQuick('${c.nombre.replace(/'/g, "\\'")}', false)" title="Clic para desactivar Guía de Inicio en este comercio"><i class="ri-rocket-line"></i> Activo</span>`
-          : `<span class="badge-status disabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantOnboardingQuick('${c.nombre.replace(/'/g, "\\'")}', true)" title="Clic para activar Guía de Inicio en este comercio"><i class="ri-forbid-line"></i> Inactivo</span>`;
-
-        const optiProv = c.optiroute_proveedor || (typeof window.getOptirouteProveedorForComercio === 'function' ? window.getOptirouteProveedorForComercio(c.nombre) : '');
-        const companyInfo = (c.razon_social || c.rut || c.email_colaborador || c.enviame_id || optiProv)
-          ? `<div>
-               <strong style="color: var(--color-text-main); font-size: 0.85rem;">${c.razon_social || 'N/A'}</strong>
-               <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">${c.rut || 'Sin RUT'}</div>
-               ${c.email_colaborador ? `<div style="font-size: 0.7rem; color: var(--color-primary); margin-top: 0.15rem; word-break: break-all;"><i class="ri-mail-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>${c.email_colaborador}</div>` : ''}
-               ${c.enviame_id ? `<div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-barcode-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>ID Enviame: ${c.enviame_id}</div>` : ''}
-               ${optiProv ? `<div style="font-size: 0.7rem; color: #4f46e5; margin-top: 0.15rem; font-weight: 600;"><i class="ri-truck-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>Optiroute: ${optiProv}</div>` : ''}
-             </div>`
-          : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.8rem;">No enlazado</span>`;
-
-        const kamInfo = c.kam_nombre 
-          ? `<div>
-               <strong style="color: var(--color-text-main); font-size: 0.85rem;"><i class="ri-user-star-line" style="color: var(--color-primary); margin-right: 0.2rem;"></i>${c.kam_nombre}</strong>
-               ${c.kam_email ? `<div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-mail-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>${c.kam_email}</div>` : ''}
-               ${c.kam_telefono ? `<div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-phone-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>${c.kam_telefono}</div>` : ''}
-             </div>`
-          : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.8rem;">Sin KAM</span>`;
-
-        // Generar lista corta de integraciones activas
-        const activeIntList = c.integrations.filter(i => i.is_active).map(i => i.platform);
-        const intDisplay = activeIntList.length > 0 
-          ? activeIntList.join(', ')
-          : '<span style="color: var(--color-text-muted); font-style: italic;">Ninguna activa</span>';
-
+        // 1. POS pill (en columna Comercio)
         const isPosActive = isMerchantActive && c.onboarding_checklist?.pos_active === true;
         const posMachine = c.onboarding_checklist?.pos_machine;
         const activePosPayments = (typeof window.getMerchantActivePosPaymentMethods === 'function')
           ? window.getMerchantActivePosPaymentMethods(c.onboarding_checklist)
           : ['Tarjeta de Débito', 'Tarjeta de Crédito', 'Efectivo', 'Transferencia'];
         const machineDesc = (isPosActive && (posMachine?.brand || posMachine?.model))
-          ? `<span title="Máquina de pago POS asignada" style="font-size: 0.7rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;"><i class="ri-bank-card-line" style="color: var(--color-primary);"></i> ${window.escapeHtml(posMachine.brand || '')}${posMachine.color ? ` (${window.escapeHtml(posMachine.color)})` : ''}${posMachine.model ? ` <strong style="font-family: monospace; color: var(--color-primary);">#${window.escapeHtml(posMachine.model)}</strong>` : ''}</span>`
+          ? `<span title="Máquina de pago POS asignada" style="font-size: 0.67rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;"><i class="ri-bank-card-line" style="color: var(--color-primary);"></i> ${window.escapeHtml(posMachine.brand || '')}${posMachine.color ? ` (${window.escapeHtml(posMachine.color)})` : ''}${posMachine.model ? ` <strong style="font-family: monospace; color: var(--color-primary);">#${window.escapeHtml(posMachine.model)}</strong>` : ''}</span>`
           : '';
         const paymentsDesc = (isPosActive && activePosPayments.length < 4)
-          ? `<span title="Medios de pago habilitados: ${activePosPayments.join(', ')}" style="font-size: 0.68rem; color: #2563eb; display: block; margin-top: 0.1rem; font-weight: 600;"><i class="ri-shield-check-line"></i> Pagos: ${activePosPayments.map(m => m.replace('Tarjeta de ', 'T. ')).join(', ')}</span>`
+          ? `<span title="Medios de pago habilitados: ${activePosPayments.join(', ')}" style="font-size: 0.66rem; color: #2563eb; display: block; margin-top: 0.1rem; font-weight: 600;"><i class="ri-shield-check-line"></i> ${activePosPayments.map(m => m.replace('Tarjeta de ', 'T. ')).join(', ')}</span>`
           : '';
-        const posPill = isPosActive 
-          ? `<div><span class="badge-status enabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantPosQuick('${c.nombre.replace(/'/g, "\\'")}', false)" title="Clic para desactivar Punto de Venta en este comercio"><i class="ri-store-3-line"></i> POS Activo</span>${machineDesc}${paymentsDesc}</div>`
-          : `<div><span class="badge-status disabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantPosQuick('${c.nombre.replace(/'/g, "\\'")}', true)" title="Clic para activar Punto de Venta en este comercio"><i class="ri-forbid-line"></i> Sin POS</span></div>`;
+        const posPill = isPosActive
+          ? `<div><span class="m-pos-chip is-on" onclick="window.toggleMerchantPosQuick('${safeNameAttr}', false)" title="Clic para desactivar Punto de Venta en este comercio"><i class="ri-store-3-line"></i> POS Activo</span>${machineDesc}${paymentsDesc}</div>`
+          : `<div><span class="m-pos-chip is-off" onclick="window.toggleMerchantPosQuick('${safeNameAttr}', true)" title="Clic para activar Punto de Venta en este comercio"><i class="ri-forbid-line"></i> Sin POS</span></div>`;
 
-        const safeNameAttr = c.nombre.replace(/'/g, "\\'");
+        // 2. Empresa / Datos Fiscales
+        const optiProv = c.optiroute_proveedor || (typeof window.getOptirouteProveedorForComercio === 'function' ? window.getOptirouteProveedorForComercio(c.nombre) : '');
+        const companyInfo = (c.razon_social || c.rut || c.email_colaborador || c.enviame_id || optiProv)
+          ? `<div>
+               <div class="m-company-name" title="${window.escapeHtml(c.razon_social || 'Sin razón social')}">${window.escapeHtml(c.razon_social || 'Sin Razón Social')}</div>
+               <div class="m-meta-line">
+                 <span style="font-variant-numeric: tabular-nums;">${window.escapeHtml(c.rut || 'Sin RUT')}</span>
+                 ${c.enviame_id ? `<span title="ID Enviame" style="opacity: 0.85;">· <i class="ri-barcode-line"></i> ${window.escapeHtml(c.enviame_id)}</span>` : ''}
+               </div>
+               ${c.email_colaborador ? `<div class="m-meta-line" style="color: var(--color-primary); max-width: 210px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;" title="${window.escapeHtml(c.email_colaborador)}"><i class="ri-mail-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>${window.escapeHtml(c.email_colaborador)}</div>` : ''}
+               ${optiProv ? `<div><span class="m-opti-tag" title="Proveedor Optiroute asignado"><i class="ri-truck-line"></i> ${window.escapeHtml(optiProv)}</span></div>` : ''}
+             </div>`
+          : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.76rem;">No enlazado</span>`;
+
+        // 3. Bodega Asignada
+        const whMeta = window.getMerchantWarehouseMeta(c.warehouse);
+        const whTooltipParts = whMeta.isAssigned
+          ? [
+              `Bodega: ${whMeta.name}`,
+              whMeta.comuna ? `Comuna: ${whMeta.comuna}` : '',
+              whMeta.address ? `Dirección: ${whMeta.address}` : '',
+              whMeta.operating_days ? `Horario: ${whMeta.operating_days}` : '',
+              'Clic para cambiar bodega asignada'
+            ].filter(Boolean).join(' • ')
+          : 'Sin bodega específica asignada (usa Bodega Central por defecto) • Clic para asignar bodega';
+
+        const whSubLine = whMeta.isAssigned
+          ? ([whMeta.comuna, whMeta.address].filter(Boolean).join(' · ') || 'Bodega operativa')
+          : 'Usa Bodega Central';
+
+        const warehouseCellHtml = `
+          <div>
+            <button type="button" class="m-wh-badge" onclick="window.openQuickAssignWarehouseModal('${safeNameAttr}')" title="${window.escapeHtml(whTooltipParts)}" style="color: ${whMeta.color}; background: ${whMeta.bg}; border: 1px ${whMeta.dashed ? 'dashed' : 'solid'} ${whMeta.border};">
+              <i class="${whMeta.icon}"></i>
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${window.escapeHtml(whMeta.name)}</span>
+              <i class="ri-pencil-line m-wh-edit-ic"></i>
+            </button>
+            <span class="m-wh-sub" title="${window.escapeHtml(whSubLine)}">${window.escapeHtml(whSubLine)}</span>
+          </div>
+        `;
+
+        // 4. Ejecutivo (KAM)
+        const kamInitials = c.kam_nombre
+          ? c.kam_nombre.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0].toUpperCase()).join('')
+          : '';
+        const kamInfo = c.kam_nombre
+          ? `<div class="m-kam-box">
+               <div class="m-kam-avatar" title="Ejecutivo de Cuenta: ${window.escapeHtml(c.kam_nombre)}">${window.escapeHtml(kamInitials)}</div>
+               <div style="min-width: 0;">
+                 <div class="m-kam-name">${window.escapeHtml(c.kam_nombre)}</div>
+                 ${c.kam_email ? `<div class="m-kam-sub" title="${window.escapeHtml(c.kam_email)}"><i class="ri-mail-line"></i><span style="overflow: hidden; text-overflow: ellipsis; max-width: 130px; display: inline-block;">${window.escapeHtml(c.kam_email)}</span></div>` : ''}
+                 ${c.kam_telefono ? `<div class="m-kam-sub"><i class="ri-phone-line"></i>${window.escapeHtml(c.kam_telefono)}</div>` : ''}
+               </div>
+             </div>`
+          : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.76rem;">Sin KAM</span>`;
+
+        // 5. Facturación
+        const billingBadge = !isMerchantActive
+          ? `<span class="badge-status disabled" title="No participa en nuevos periodos de facturación"><i class="ri-forbid-line"></i> Baja</span>`
+          : (c.al_dia
+              ? `<span class="badge-status active" title="Facturación al día"><i class="ri-checkbox-circle-line"></i> Al día</span>`
+              : `<span class="badge-status suspended" title="Facturación suspendida"><i class="ri-close-circle-line"></i> Suspendido</span>`);
+
+        // 6. Config. WMS (4 micro-pills agrupadas)
+        const ob = c.onboarding_checklist || {};
+        const isOnboardingActive = isMerchantActive && ((ob.enabled !== undefined) ? !!ob.enabled : (!ob.dismissed));
+
+        const invMicro = c.inventario_seguimiento
+          ? `<span class="m-flag-pill tone-blue" title="Seguimiento de Inventario: Activo"><i class="ri-check-line"></i> Inv: Sí</span>`
+          : `<span class="m-flag-pill tone-muted" title="Seguimiento de Inventario: Inactivo"><i class="ri-subtract-line"></i> Inv: No</span>`;
+
+        const obMicro = isOnboardingActive
+          ? `<span class="m-flag-pill tone-green is-clickable" onclick="window.toggleMerchantOnboardingQuick('${safeNameAttr}', false)" title="Guía Onboarding: Activa (clic para desactivar)"><i class="ri-rocket-line"></i> Guía: Sí</span>`
+          : `<span class="m-flag-pill tone-muted is-clickable" onclick="window.toggleMerchantOnboardingQuick('${safeNameAttr}', true)" title="Guía Onboarding: Inactiva (clic para activar)"><i class="ri-forbid-line"></i> Guía: No</span>`;
+
+        const siglaMicro = c.pedido_trae_sigla
+          ? `<span class="m-flag-pill tone-purple" title="Pedido trae Sigla de origen: Sí"><i class="ri-key-line"></i> Sigla: Sí</span>`
+          : `<span class="m-flag-pill tone-muted" title="Pedido trae Sigla de origen: No"><i class="ri-key-line"></i> Sigla: No</span>`;
+
+        const strictMicro = c.picking_match_strict
+          ? `<span class="m-flag-pill tone-red" title="Lectura Estricta en Picker: Obligatoria"><i class="ri-lock-line"></i> Estricto</span>`
+          : `<span class="m-flag-pill tone-muted" title="Lectura en Picker: Normal"><i class="ri-lock-unlock-line"></i> Normal</span>`;
+
+        const wmsFlagsHtml = `
+          <div class="m-flags-grid">
+            ${invMicro}
+            ${obMicro}
+            ${siglaMicro}
+            ${strictMicro}
+          </div>
+        `;
+
+        // 7. Accesos y Canales (Contactos + Usuarios + Integraciones compactos)
+        const activeIntList = c.integrations.filter(i => i.is_active).map(i => i.platform);
+        const channelsHtml = activeIntList.length > 0
+          ? `<div class="m-channels-list">${activeIntList.map(p => `<span class="m-channel-chip">${window.escapeHtml(p)}</span>`).join('')}</div>`
+          : `<div style="font-size: 0.68rem; color: var(--color-text-muted); font-style: italic; margin-top: 0.25rem;">Sin canales activos</div>`;
+
+        const resourcesCellHtml = `
+          <div>
+            <div class="m-resources-row">
+              <button type="button" id="btn-contacts-${safeIdSuffix}" class="m-res-btn ${c.billingContacts.length > 0 ? 'has-items' : ''}" onclick="window.showMerchantBillingContactsModal('${safeNameAttr}')" title="${c.billingContacts.length} contacto(s) de facturación — Clic para gestionar">
+                <i class="ri-contacts-book-line"></i>
+                <span class="m-res-count">${c.billingContacts.length}</span>
+              </button>
+              <button type="button" class="m-res-btn ${c.associatedUsers.length > 0 ? 'has-items' : ''}" onclick="window.showMerchantUsersModal('${safeNameAttr}')" title="${c.associatedUsers.length} usuario(s) asociados — Clic para ver">
+                <i class="ri-team-line"></i>
+                <span class="m-res-count">${c.associatedUsers.length}</span>
+              </button>
+              <button type="button" class="m-res-btn ${c.integrations.length > 0 ? 'has-items' : ''}" onclick="window.showMerchantIntegrationsModal('${safeNameAttr}')" title="${c.integrations.length} integración(es) configuradas — Clic para gestionar">
+                <i class="ri-plug-line"></i>
+                <span class="m-res-count">${c.integrations.length}</span>
+              </button>
+            </div>
+            ${channelsHtml}
+          </div>
+        `;
+
+        // 8. Acciones (siempre visibles, compactas y sticky a la derecha)
         const toggleActiveBtn = isMerchantActive
-          ? `<button class="btn btn-outline btn-sm" onclick="window.openToggleMerchantActiveModal('${safeNameAttr}', false)" style="font-size: 0.78rem; padding: 0.35rem 0.6rem; border-color: rgba(239, 68, 68, 0.35); color: var(--color-danger); background: rgba(239, 68, 68, 0.04); font-weight: 600; cursor: pointer;" title="Desactivar comercio (detener pedidos, facturación futura y comunicados)">
-               <i class="ri-shut-down-line"></i> Desactivar
+          ? `<button type="button" class="m-btn-toggle-active deactivate" onclick="window.openToggleMerchantActiveModal('${safeNameAttr}', false)" title="Desactivar comercio (detener pedidos, facturación futura y comunicados)">
+               <i class="ri-shut-down-line"></i>
              </button>`
-          : `<button class="btn btn-outline btn-sm" onclick="window.openToggleMerchantActiveModal('${safeNameAttr}', true)" style="font-size: 0.78rem; padding: 0.35rem 0.6rem; border-color: rgba(16, 185, 129, 0.4); color: var(--color-success); background: rgba(16, 185, 129, 0.06); font-weight: 600; cursor: pointer;" title="Reactivar comercio en el WMS">
-               <i class="ri-restart-line"></i> Reactivar
+          : `<button type="button" class="m-btn-toggle-active reactivate" onclick="window.openToggleMerchantActiveModal('${safeNameAttr}', true)" title="Reactivar comercio en el WMS">
+               <i class="ri-restart-line"></i>
              </button>`;
 
         return `
-          <tr style="${!isMerchantActive ? 'opacity: 0.78; background: rgba(148, 163, 184, 0.04);' : ''}">
-            <td style="text-align: center;">
-              <input type="checkbox" class="merchant-select-checkbox" value="${c.nombre}" onchange="window.updateMerchantSelectionBar()" style="cursor: pointer; width: 16px; height: 16px;">
+          <tr class="${!isMerchantActive ? 'merchant-row-inactive' : ''}">
+            <td style="text-align: center; width: 38px;">
+              <input type="checkbox" class="merchant-select-checkbox" value="${window.escapeHtml(c.nombre)}" onchange="window.updateMerchantSelectionBar()" style="cursor: pointer; width: 15px; height: 15px;">
             </td>
-            <td>
-              <strong style="${!isMerchantActive ? 'text-decoration: line-through; color: var(--color-text-muted);' : ''}">${c.nombre}</strong>
+            <td style="min-width: 170px;">
+              <div class="m-store-head">
+                <span class="m-store-name" style="${!isMerchantActive ? 'text-decoration: line-through; color: var(--color-text-muted);' : ''}">${window.escapeHtml(c.nombre)}</span>
+                <span class="m-sigla-tag" title="Sigla de órdenes">${window.escapeHtml(c.sigla)}</span>
+              </div>
               ${inactiveMerchantBadge}
-              <div style="margin-top: 0.2rem;">${posPill}</div>
+              ${posPill}
             </td>
-            <td>${companyInfo}</td>
-            <td><code style="background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: 600;">${c.sigla}</code></td>
-            <td>${kamInfo}</td>
-            <td>${billingBadge}</td>
-            <td>${invBadge}</td>
-            <td>${onboardingBadge}</td>
-            <td>${siglaBadge}</td>
-            <td>${strictBadge}</td>
-            <td>
-              <button id="btn-contacts-${c.nombre.replace(/[^a-zA-Z0-9]/g, '-')}" class="btn btn-outline btn-sm" onclick="window.showMerchantBillingContactsModal('${safeNameAttr}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-                <i class="ri-contacts-book-line"></i> ${c.billingContacts.length} Contactos
-              </button>
-            </td>
-            <td>
-              <button class="btn btn-outline btn-sm" onclick="window.showMerchantUsersModal('${safeNameAttr}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-                <i class="ri-team-line"></i> ${c.associatedUsers.length} Usuarios
-              </button>
-            </td>
-            <td>
-              <button class="btn btn-outline btn-sm" onclick="window.showMerchantIntegrationsModal('${safeNameAttr}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-                <i class="ri-plug-line"></i> ${c.integrations.length} Integraciones
-              </button>
-              <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">${intDisplay}</div>
-            </td>
-            <td>
-              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: nowrap;">
-                <button class="btn btn-primary btn-sm" onclick="window.showMerchantEditModal('${safeNameAttr}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; background: var(--color-primary); color: #ffffff; font-weight: 600; border: none; cursor: pointer;">
+            <td style="min-width: 185px;">${companyInfo}</td>
+            <td style="min-width: 160px;">${warehouseCellHtml}</td>
+            <td style="min-width: 155px;">${kamInfo}</td>
+            <td style="width: 105px;">${billingBadge}</td>
+            <td style="min-width: 155px;">${wmsFlagsHtml}</td>
+            <td style="min-width: 160px;">${resourcesCellHtml}</td>
+            <td class="m-col-actions" style="width: 112px;">
+              <div class="m-actions-group">
+                <button type="button" class="m-btn-edit" onclick="window.showMerchantEditModal('${safeNameAttr}')" title="Configurar comercio">
                   <i class="ri-edit-line"></i> Editar
                 </button>
                 ${toggleActiveBtn}
@@ -95127,25 +96399,20 @@ async function renderMerchantsAdmin() {
       }).join('');
     };
 
-    const getFilteredMerchantsList = () => {
-      const searchEl = document.getElementById('merchant-search-input');
-      const query = (searchEl?.value || '').toLowerCase().trim();
-      const statusFilter = window.adminMerchantsStatusFilter || 'activos';
-
-      return comercios.filter(c => {
-        if (statusFilter === 'activos' && c.activo === false) return false;
-        if (statusFilter === 'inactivos' && c.activo !== false) return false;
-        if (!query) return true;
-        return (
-          c.nombre.toLowerCase().includes(query) ||
-          c.sigla.toLowerCase().includes(query) ||
-          (c.razon_social && c.razon_social.toLowerCase().includes(query)) ||
-          (c.rut && c.rut.toLowerCase().includes(query)) ||
-          (c.kam_nombre && c.kam_nombre.toLowerCase().includes(query)) ||
-          (c.kam_email && c.kam_email.toLowerCase().includes(query))
-        );
-      });
+    const refreshMerchantsTableUI = () => {
+      const tbody = document.getElementById('merchant-table-body');
+      if (tbody) {
+        tbody.innerHTML = renderTableRows(getFilteredMerchantsList());
+      }
+      const whBar = document.getElementById('merchants-warehouse-filter-bar');
+      if (whBar) {
+        whBar.innerHTML = renderWarehouseFilterBar();
+      }
+      if (typeof window.updateMerchantSelectionBar === 'function') {
+        window.updateMerchantSelectionBar();
+      }
     };
+    window.refreshMerchantsTableUI = refreshMerchantsTableUI;
 
     window.setAdminMerchantsStatusFilter = function(newFilter) {
       window.adminMerchantsStatusFilter = newFilter || 'activos';
@@ -95157,10 +96424,12 @@ async function renderMerchantsAdmin() {
         btn.style.color = isCurrent ? '#ffffff' : 'var(--color-text-muted)';
         btn.style.fontWeight = isCurrent ? '700' : '600';
       });
-      const tbody = document.getElementById('merchant-table-body');
-      if (tbody) {
-        tbody.innerHTML = renderTableRows(getFilteredMerchantsList());
-      }
+      refreshMerchantsTableUI();
+    };
+
+    window.setAdminMerchantsWarehouseFilter = function(whId) {
+      window.adminMerchantsWarehouseFilter = whId || 'all';
+      refreshMerchantsTableUI();
     };
 
     const curFilter = window.adminMerchantsStatusFilter || 'activos';
@@ -95176,96 +96445,100 @@ async function renderMerchantsAdmin() {
           <span id="merchants-bulk-count">0 comercios seleccionados</span>
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <button class="btn btn-sm" onclick="window.bulkToggleMerchantOnboarding(true)" style="background: #ffffff; color: var(--color-primary); font-weight: 700; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 4px;">
-            <i class="ri-rocket-line"></i> Activar Onboarding Masivo
+          <button class="btn btn-sm" onclick="window.openBulkAssignWarehouseModalFromTable()" style="background: #ffffff; color: var(--color-primary); font-weight: 700; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.83rem; padding: 0.4rem 0.85rem; border-radius: 5px;">
+            <i class="ri-building-2-line"></i> Asignar Bodega Masivo
           </button>
-          <button class="btn btn-sm" onclick="window.bulkToggleMerchantOnboarding(false)" style="background: rgba(255,255,255,0.2); color: #ffffff; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 4px;">
+          <button class="btn btn-sm" onclick="window.bulkToggleMerchantOnboarding(true)" style="background: rgba(255,255,255,0.2); color: #ffffff; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.83rem; padding: 0.4rem 0.85rem; border-radius: 5px;">
+            <i class="ri-rocket-line"></i> Activar Onboarding
+          </button>
+          <button class="btn btn-sm" onclick="window.bulkToggleMerchantOnboarding(false)" style="background: rgba(255,255,255,0.2); color: #ffffff; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.83rem; padding: 0.4rem 0.85rem; border-radius: 5px;">
             <i class="ri-forbid-line"></i> Desactivar Onboarding
           </button>
-          <button class="btn btn-sm" onclick="window.openBulkAssignKamModalFromTable()" style="background: rgba(255,255,255,0.2); color: #ffffff; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 4px;">
+          <button class="btn btn-sm" onclick="window.openBulkAssignKamModalFromTable()" style="background: rgba(255,255,255,0.2); color: #ffffff; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.83rem; padding: 0.4rem 0.85rem; border-radius: 5px;">
             <i class="ri-user-star-line"></i> Asignar KAM Masivo
           </button>
-          <button class="btn btn-sm" onclick="window.clearMerchantSelection()" style="background: rgba(255,255,255,0.15); color: #ffffff; font-size: 0.85rem; border: none; cursor: pointer; padding: 0.4rem 0.75rem; border-radius: 4px;">
+          <button class="btn btn-sm" onclick="window.clearMerchantSelection()" style="background: rgba(255,255,255,0.14); color: #ffffff; font-size: 0.83rem; border: none; cursor: pointer; padding: 0.4rem 0.75rem; border-radius: 5px;">
             Desmarcar Todos
           </button>
         </div>
       </div>
 
-      <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-bottom: 2rem;">
-        <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-          <div>
-            <h3 style="margin: 0; font-size: 1.2rem;">Configuración de Comercios</h3>
-            <p style="color: var(--color-text-muted); font-size: 0.85rem; margin-top: 0.25rem; font-weight: normal; max-width: 650px;">
-              Administra la parametrización del WMS para cada cliente, incluyendo el ejecutivo de cuentas (KAM), estado de facturación, seguimiento de inventarios y siglas de órdenes.
+      <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; overflow: hidden;">
+        <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.1rem 1.35rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.85rem;">
+          <div style="flex: 1 1 300px; min-width: 240px;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">Configuración de Comercios</h3>
+            <p style="color: var(--color-text-muted); font-size: 0.8rem; margin: 0.2rem 0 0 0; font-weight: normal; max-width: 520px;">
+              Administra bodega asignada, ejecutivo (KAM), facturación, configuración WMS y canales activos.
             </p>
           </div>
-          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
             <!-- Selector de Estado Operativo (Activos / Inactivos / Todos) -->
-            <div id="merchant-status-filter-group" style="display: inline-flex; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 2px; gap: 2px;">
-              <button type="button" id="btn-merchant-filter-activos" onclick="window.setAdminMerchantsStatusFilter('activos')" style="border: none; border-radius: 4px; padding: 0.35rem 0.65rem; font-size: 0.78rem; cursor: pointer; transition: all 0.15s; background: ${curFilter === 'activos' ? 'var(--color-primary)' : 'transparent'}; color: ${curFilter === 'activos' ? '#ffffff' : 'var(--color-text-muted)'}; font-weight: ${curFilter === 'activos' ? '700' : '600'};">
+            <div id="merchant-status-filter-group" style="display: inline-flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 7px; padding: 2px; gap: 2px;">
+              <button type="button" id="btn-merchant-filter-activos" onclick="window.setAdminMerchantsStatusFilter('activos')" style="border: none; border-radius: 5px; padding: 0.34rem 0.62rem; font-size: 0.76rem; cursor: pointer; transition: all 0.15s; background: ${curFilter === 'activos' ? 'var(--color-primary)' : 'transparent'}; color: ${curFilter === 'activos' ? '#ffffff' : 'var(--color-text-muted)'}; font-weight: ${curFilter === 'activos' ? '700' : '600'};">
                 Activos (${activeMerchantsCount})
               </button>
-              <button type="button" id="btn-merchant-filter-inactivos" onclick="window.setAdminMerchantsStatusFilter('inactivos')" style="border: none; border-radius: 4px; padding: 0.35rem 0.65rem; font-size: 0.78rem; cursor: pointer; transition: all 0.15s; background: ${curFilter === 'inactivos' ? 'var(--color-primary)' : 'transparent'}; color: ${curFilter === 'inactivos' ? '#ffffff' : 'var(--color-text-muted)'}; font-weight: ${curFilter === 'inactivos' ? '700' : '600'};">
+              <button type="button" id="btn-merchant-filter-inactivos" onclick="window.setAdminMerchantsStatusFilter('inactivos')" style="border: none; border-radius: 5px; padding: 0.34rem 0.62rem; font-size: 0.76rem; cursor: pointer; transition: all 0.15s; background: ${curFilter === 'inactivos' ? 'var(--color-primary)' : 'transparent'}; color: ${curFilter === 'inactivos' ? '#ffffff' : 'var(--color-text-muted)'}; font-weight: ${curFilter === 'inactivos' ? '700' : '600'};">
                 Desactivados (${inactiveMerchantsCount})
               </button>
-              <button type="button" id="btn-merchant-filter-todos" onclick="window.setAdminMerchantsStatusFilter('todos')" style="border: none; border-radius: 4px; padding: 0.35rem 0.65rem; font-size: 0.78rem; cursor: pointer; transition: all 0.15s; background: ${curFilter === 'todos' ? 'var(--color-primary)' : 'transparent'}; color: ${curFilter === 'todos' ? '#ffffff' : 'var(--color-text-muted)'}; font-weight: ${curFilter === 'todos' ? '700' : '600'};">
+              <button type="button" id="btn-merchant-filter-todos" onclick="window.setAdminMerchantsStatusFilter('todos')" style="border: none; border-radius: 5px; padding: 0.34rem 0.62rem; font-size: 0.76rem; cursor: pointer; transition: all 0.15s; background: ${curFilter === 'todos' ? 'var(--color-primary)' : 'transparent'}; color: ${curFilter === 'todos' ? '#ffffff' : 'var(--color-text-muted)'}; font-weight: ${curFilter === 'todos' ? '700' : '600'};">
                 Todos (${totalComercios})
               </button>
             </div>
-            <button class="btn btn-primary" onclick="window.showMerchantCreateModal()" style="background-color: var(--color-primary); color: #ffffff; font-weight: 600; height: 36px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border: none; cursor: pointer; padding: 0 0.75rem; border-radius: 4px;">
+            <button class="btn btn-primary" onclick="window.showMerchantCreateModal()" style="background-color: var(--color-primary); color: #ffffff; font-weight: 600; height: 35px; display: inline-flex; align-items: center; gap: 0.28rem; font-size: 0.8rem; border: none; cursor: pointer; padding: 0 0.75rem; border-radius: 6px; white-space: nowrap;">
               <i class="ri-add-line"></i> Crear Comercio
             </button>
-            <div style="position: relative; width: 220px;" id="merchant-search-wrapper">
-              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
-              <input type="text" id="merchant-search-input" class="form-input" placeholder="Buscar comercio, sigla o KAM..." style="padding-left: 2.25rem; margin: 0; font-size: 0.85rem; height: 36px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%;">
+            <div style="position: relative; width: 255px;" id="merchant-search-wrapper">
+              <i class="ri-search-line" style="position: absolute; left: 0.68rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.86rem;"></i>
+              <input type="text" id="merchant-search-input" class="form-input" placeholder="Buscar comercio, sigla, bodega o KAM..." style="padding-left: 2.1rem; margin: 0; font-size: 0.78rem; height: 35px; border: 1px solid var(--color-border); border-radius: 6px; width: 100%;">
             </div>
           </div>
         </div>
         
         <!-- Navigation Tabs -->
-        <div style="display: flex; background: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 0.5rem 1.5rem 0 1.5rem; gap: 1rem; flex-wrap: wrap;">
-          <button id="tab-btn-merchants" class="btn-tab-merchant" onclick="window.switchMerchantTab('merchants')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-primary); border-bottom: 2px solid var(--color-primary); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
+        <div style="display: flex; background: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 0.25rem 1.35rem 0 1.35rem; gap: 0.75rem; flex-wrap: wrap;">
+          <button id="tab-btn-merchants" class="btn-tab-merchant" onclick="window.switchMerchantTab('merchants')" style="background: none; border: none; padding: 0.72rem 0.85rem; cursor: pointer; color: var(--color-primary); border-bottom: 2px solid var(--color-primary); font-weight: 600; font-size: 0.86rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
             <i class="ri-store-3-line"></i> Tiendas / Comercios
           </button>
-          <button id="tab-btn-kams" class="btn-tab-merchant" onclick="window.switchMerchantTab('kams')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
+          <button id="tab-btn-kams" class="btn-tab-merchant" onclick="window.switchMerchantTab('kams')" style="background: none; border: none; padding: 0.72rem 0.85rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.86rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
             <i class="ri-user-star-line"></i> Ejecutivos de Cuenta (KAM)
           </button>
-          <button id="tab-btn-holdings" class="btn-tab-merchant" onclick="window.switchMerchantTab('holdings')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
+          <button id="tab-btn-holdings" class="btn-tab-merchant" onclick="window.switchMerchantTab('holdings')" style="background: none; border: none; padding: 0.72rem 0.85rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.86rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
             <i class="ri-building-line"></i> Holdings / Conglomerados
           </button>
-          <button id="tab-btn-contracts" class="btn-tab-merchant" onclick="window.switchMerchantTab('contracts')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
+          <button id="tab-btn-contracts" class="btn-tab-merchant" onclick="window.switchMerchantTab('contracts')" style="background: none; border: none; padding: 0.72rem 0.85rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.86rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
             <i class="ri-file-shield-2-line"></i> Contratos y Documentos Firmados
           </button>
         </div>
 
         <div class="card-body" style="padding: 0;">
           <!-- Tab 1: Comercios List -->
-          <div id="tab-content-merchants" class="table-responsive" style="overflow-x: auto; display: block;">
-            <table class="data-table" style="width: 100%;">
-              <thead>
-                <tr>
-                  <th style="width: 36px; text-align: center;">
-                    <input type="checkbox" id="merchant-select-all" onclick="window.toggleSelectAllMerchants(this)" style="cursor: pointer; width: 16px; height: 16px;" title="Seleccionar todos los comercios">
-                  </th>
-                  <th>Comercio</th>
-                  <th>Razón Social / RUT</th>
-                  <th>Sigla</th>
-                  <th>Ejecutivo (KAM)</th>
-                  <th>Estado Facturación</th>
-                  <th>Seguimiento Inventario</th>
-                  <th>Guía Onboarding</th>
-                  <th>Pedido trae Sigla</th>
-                  <th>Lectura Estricta</th>
-                  <th>Contactos</th>
-                  <th>Usuarios Asociados</th>
-                  <th>Integraciones</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="merchant-table-body">
-                ${renderTableRows(getFilteredMerchantsList())}
-              </tbody>
-            </table>
+          <div id="tab-content-merchants" style="display: block;">
+            <!-- Barra de distribución y filtro rápido por Bodega Asignada -->
+            <div id="merchants-warehouse-filter-bar" class="merchants-wh-bar">
+              ${renderWarehouseFilterBar()}
+            </div>
+            <div class="merchants-table-wrap">
+              <table class="merchants-detail-table">
+                <thead>
+                  <tr>
+                    <th style="width: 38px; text-align: center;">
+                      <input type="checkbox" id="merchant-select-all" onclick="window.toggleSelectAllMerchants(this)" style="cursor: pointer; width: 15px; height: 15px;" title="Seleccionar todos los comercios">
+                    </th>
+                    <th>Comercio</th>
+                    <th>Empresa / Datos Fiscales</th>
+                    <th>Bodega Asignada</th>
+                    <th>Ejecutivo (KAM)</th>
+                    <th>Facturación</th>
+                    <th>Config. WMS</th>
+                    <th>Accesos y Canales</th>
+                    <th class="m-col-actions">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="merchant-table-body">
+                  ${renderTableRows(getFilteredMerchantsList())}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <!-- Tab 2: KAMs List -->
@@ -95288,10 +96561,9 @@ async function renderMerchantsAdmin() {
 
     // Configurar listener para buscador
     const searchInput = document.getElementById('merchant-search-input');
-    const tableBody = document.getElementById('merchant-table-body');
-    if (searchInput && tableBody) {
+    if (searchInput) {
       searchInput.addEventListener('input', () => {
-        tableBody.innerHTML = renderTableRows(getFilteredMerchantsList());
+        refreshMerchantsTableUI();
       });
     }
 
@@ -95566,6 +96838,297 @@ window.openBulkAssignKamModalFromTable = function() {
     return;
   }
   window.showBulkAssignKamModal(selectedNames);
+};
+
+// Asignación Rápida de Bodega por Comercio (1 clic desde la tabla)
+window.openQuickAssignWarehouseModal = async function(comercioName) {
+  const commerce = (window.cachedAdminMerchants || []).find(c => c.nombre === comercioName);
+  if (!commerce) return;
+
+  let warehouses = Array.isArray(window.cachedAdminWarehouses) ? window.cachedAdminWarehouses : [];
+  if (warehouses.length === 0) {
+    try {
+      const { data } = await supabase
+        .from('warehouses')
+        .select('id, name, address, comuna, operating_days')
+        .order('name', { ascending: true });
+      warehouses = data || [];
+      window.cachedAdminWarehouses = warehouses;
+    } catch (e) {
+      console.warn('Error cargando bodegas para asignación rápida:', e);
+    }
+  }
+
+  const modalId = 'modal-quick-assign-warehouse';
+  const existing = document.getElementById(modalId);
+  if (existing) existing.remove();
+
+  const currentWhId = commerce.default_warehouse_id || '';
+  const optionsHtml = [
+    {
+      id: '',
+      name: 'Sin asignar (Usar Bodega Central por defecto)',
+      comuna: '',
+      address: 'Se resolverá automáticamente hacia Bodega Central',
+      operating_days: '',
+      isNone: true
+    },
+    ...warehouses
+  ].map(wh => {
+    const isSelected = wh.id === currentWhId;
+    const meta = wh.isNone ? window.getMerchantWarehouseMeta(null) : window.getMerchantWarehouseMeta(wh);
+    const subParts = wh.isNone
+      ? [wh.address]
+      : [meta.comuna, meta.address, meta.operating_days].filter(Boolean);
+    return `
+      <label class="quick-wh-option" style="display: flex; align-items: flex-start; gap: 0.7rem; padding: 0.72rem 0.85rem; border-radius: 8px; border: 1.5px solid ${isSelected ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${isSelected ? 'rgba(37, 99, 235, 0.06)' : 'var(--color-surface)'}; cursor: pointer; transition: all 0.15s ease;">
+        <input type="radio" name="quick-wh-radio" value="${window.escapeHtml(wh.id)}" ${isSelected ? 'checked' : ''} style="margin-top: 3px; cursor: pointer; accent-color: var(--color-primary);">
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">
+            <i class="${meta.icon}" style="color: ${meta.color}; font-size: 1rem;"></i>
+            <span>${window.escapeHtml(wh.name)}</span>
+          </div>
+          ${subParts.length > 0 ? `<div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.35;">${window.escapeHtml(subParts.join(' · '))}</div>` : ''}
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  const modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 480px; width: 92%;">
+      <form id="form-quick-assign-warehouse" style="margin: 0;">
+        <div class="modal-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border);">
+          <div>
+            <h3 style="margin: 0; font-size: 1.02rem; display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-building-2-line" style="color: var(--color-primary);"></i> Bodega Asignada
+            </h3>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.76rem; color: var(--color-text-muted);">
+              Comercio: <strong style="color: var(--color-text-main);">${window.escapeHtml(commerce.nombre)}</strong> (${window.escapeHtml(commerce.sigla)})
+            </p>
+          </div>
+          <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 1.1rem 1.25rem; display: flex; flex-direction: column; gap: 0.55rem; max-height: 60vh; overflow-y: auto;">
+          ${optionsHtml}
+        </div>
+        <div class="modal-footer" style="padding: 0.9rem 1.25rem; background: var(--color-bg); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
+          <button type="submit" id="btn-save-quick-wh" class="btn btn-primary btn-sm" style="background: var(--color-primary); color: #ffffff; border: none; font-weight: 600; padding: 0.42rem 0.95rem;">
+            <i class="ri-save-3-line"></i> Guardar Bodega
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // Highlight selected option live
+  modal.querySelectorAll('input[name="quick-wh-radio"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      modal.querySelectorAll('.quick-wh-option').forEach(lbl => {
+        const checked = lbl.querySelector('input')?.checked;
+        lbl.style.borderColor = checked ? 'var(--color-primary)' : 'var(--color-border)';
+        lbl.style.background = checked ? 'rgba(37, 99, 235, 0.06)' : 'var(--color-surface)';
+      });
+    });
+  });
+
+  document.getElementById('form-quick-assign-warehouse').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-save-quick-wh');
+    const selectedVal = modal.querySelector('input[name="quick-wh-radio"]:checked')?.value || null;
+    const newWhId = selectedVal || null;
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i> Guardando...';
+
+    try {
+      const { error } = await supabase
+        .from('comercios_adicional_config')
+        .upsert({
+          comercio: commerce.nombre,
+          comercio_id: commerce.id || null,
+          default_warehouse_id: newWhId
+        }, { onConflict: 'comercio' });
+
+      if (error) throw error;
+
+      const whObj = newWhId ? (warehouses.find(w => w.id === newWhId) || null) : null;
+      commerce.default_warehouse_id = newWhId;
+      commerce.warehouse = whObj;
+      commerce.warehouse_name = whObj?.name || '';
+      commerce.warehouse_comuna = (whObj?.comuna && whObj.comuna !== 'No especificada') ? whObj.comuna : '';
+      commerce.warehouse_address = (whObj?.address && whObj.address !== 'No especificada') ? whObj.address : '';
+      commerce.warehouse_operating_days = whObj?.operating_days || '';
+
+      if (window.loadedCommerceConfigsMap && window.loadedCommerceConfigsMap[commerce.nombre]) {
+        window.loadedCommerceConfigsMap[commerce.nombre].default_warehouse_id = newWhId;
+      }
+
+      modal.remove();
+      if (typeof window.refreshMerchantsTableUI === 'function') {
+        window.refreshMerchantsTableUI();
+      } else if (typeof renderMerchantsAdmin === 'function') {
+        renderMerchantsAdmin();
+      }
+
+      if (window.Swal) {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: whObj ? `Bodega "${whObj.name}" asignada a ${commerce.nombre}` : `Bodega limpiada para ${commerce.nombre}`,
+          showConfirmButton: false,
+          timer: 2600
+        });
+      }
+    } catch (err) {
+      console.error('Error al asignar bodega rápida:', err);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-save-3-line"></i> Guardar Bodega';
+      if (window.Swal) Swal.fire('Error', 'No se pudo actualizar la bodega: ' + err.message, 'error');
+      else alert('Error al actualizar la bodega: ' + err.message);
+    }
+  });
+};
+
+// Asignación Masiva de Bodega desde la Tabla Principal de Comercios
+window.openBulkAssignWarehouseModalFromTable = async function() {
+  const checkedNodes = document.querySelectorAll('.merchant-select-checkbox:checked');
+  const selectedNames = Array.from(checkedNodes).map(cb => cb.value);
+  if (selectedNames.length === 0) {
+    if (window.Swal) Swal.fire('Atención', 'Por favor selecciona al menos un comercio.', 'warning');
+    else alert('Por favor selecciona al menos un comercio.');
+    return;
+  }
+
+  let warehouses = Array.isArray(window.cachedAdminWarehouses) ? window.cachedAdminWarehouses : [];
+  if (warehouses.length === 0) {
+    const { data } = await supabase
+      .from('warehouses')
+      .select('id, name, address, comuna, operating_days')
+      .order('name', { ascending: true });
+    warehouses = data || [];
+    window.cachedAdminWarehouses = warehouses;
+  }
+
+  const modalId = 'modal-bulk-assign-warehouse';
+  const existing = document.getElementById(modalId);
+  if (existing) existing.remove();
+
+  const merchantChips = selectedNames.map(name =>
+    `<span style="background: var(--color-surface-hover); border: 1px solid var(--color-border); padding: 0.18rem 0.5rem; border-radius: 4px; font-size: 0.74rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-line" style="color: var(--color-primary);"></i> ${window.escapeHtml(name)}</span>`
+  ).join(' ');
+
+  const modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 520px; width: 92%;">
+      <form id="form-bulk-assign-warehouse" style="margin: 0;">
+        <div class="modal-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border);">
+          <h3 style="margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-building-2-line" style="color: var(--color-primary);"></i> Asignar Bodega Masivo
+          </h3>
+          <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 1.2rem 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          <div style="background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.2); padding: 0.75rem 0.9rem; border-radius: var(--radius-sm);">
+            <strong style="color: var(--color-primary); font-size: 0.82rem; display: block; margin-bottom: 0.35rem;">
+              Comercios Seleccionados (${selectedNames.length}):
+            </strong>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.32rem; max-height: 110px; overflow-y: auto;">
+              ${merchantChips}
+            </div>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Bodega por Defecto a Asignar</label>
+            <select id="bulk-warehouse-selector" class="form-input" style="width: 100%; box-sizing: border-box;">
+              <option value="">Sin asignar (Usar Bodega Central por defecto)</option>
+              ${warehouses.map(w => `<option value="${w.id}">${window.escapeHtml(w.name)}${w.comuna && w.comuna !== 'No especificada' ? ' — ' + window.escapeHtml(w.comuna) : ''}</option>`).join('')}
+            </select>
+            <p style="font-size: 0.74rem; color: var(--color-text-muted); margin: 0.3rem 0 0 0;">Define la bodega asignada inicialmente a las órdenes de los comercios seleccionados.</p>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 0.95rem 1.25rem; background: var(--color-bg); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
+          <button type="submit" id="btn-save-bulk-warehouse" class="btn btn-primary btn-sm" style="background: var(--color-primary); color: #ffffff; border: none; font-weight: 600; padding: 0.42rem 0.95rem;">
+            <i class="ri-save-3-line"></i> Aplicar a ${selectedNames.length} comercio(s)
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  document.getElementById('form-bulk-assign-warehouse').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-save-bulk-warehouse');
+    const newWhId = document.getElementById('bulk-warehouse-selector')?.value || null;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i> Asignando...';
+
+    try {
+      const upserts = selectedNames.map(name => {
+        const c = (window.cachedAdminMerchants || []).find(m => m.nombre === name) || {};
+        return {
+          comercio: name,
+          comercio_id: c.id || null,
+          default_warehouse_id: newWhId
+        };
+      });
+
+      const { error } = await supabase
+        .from('comercios_adicional_config')
+        .upsert(upserts, { onConflict: 'comercio' });
+
+      if (error) throw error;
+
+      const whObj = newWhId ? (warehouses.find(w => w.id === newWhId) || null) : null;
+      selectedNames.forEach(name => {
+        const c = (window.cachedAdminMerchants || []).find(m => m.nombre === name);
+        if (c) {
+          c.default_warehouse_id = newWhId;
+          c.warehouse = whObj;
+          c.warehouse_name = whObj?.name || '';
+          c.warehouse_comuna = (whObj?.comuna && whObj.comuna !== 'No especificada') ? whObj.comuna : '';
+          c.warehouse_address = (whObj?.address && whObj.address !== 'No especificada') ? whObj.address : '';
+          c.warehouse_operating_days = whObj?.operating_days || '';
+        }
+        if (window.loadedCommerceConfigsMap && window.loadedCommerceConfigsMap[name]) {
+          window.loadedCommerceConfigsMap[name].default_warehouse_id = newWhId;
+        }
+      });
+
+      modal.remove();
+      window.clearMerchantSelection();
+      if (typeof window.refreshMerchantsTableUI === 'function') {
+        window.refreshMerchantsTableUI();
+      } else if (typeof renderMerchantsAdmin === 'function') {
+        renderMerchantsAdmin();
+      }
+
+      if (window.Swal) {
+        Swal.fire({
+          title: '¡Bodega Asignada!',
+          text: whObj
+            ? `Se asignó "${whObj.name}" a ${selectedNames.length} comercio(s).`
+            : `Se restableció la bodega por defecto para ${selectedNames.length} comercio(s).`,
+          icon: 'success'
+        });
+      }
+    } catch (err) {
+      console.error('Error en asignación masiva de bodega:', err);
+      btn.disabled = false;
+      btn.innerHTML = `<i class="ri-save-3-line"></i> Aplicar a ${selectedNames.length} comercio(s)`;
+      if (window.Swal) Swal.fire('Error', 'No se pudo completar la asignación: ' + err.message, 'error');
+      else alert('Error: ' + err.message);
+    }
+  });
 };
 
 // Funciones de Selección Masiva en Pestaña KAMs
@@ -98008,7 +99571,10 @@ window.updateMerchantTableRow = function(comercioName) {
   const idSafe = comercioName.replace(/[^a-zA-Z0-9]/g, '-');
   const btn = document.getElementById(`btn-contacts-${idSafe}`);
   if (btn) {
-    btn.innerHTML = `<i class="ri-contacts-book-line"></i> ${commerce.billingContacts.length} Contactos`;
+    const count = (commerce.billingContacts || []).length;
+    btn.classList.toggle('has-items', count > 0);
+    btn.title = `${count} contacto(s) de facturación — Clic para gestionar`;
+    btn.innerHTML = `<i class="ri-contacts-book-line"></i><span class="m-res-count">${count}</span>`;
   }
 };
 
@@ -98506,6 +100072,15 @@ window.showMerchantCreateModal = function() {
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Los comercios suspendidos verán un banner de advertencia y no podrán procesar pedidos.</p>
           </div>
 
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;"><i class="ri-building-2-line" style="color: var(--color-primary); margin-right: 0.2rem;"></i> Bodega Asignada (Por Defecto)</label>
+            <select id="merchant-create-default-warehouse" class="form-input" style="width: 100%; box-sizing: border-box;">
+              <option value="">Sin asignar (Usar Bodega Central)</option>
+              ${(window.cachedAdminWarehouses || []).map(wh => `<option value="${wh.id}">${window.escapeHtml(wh.name)}${wh.comuna && wh.comuna !== 'No especificada' ? ' — ' + window.escapeHtml(wh.comuna) : ''}</option>`).join('')}
+            </select>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Bodega asignada inicialmente a las órdenes de este cliente.</p>
+          </div>
+
           <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.25rem 0;">
 
           <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
@@ -98985,6 +100560,7 @@ window.showMerchantCreateModal = function() {
           optiroute_proveedor: optirouteProveedor,
           email_colaborador: emailColaborador || null,
           enviame_id: enviameId || null,
+          default_warehouse_id: document.getElementById('merchant-create-default-warehouse')?.value || null,
           picking_match_strict: document.getElementById('merchant-create-picking-strict')?.checked || false,
           onboarding_checklist: {
             enabled: document.getElementById('merchant-create-onboarding-active')?.checked !== false,
@@ -99086,8 +100662,9 @@ window.showMerchantEditModal = async function(comercioName) {
 
   let allWhs = [];
   try {
-    const { data: whList } = await supabase.from('warehouses').select('id, name').order('name');
+    const { data: whList } = await supabase.from('warehouses').select('id, name, address, comuna, operating_days').order('name');
     allWhs = whList || [];
+    if (allWhs.length > 0) window.cachedAdminWarehouses = allWhs;
   } catch (err) {
     console.error('Error fetching warehouses:', err);
   }
@@ -100681,6 +102258,13 @@ window.showMerchantEditModal = async function(comercioName) {
         commerce.inventario_seguimiento = newInventory;
         commerce.onboarding_checklist = updatedChecklist;
         commerce.optiroute_proveedor = newOptirouteProveedor;
+        commerce.default_warehouse_id = newDefaultWh || null;
+        const updatedWhObj = newDefaultWh ? ((allWhs || window.cachedAdminWarehouses || []).find(w => w.id === newDefaultWh) || null) : null;
+        commerce.warehouse = updatedWhObj;
+        commerce.warehouse_name = updatedWhObj?.name || '';
+        commerce.warehouse_comuna = (updatedWhObj?.comuna && updatedWhObj.comuna !== 'No especificada') ? updatedWhObj.comuna : '';
+        commerce.warehouse_address = (updatedWhObj?.address && updatedWhObj.address !== 'No especificada') ? updatedWhObj.address : '';
+        commerce.warehouse_operating_days = updatedWhObj?.operating_days || '';
         if (typeof window !== 'undefined') {
           if (!window.optirouteMerchantsConfigMap) window.optirouteMerchantsConfigMap = {};
           window.optirouteMerchantsConfigMap[commerce.nombre.toUpperCase()] = newOptirouteProveedor;
@@ -148060,7 +149644,11 @@ setTimeout(() => {
         } catch (err) {
           console.warn('Aviso obteniendo sigla:', err);
         }
-        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+        const nowFallback = new Date();
+        const yyFb = String(nowFallback.getFullYear()).slice(-2);
+        const mmFb = String(nowFallback.getMonth() + 1).padStart(2, '0');
+        const ddFb = String(nowFallback.getDate()).padStart(2, '0');
+        const randomSuffix = `${yyFb}${mmFb}${ddFb}${Math.floor(1000 + Math.random() * 9000)}`;
         finalOrderNumber = siglaComercio ? `${siglaComercio}#MANUAL-${randomSuffix}` : `#MANUAL-${randomSuffix}`;
       }
     } else if (typeof window.checkManualOrderNumberAvailability === 'function') {
